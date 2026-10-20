@@ -403,8 +403,29 @@ Butler's war profiteer made flesh. Nothing you do can hurt him; spears just stic
 ("TOO BIG TO FAIL."). Every bonk on the planet is profit to him: 25 shiny rocks per knockout and
 100 per new age. His sign keeps the total, and a heap of gold coins grows at his feet.
 
+**He dresses for the times.** Each age he twirls into the war profiteer of that era:
+
+| Age | Outfit | Carries | Hat (once he can afford one) |
+| --- | --- | --- | --- |
+| Stone | Leopard-pelt suit with a necktie | A ledger carved in stone | Fur hat |
+| Bendy Stick | Lincoln-green tunic | Coin pouch | Feathered cap |
+| Shiny Rock | Toga with a purple sash, bare legs | Scroll | Gold laurel wreath |
+| Boom Stick | Redcoat, cravat, powdered wig | Treasure chest | Tricorn |
+| Bang Bang | Dark three-piece suit, red tie | Briefcase | Top hat |
+| Zap | White tech suit, glowing tie | Glowing tablet | Light visor |
+
+Forever Stone stays in the Stone Age, so there he's always in the pelt suit. Co-op moves him
+through the ages with the waves. When the world starts ending he gears up for it: a **hard
+hat** for the falling rocks, a **gas mask** when the mountain blows, a **swim ring** for the
+flood, **earmuffs and a scarf** for the big cold. He dies in it anyway. In co-op, when the
+tribe is wiped, he raises a glass of champagne.
+
+**He looks like you.** His skin is the skin you picked for your own caveman: it follows your
+pick live in the lobby, then your caveman's once you're playing. Everyone sees their own
+match, so nobody gets to picture the profiteer as somebody else.
+
 He gets fatter as the round goes on (with the ages in Do Time and co-op, and with every bonk),
-and picks up his trimmings as he swells: a gold watch chain, a top hat, a **monocle**, gold
+and picks up his trimmings as he swells: a gold watch chain, his hat, a **monocle**, gold
 **chains** with a medallion, a cigar, and money bags. At the very end his suit turns to gold
 and his eyes glow red. He turns to watch you and laughs. He gloats in a gold speech bubble
 when cavemen fall ("ME SELL SPEARS TO BOTH TRIBES."), cheers each new age, and the round-end
@@ -469,7 +490,8 @@ public/js/input.js   Keyboard and pointer-locked mouse (touch controls feed the 
 public/js/touch.js   Phone controls: thumbstick, buttons, drag-to-aim, tilt aiming
 public/js/settings.js Player settings (sound, controls, screen) and the settings panel
 public/js/beasts.js  Killstreak beast models and animation: attack dogs, mammoth, T-Rex
-public/js/mammon.js  The Businessman: model, fattening stages, coin heap and profit sign
+public/js/mammon.js  The Businessman: model, outfits per age, disaster gear, fattening stages,
+                     coin heap and profit sign
 ```
 
 The client is authoritative over its own movement. The server owns projectiles, damage,

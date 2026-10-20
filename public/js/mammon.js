@@ -1,18 +1,39 @@
-// The Businessman: Mammon in a three-piece suit, standing on his podium of gold at the bottom of the
-// world, getting fatter on the war. fat (0..1) swells his belly and chins and, at MAMMON.stages,
-// adds a watch chain, top hat, monocle, gold chains, cigar, money bags and at the very end a suit
-// of solid gold. Coins pile up around the podium with his profit, shown on a sign over his head.
+// The Businessman: Mammon on his podium of gold at the bottom of the world, getting fatter on the
+// war. fat (0..1) swells his belly and chins and, at MAMMON.stages, adds a watch chain, a hat,
+// monocle, gold chains, cigar, money bags and at the very end a suit of solid gold. Coins pile up
+// around the podium with his profit, shown on a sign over his head.
+// He dresses for the times (setLook): the war profiteer through the ages, from a leopard-pelt suit
+// with a stone ledger to a glowing tech suit, and he gears up for whatever disaster is coming
+// (hard hat, gas mask, swim ring, earmuffs), not that it helps. His skin is whatever the person
+// watching has picked for their own caveman, so everyone sees him as one of their own.
 // The end of the world gets him too (die()): he keels over onto his back, legs in the air, his hat
 // flies off and his money bursts out of him all over the podium.
 import * as THREE from 'three';
-import { MAMMON, R } from '/shared/constants.js';
+import { MAMMON, R, SKINS } from '/shared/constants.js';
 import { mat, shadows } from './util.js';
+import { peltTexture } from './textures.js';
 
 const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 const ball = (r, seg = 10) => new THREE.SphereGeometry(r, seg, Math.max(6, seg - 3));
 const cyl = (top, bottom, h, seg = 10) => new THREE.CylinderGeometry(top, bottom, h, seg);
+const ring = (r, tube, arc = Math.PI * 2) => new THREE.TorusGeometry(r, tube, 6, 20, arc);
 
-const SUIT = '#2b2f3a', SUIT_DARK = '#1d2028', SKIN = '#f0c3a4', GOLD = '#e8b931', SHIRT = '#f4f1ea';
+const SUIT = '#2b2f3a', SUIT_DARK = '#1d2028', GOLD = '#e8b931', SHIRT = '#f4f1ea', TIE = '#b3202a';
+
+// What he wears in each age (ERAS ids). suit: jacket and sleeves ('pelt' = leopard pelt). legs:
+// trousers ('skin' = bare legs under a toga). shirt, tie: the front of him (null = none; 'cravat'
+// and 'glow' are their own kinds of tie). hat: what he puts on once he reaches the hat stage.
+// carry: what he holds until the money bags take over. sash, wig: extras for that age.
+const OUTFITS = {
+  stone:  { suit: 'pelt',    legs: '#5a4030', shirt: null,      tie: TIE,      hat: 'fur',     carry: 'tablet' },
+  bow:    { suit: '#3f5a2a', legs: '#4a3626', shirt: '#d9c9a0', tie: TIE,      hat: 'feather', carry: 'pouch' },
+  sword:  { suit: '#efe9dc', legs: 'skin',    shirt: null,      tie: null,     hat: 'laurel',  carry: 'scroll', sash: '#6b2d8f' },
+  musket: { suit: '#7a1a22', legs: '#efe6d0', shirt: null,      tie: 'cravat', hat: 'tricorn', carry: 'chest', wig: true },
+  gun:    { suit: SUIT,      legs: SUIT_DARK, shirt: SHIRT,     tie: TIE,      hat: 'tophat',  carry: 'briefcase' },
+  laser:  { suit: '#e6e9ee', legs: '#c3c9d2', shirt: '#1b1e24', tie: 'glow',   hat: 'visor',   carry: 'pad' },
+};
+const GLOW = '#3ff0ff';
+const TWIRL = 0.7;   // seconds of spinning round when he changes clothes
 
 // his death: SHOCK s of jolting with his arms flung up, FALL s going over, then lying there
 const SHOCK = 0.4, FALL = 0.6;
@@ -44,26 +65,43 @@ export class Businessman {
     this.root = new THREE.Group();     // stands on the podium top, turns to face you
     this.fig = new THREE.Group();      // bobs and laughs
     this.root.add(this.fig);
-    // the suit has its own material so it can turn to gold at the end
-    this.suit = new THREE.MeshLambertMaterial({ color: SUIT, flatShading: true });
+    // everything he changes between ages has its own material (the suit also turns to gold at
+    // the end), so recoloring him never touches the shared, cached ones
+    const own = c => new THREE.MeshLambertMaterial({ color: c, flatShading: true });
+    this.suit = own(SUIT);
+    this.pants = own(SUIT_DARK);
+    this.shirt = own(SHIRT);
+    this.tieMat = own(TIE);
+    this.sashMat = own('#6b2d8f');
+    this.skin = own(SKINS[0]);
+    this.nose = own(SKINS[0]);
+    this.glow = new THREE.MeshBasicMaterial({ color: GLOW });
+    this.eyeMat = flat('#151515');
+    this.redEye = new THREE.MeshBasicMaterial({ color: '#ff2a1a' });
     this.fat = 0;
     this.shown = -1;
     this.laughT = -1;
+    this.twirlT = -1;
     this.t = 0;
     this.dead = false;
-    this.onLand = null;   // called when he hits the dais and the coins burst out
+    this.era = null;        // OUTFITS key he's dressed for
+    this.disaster = null;   // the disaster he's geared up for, while the world is ending
+    this.party = false;     // the tribe got wiped (co-op): champagne
+    this.onLand = null;     // called when he hits the dais and the coins burst out
     this.build();
     shadows(this.root, true, false);
     this.setFat(0);
+    this.setLook({ era: 'stone' });
   }
 
   build() {
     const f = this.fig;
     // legs and shoes
+    this.legMeshes = [];
     this.legs = [-1, 1].map(s => {
       const leg = new THREE.Group();
       leg.position.set(s * 0.17, 0, 0);
-      part(leg, cyl(0.12, 0.11, 0.95), flat(SUIT_DARK), 0, 0.5, 0);
+      this.legMeshes.push(part(leg, cyl(0.12, 0.11, 0.95), this.pants, 0, 0.5, 0));
       part(leg, box(0.2, 0.1, 0.34), flat('#0e0e10'), 0, 0.05, 0.06);
       f.add(leg);
       return leg;
@@ -72,10 +110,13 @@ export class Businessman {
     this.body = new THREE.Group();
     this.body.position.y = 1.35;
     f.add(this.body);
-    part(this.body, ball(0.42, 12), this.suit);
-    part(this.body, box(0.2, 0.62, 0.05), flat(SHIRT), 0, 0.08, 0.4);
-    part(this.body, box(0.08, 0.48, 0.04), flat('#b3202a'), 0, 0.08, 0.43);
+    this.suitMeshes = [part(this.body, ball(0.42, 12), this.suit)];
+    this.shirtMesh = part(this.body, box(0.2, 0.62, 0.05), this.shirt, 0, 0.08, 0.4);
+    this.tie = part(this.body, box(0.08, 0.48, 0.04), this.tieMat, 0, 0.08, 0.43);
     for (const y of [-0.12, -0.26]) part(this.body, ball(0.03, 6), shiny(GOLD), 0.13, y, 0.41);
+    // a toga's purple stripe, slung diagonally round the belly (Shiny Rock Age)
+    this.sash = part(this.body, ring(0.425, 0.04), this.sashMat);
+    this.sash.rotation.set(Math.PI / 2, 0.75, 0);
     // pocket-watch chain swinging across the belly
     this.watch = new THREE.Group();
     part(this.watch, new THREE.TorusGeometry(0.22, 0.012, 4, 16, Math.PI), shiny(GOLD), 0, -0.12, 0.4).rotation.z = Math.PI;
@@ -84,13 +125,36 @@ export class Businessman {
     // arms hang from the shoulders, which move out as he grows
     this.arms = [-1, 1].map(s => {
       const arm = new THREE.Group();
-      part(arm, cyl(0.09, 0.08, 0.7), this.suit, 0, -0.33, 0);
-      part(arm, ball(0.08, 8), flat(SKIN), 0, -0.72, 0.03);
+      this.suitMeshes.push(part(arm, cyl(0.09, 0.08, 0.7), this.suit, 0, -0.33, 0));
+      part(arm, ball(0.08, 8), this.skin, 0, -0.72, 0.03);
       f.add(arm);
       return arm;
     });
-    // the briefcase he starts with; the money bags he ends with
-    this.briefcase = part(this.arms[1], box(0.36, 0.26, 0.1), flat('#5a3a22'), 0, -0.88, 0.05);
+    // what he carries in each age (OUTFITS carry), until the money bags take over
+    const hand = this.arms[1];
+    const carry = this.carry = {};
+    const kit = (name, ...parts) => {
+      const g = new THREE.Group();
+      for (const [geo, material, x, y, z, rx = 0, rz = 0] of parts) Object.assign(part(g, geo, material, x, y, z).rotation, { x: rx, z: rz });
+      hand.add(g);
+      carry[name] = g;
+    };
+    // a ledger carved in stone, with its tally marks
+    kit('tablet', [box(0.3, 0.42, 0.07), flat('#8a8580'), 0, -0.9, 0.05],
+      ...[-0.06, 0, 0.06].map(x => [box(0.02, 0.2, 0.01), flat('#4a4642'), x, -0.9, 0.09]));
+    kit('pouch', [ball(0.15, 8), flat('#7a5230'), 0, -0.92, 0.05], [cyl(0.04, 0.07, 0.07, 8), flat('#5a3a22'), 0, -0.77, 0.05]);
+    kit('scroll', [cyl(0.06, 0.06, 0.42, 8), flat('#efe2bd'), 0, -0.86, 0.06, 0, Math.PI / 2],
+      ...[-1, 1].map(s => [cyl(0.03, 0.03, 0.06, 6), flat('#6b4423'), s * 0.24, -0.86, 0.06, 0, Math.PI / 2]));
+    kit('chest', [box(0.36, 0.24, 0.2), flat('#6b4423'), 0, -0.92, 0.06], [box(0.38, 0.04, 0.22), shiny(GOLD), 0, -0.86, 0.06]);
+    kit('briefcase', [box(0.36, 0.26, 0.1), flat('#5a3a22'), 0, -0.88, 0.05]);
+    kit('pad', [box(0.3, 0.22, 0.03), flat('#1b1e24'), 0, -0.86, 0.06], [box(0.26, 0.18, 0.01), this.glow, 0, -0.86, 0.078]);
+    // champagne, raised in the other hand when he's celebrating
+    this.flute = new THREE.Group();
+    part(this.flute, cyl(0.01, 0.01, 0.12, 5), shiny('#e8e8e8'), 0, 0.06, 0);
+    part(this.flute, cyl(0.05, 0.012, 0.14, 8), shiny('#f2d36b'), 0, 0.19, 0);
+    this.flute.position.set(0, -0.78, 0.06);
+    this.flute.rotation.x = 2.4;   // upright once the arm is raised for the toast
+    this.arms[0].add(this.flute);
     this.bags = new THREE.Group();
     for (const [x, z, s] of [[-0.75, 0.35, 1], [0.8, 0.25, 0.85], [0.55, -0.55, 0.7]]) {
       const bag = part(this.bags, ball(0.3 * s, 10), flat('#c9a46a'), x, 0.28 * s, z);
@@ -102,26 +166,86 @@ export class Businessman {
     // head: jowls, chins, mustache, grey fringe
     this.head = new THREE.Group();
     f.add(this.head);
-    part(this.head, ball(0.27, 12), flat(SKIN));
-    this.chin = part(this.head, ball(0.2, 10), flat(SKIN), 0, -0.2, 0.05);
-    part(this.head, box(0.07, 0.07, 0.07), flat('#e0a888'), 0, 0, 0.27);
+    part(this.head, ball(0.27, 12), this.skin);
+    this.chin = part(this.head, ball(0.2, 10), this.skin, 0, -0.2, 0.05);
+    part(this.head, box(0.07, 0.07, 0.07), this.nose, 0, 0, 0.27);
     part(this.head, box(0.22, 0.05, 0.05), flat('#6a6a6a'), 0, -0.07, 0.25);
+    this.fringe = new THREE.Group();
+    this.head.add(this.fringe);
     for (const s of [-1, 1]) {
-      this[s < 0 ? 'eyeL' : 'eyeR'] = part(this.head, box(0.05, 0.04, 0.02), flat('#151515'), s * 0.1, 0.07, 0.25);
-      part(this.head, box(0.07, 0.12, 0.18), flat('#9a9a9a'), s * 0.25, 0.04, -0.02);
+      this[s < 0 ? 'eyeL' : 'eyeR'] = part(this.head, box(0.05, 0.04, 0.02), this.eyeMat, s * 0.1, 0.07, 0.25);
+      part(this.fringe, box(0.07, 0.12, 0.18), flat('#9a9a9a'), s * 0.25, 0.04, -0.02);
     }
+    // a powdered wig instead of the fringe (Boom Stick Age): a white cap with rolled curls
+    this.wig = new THREE.Group();
+    const powder = flat('#f2efe8');
+    part(this.wig, ball(0.29, 12), powder, 0, 0.04, -0.09);
+    for (const s of [-1, 1]) for (const y of [0.02, -0.1]) part(this.wig, cyl(0.06, 0.06, 0.16, 8), powder, s * 0.26, y, -0.04).rotation.x = Math.PI / 2;
+    part(this.wig, box(0.05, 0.12, 0.05), flat('#151515'), 0, -0.14, -0.36);   // the ribbon on his queue
+    this.head.add(this.wig);
     // crosses for eyes, once he's dead
     this.xEyes = new THREE.Group();
     for (const s of [-1, 1]) for (const a of [-0.8, 0.8]) part(this.xEyes, box(0.1, 0.022, 0.02), flat('#151515'), s * 0.1, 0.07, 0.262).rotation.z = a;
     this.xEyes.visible = false;
     this.head.add(this.xEyes);
-    // top hat
+    // the hat slot: one hat per age (OUTFITS hat) plus the hard hat for when the sky falls. The
+    // slot is what flies off when he dies, so whichever hat he has on goes with it.
     this.hat = new THREE.Group();
-    part(this.hat, cyl(0.42, 0.42, 0.04, 16), flat('#101012'), 0, 0, 0);
-    part(this.hat, cyl(0.25, 0.27, 0.5, 16), flat('#101012'), 0, 0.27, 0);
-    part(this.hat, cyl(0.272, 0.272, 0.08, 16), flat('#7a1018'), 0, 0.07, 0);
     this.hat.position.y = 0.22;
     this.head.add(this.hat);
+    const hats = this.hats = {};
+    const hat = (name, ...parts) => {
+      const g = new THREE.Group();
+      for (const [geo, material, x, y, z, rx = 0] of parts) part(g, geo, material, x, y, z).rotation.x = rx;
+      this.hat.add(g);
+      hats[name] = g;
+      return g;
+    };
+    const furMat = new THREE.MeshLambertMaterial({ map: peltTexture(0), flatShading: true });
+    hat('fur', [cyl(0.29, 0.31, 0.26, 14), furMat, 0, 0.06, 0]);
+    hat('feather', [cyl(0.05, 0.3, 0.26, 10), flat('#2f4a22'), 0, 0.08, 0, -0.15], [box(0.03, 0.03, 0.42), flat('#c8323c'), 0.16, 0.2, -0.12, -0.6]);
+    const laurel = hat('laurel', [ring(0.285, 0.025), shiny(GOLD), 0, -0.1, 0, Math.PI / 2]);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const leaf = part(laurel, box(0.1, 0.025, 0.05), shiny(GOLD), Math.sin(a) * 0.29, -0.08, Math.cos(a) * 0.29);
+      leaf.rotation.set(0.5, a, 0.4);
+    }
+    hat('tricorn', [cyl(0.44, 0.44, 0.04, 3), shiny(GOLD), 0, -0.02, 0], [cyl(0.42, 0.42, 0.1, 3), flat('#101012'), 0, 0.03, 0], [cyl(0.22, 0.26, 0.2, 12), flat('#101012'), 0, 0.14, 0]);
+    hat('tophat', [cyl(0.42, 0.42, 0.04, 16), flat('#101012'), 0, 0, 0], [cyl(0.25, 0.27, 0.5, 16), flat('#101012'), 0, 0.27, 0], [cyl(0.272, 0.272, 0.08, 16), flat('#7a1018'), 0, 0.07, 0]);
+    hat('visor', [new THREE.CylinderGeometry(0.29, 0.29, 0.08, 20, 1, true), this.glow, 0, -0.15, 0], [ball(0.04, 6), this.glow, 0, 0.1, 0]);
+    hat('hardhat', [new THREE.SphereGeometry(0.31, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), flat('#ffc21a'), 0, -0.05, 0],
+      [cyl(0.38, 0.38, 0.03, 16), flat('#ffc21a'), 0, -0.05, 0], [box(0.06, 0.06, 0.6), flat('#e0a810'), 0, 0.24, 0]);
+    // gear for the end of the world: [DISASTERS key, piece]. He's ready for anything; it never helps.
+    const gear = this.gear = [];
+    const mask = new THREE.Group();
+    gear.push(['volcano', mask]);
+    const rubber = flat('#3a3f3a');
+    part(mask, cyl(0.07, 0.1, 0.16, 10), rubber, 0, -0.09, 0.31).rotation.x = Math.PI / 2;
+    for (const s of [-1, 1]) {
+      part(mask, cyl(0.05, 0.05, 0.08, 8), flat('#6b6f60'), s * 0.13, -0.14, 0.27).rotation.set(Math.PI / 2, 0, s * 0.6);
+      part(mask, cyl(0.065, 0.065, 0.03, 12), flat('#20262e'), s * 0.1, 0.07, 0.27).rotation.x = Math.PI / 2;
+    }
+    part(mask, ring(0.275, 0.018), rubber, 0, 0.06, 0).rotation.x = Math.PI / 2;
+    this.head.add(mask);
+    const muffs = new THREE.Group();
+    for (const s of [-1, 1]) part(muffs, ball(0.09, 8), flat('#f2f2f2'), s * 0.28, 0.04, 0);
+    part(muffs, ring(0.28, 0.02, Math.PI), flat('#c8323c'), 0, 0.04, 0);
+    this.head.add(muffs);
+    // the scarf wraps the top of the belly (his collar), with its end hanging down the front
+    const scarf = new THREE.Group();
+    part(scarf, ring(0.24, 0.075), flat('#c8323c'), 0, 0.34, 0).rotation.x = Math.PI / 2;
+    part(scarf, box(0.11, 0.34, 0.05), flat('#c8323c'), 0.16, 0.16, 0.37).rotation.z = 0.15;
+    this.body.add(scarf);
+    gear.push(['freeze', muffs], ['freeze', scarf]);
+    // a swim ring round the belly, red and white
+    const floatie = new THREE.Group();
+    gear.push(['flood', floatie]);
+    for (let i = 0; i < 8; i++) {
+      part(floatie, new THREE.TorusGeometry(0.44, 0.1, 8, 6, Math.PI / 4), flat(i % 2 ? '#f4f1ea' : '#ff5a3c'), 0, 0, 0).rotation.z = (i * Math.PI) / 4;
+    }
+    floatie.rotation.x = Math.PI / 2;
+    floatie.position.y = -0.08;
+    this.body.add(floatie);
     // monocle on its little chain
     this.monocle = new THREE.Group();
     part(this.monocle, new THREE.TorusGeometry(0.075, 0.012, 6, 16), shiny(GOLD), 0.1, 0.07, 0.27);
@@ -202,6 +326,62 @@ export class Businessman {
     }
   }
 
+  // What he looks like right now. era: ERAS id (his clothes). disaster: DISASTERS key while the
+  // world is ending (his gear). party: the tribe got wiped (co-op). skin: the watching player's
+  // skin color. A dead man keeps what he died in; only the skin follows whoever is watching.
+  setLook({ era = 'gun', disaster = null, party = false, skin = null }) {
+    if (skin && skin !== this.skinHex) {
+      this.skinHex = skin;
+      this.skin.color.set(skin);
+      this.nose.color.set(skin).multiplyScalar(0.88);
+    }
+    if (this.dead) return;
+    if (!OUTFITS[era]) era = 'gun';
+    if (era === this.era && disaster === this.disaster && party === this.party) return;
+    if (this.era && era !== this.era) this.twirlT = 0;   // a quick change of clothes
+    Object.assign(this, { era, disaster, party });
+    this.shown = -1;   // dress him again next update
+  }
+
+  // Put on this age's clothes, the trimmings his profits have bought and any disaster gear.
+  dress(stage) {
+    const f = this.fat, st = MAMMON.stages, o = OUTFITS[this.era], doom = this.disaster;
+    const gold = f >= st.gold;
+    this.shown = stage;
+    this.watch.visible = f >= st.watch;
+    this.chains.visible = f >= st.chains;
+    // the gas mask leaves no room for a monocle or a cigar
+    this.monocle.visible = f >= st.monocle && doom !== 'volcano';
+    this.cigar.visible = f >= st.cigar && doom !== 'volcano';
+    this.bags.visible = f >= st.bags;
+    for (const [k, g] of Object.entries(this.carry)) g.visible = f < st.bags && k === o.carry;
+    // the age's hat once he can afford one; a hard hat when rocks fall from the sky
+    const hat = doom === 'meteor' ? 'hardhat' : f >= st.hat ? o.hat : null;
+    for (const [k, g] of Object.entries(this.hats)) g.visible = k === hat;
+    this.hatOn = !!hat;
+    for (const [k, g] of this.gear) g.visible = k === doom;
+    this.flute.visible = this.party;
+    // clothes: the suit turns to solid gold at the very end, whatever the age
+    const pelt = !gold && o.suit === 'pelt' ? peltTexture(0) : null;
+    if (this.suit.map !== pelt) { this.suit.map = pelt; this.suit.needsUpdate = true; }
+    this.suit.color.set(gold ? GOLD : pelt ? '#ffffff' : o.suit);
+    for (const m of this.legMeshes) m.material = o.legs === 'skin' ? this.skin : this.pants;
+    if (o.legs !== 'skin') this.pants.color.set(o.legs);
+    this.shirtMesh.visible = !!o.shirt;
+    if (o.shirt) this.shirt.color.set(o.shirt);
+    this.tie.visible = !!o.tie;
+    this.tie.material = o.tie === 'glow' ? this.glow : this.tieMat;
+    this.tieMat.color.set(o.tie === 'cravat' ? SHIRT : o.tie === 'glow' || !o.tie ? TIE : o.tie);
+    // a cravat is a short frilly bunch at the throat, not a long tie
+    this.tie.scale.set(o.tie === 'cravat' ? 2 : 1, o.tie === 'cravat' ? 0.35 : 1, 1);
+    this.tie.position.y = o.tie === 'cravat' ? 0.28 : 0.08;
+    this.sash.visible = !!o.sash;
+    if (o.sash) this.sashMat.color.set(o.sash);
+    this.wig.visible = !!o.wig;
+    this.fringe.visible = !o.wig;
+    for (const eye of [this.eyeL, this.eyeR]) eye.material = gold ? this.redEye : this.eyeMat;
+  }
+
   laugh() { this.laughT = 0; }
 
   // where his head is, for speech bubbles (world space)
@@ -218,8 +398,10 @@ export class Businessman {
     this.deathT = 0;
     this.landed = false;
     this.laughT = -1;
+    this.twirlT = -1;
     this.head.rotation.x = 0;
     this.fig.position.set(0, 0, 0);
+    this.fig.rotation.y = 0;
     this.arms0 = this.arms.map(a => a.rotation.clone());   // where the arms were, to fling them up from
     this.slide = this.lyingSlide();
     this.eyeL.visible = this.eyeR.visible = false;
@@ -227,7 +409,7 @@ export class Businessman {
     this.drawSign(Math.max(0, this.profit || 0), true);
     // the top hat comes off and flies
     this.hatVel = null;
-    if (this.hat.visible) {
+    if (this.hatOn) {
       this.hat.updateWorldMatrix(true, false);
       this.root.attach(this.hat);   // stays where it is, but loose now
       this.hatVel = new THREE.Vector3((Math.random() - 0.5) * 1.5, 5.5, -2.4);
@@ -260,6 +442,8 @@ export class Businessman {
     this.fat = 0.05;
     this.shown = -1;     // trimmings and suit back as his size says
     this.profit = -1;    // and his sign
+    // dressed for the new world on the next setLook, without a twirl
+    Object.assign(this, { era: null, disaster: null, party: false });
   }
 
   // How low he reaches (relative to his feet's starting height) when tipped back by theta: the
@@ -434,21 +618,8 @@ export class Businessman {
     // grow towards where the profits say he should be, slowly (he's eating)
     this.fat += (this.fatTarget - this.fat) * Math.min(1, dt * 0.8);
     const f = this.fat;
-    const st = MAMMON.stages;
-    const stage = Object.values(st).filter(v => f >= v).length;
-    if (stage !== this.shown) {
-      this.shown = stage;
-      this.watch.visible = f >= st.watch;
-      this.hat.visible = f >= st.hat;
-      this.monocle.visible = f >= st.monocle;
-      this.chains.visible = f >= st.chains;
-      this.cigar.visible = f >= st.cigar;
-      this.bags.visible = f >= st.bags;
-      this.briefcase.visible = f < st.bags;
-      const gold = f >= st.gold;
-      this.suit.color.set(gold ? GOLD : SUIT);
-      for (const eye of [this.eyeL, this.eyeR]) eye.material = gold ? new THREE.MeshBasicMaterial({ color: '#ff2a1a' }) : flat('#151515');
-    }
+    const stage = Object.values(MAMMON.stages).filter(v => f >= v).length;
+    if (stage !== this.shown && this.era) this.dress(stage);
     // the shape: belly out and down, shoulders apart, chins, legs braced under the weight
     const breathe = 1 + Math.sin(this.t * 1.6) * 0.02;
     this.body.scale.set((1 + f * 2.1) * breathe, 1 + f * 0.7, (1 + f * 2.3) * breathe);
@@ -461,7 +632,9 @@ export class Businessman {
       const arm = this.arms[i];
       arm.position.set(s * (0.3 + belly * 0.7), this.body.position.y + 0.25 + f * 0.35, 0.05);
       arm.scale.set(1 + f * 0.7, 1 + f * 0.45, 1 + f * 0.7);
-      arm.rotation.set(-0.15 + (i ? swing : -swing), 0, s * (0.25 + f * 0.35));
+      // celebrating: the champagne hand goes up in a toast
+      const toast = this.party && !i;
+      arm.rotation.set(toast ? -2.4 + Math.sin(this.t * 3) * 0.08 : -0.15 + (i ? swing : -swing), 0, s * (0.25 + f * 0.35));
     }
     // legs braced wider and thicker under the weight
     this.legs.forEach((leg, i) => {
@@ -483,6 +656,13 @@ export class Businessman {
       if (k <= 0) this.laughT = -1;
     } else this.head.rotation.x = 0;
     this.fig.position.y = bounce;
+    // new clothes: one quick spin round to show them off
+    if (this.twirlT >= 0) {
+      this.twirlT += dt;
+      const k = Math.min(1, this.twirlT / TWIRL);
+      this.fig.rotation.y = Math.PI * 2 * (k * k * (3 - 2 * k));
+      if (k >= 1) { this.twirlT = -1; this.fig.rotation.y = 0; }
+    }
     this.cigarTip.material.color.setHSL(0.06, 1, 0.45 + Math.sin(this.t * 3) * 0.12);
     // turn to watch you
     if (look) {

@@ -1543,11 +1543,17 @@ function mammonSay(text, { force = false, feed = false } = {}) {
   if (feed && state.joined) hud.feed(`<span class="mammon">THE BUSINESSMAN:</span> <span class="quote">"${esc(text)}"</span>`);
 }
 
+// Whose skin he has: mine. My caveman's once I'm on the planet, else whatever I've picked in the lobby.
+const mySkin = () => C.SKINS[myPlayer()?.look?.skin ?? profileLook?.skin] || C.SKINS[0];
+
 function updateMammon(dt) {
   const mm = state.world?.mammon;
   if (!mm) return;
   if (state.game.mmDead && !mm.dead) mm.die(true);        // joined after the end of the world got him
   else if (!state.game.mmDead && mm.dead) mm.revive();    // a new world, a new Businessman
+  // dressed for the age, geared up for the disaster, toasting a wiped-out tribe (co-op)
+  const g = state.game;
+  mm.setLook({ era: C.ERAS[g.era]?.id, disaster: g.phase === 'doom' ? g.disaster : null, party: g.phase === 'end', skin: mySkin() });
   const { fat, profit } = mammonGrowth();
   mm.setFat(fat, profit);
   mm.update(dt, state.joined && state.myId ? v3(me.p).multiplyScalar(R + me.h + 1.6) : camera.position);
@@ -2614,9 +2620,11 @@ function updateHud(dt, t) {
 }
 
 // ====================================================================== lobby
+let profileLook = null;   // the look being picked in the lobby (the Businessman borrows its skin)
+
 function initLobby() {
   const saved = store.get('ss-profile') || {};
-  const look = { ...C.randomLook(), ...(saved.look || {}) };
+  const look = profileLook = { ...C.randomLook(), ...(saved.look || {}) };
   const nameEl = $('name');
   nameEl.value = saved.name || C.randomCaveName();
   $('reroll-name').onclick = () => { nameEl.value = C.randomCaveName(); };
