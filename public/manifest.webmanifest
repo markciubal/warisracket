@@ -1,0 +1,11 @@
+{
+  "name": "Spear Sphere",
+  "short_name": "Spear Sphere",
+  "description": "Throw spear. Bonk friend. Ooga booga.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#140f1f",
+  "theme_color": "#140f1f",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

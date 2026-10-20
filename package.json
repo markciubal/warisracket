@@ -1,0 +1,20 @@
+{
+  "name": "spear-sphere",
+  "version": "1.0.0",
+  "description": "Multiplayer caveman spear-throwing on a tiny planet. Ooga booga.",
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "nobots": "node server.js --bots=0"
+  },
+  "keywords": ["game", "multiplayer", "websocket", "threejs", "caveman"],
+  "license": "ISC",
+  "dependencies": {
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  }
+}

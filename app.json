@@ -1,0 +1,36 @@
+{
+  "name": "Spear Sphere",
+  "description": "Multiplayer caveman spear-throwing on a tiny planet. Ooga booga.",
+  "keywords": ["game", "multiplayer", "websocket", "threejs"],
+  "buildpacks": [{ "url": "heroku/nodejs" }],
+  "formation": {
+    "web": { "quantity": 1 }
+  },
+  "env": {
+    "MODE": {
+      "description": "Starting mode: dotime (stone age to the end of the world, with armor), classic (Forever Stone) or coop (Tribe vs Bots: all humans against waves of bots).",
+      "value": "dotime",
+      "required": false
+    },
+    "ERA_SECONDS": {
+      "description": "Seconds in each Do Time age. After the last one, a random natural disaster ends the round.",
+      "value": "45",
+      "required": false
+    },
+    "BOT_LEVEL": {
+      "description": "Starting bot brains, 1-10: 1 wanders around and lags, 5 is a fair fight, 10 barely misses.",
+      "value": "5",
+      "required": false
+    },
+    "BOTS": {
+      "description": "Bots fill the planet up to this many cavemen (0-10, 0 = humans only).",
+      "value": "4",
+      "required": false
+    },
+    "MAX_PLAYERS": {
+      "description": "Most human players allowed on the planet at once.",
+      "value": "12",
+      "required": false
+    }
+  }
+}

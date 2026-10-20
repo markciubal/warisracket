@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#140f1f">
+  <!-- "Add to Home Screen" opens it full screen, without the browser bars -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Spear Sphere</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&family=Rubik+Dirt&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="floaters"></div>
+  <div id="vignette"></div>
+
+  <!-- ============ in-game HUD ============ -->
+  <div id="hud" class="hidden">
+    <div id="killfeed"></div>
+
+    <div id="era-panel" class="stone">
+      <div id="era-name">STONE AGE</div>
+      <div id="era-bar"><div id="era-fill"></div></div>
+      <div id="era-next"></div>
+      <div id="era-dots"></div>
+    </div>
+
+    <div id="top-right">
+      <canvas id="radar" width="180" height="180"></canvas>
+      <div id="mini-score"></div>
+      <div id="ping"></div>
+      <div id="fps" class="hidden"></div>
+    </div>
+
+    <div id="erupt-warning" class="hidden">MOUNTAIN ANGRY! FIRE ROCKS COMING!</div>
+
+    <div id="crosshair"></div>
+    <div id="center-msg"></div>
+    <div id="prompt" class="hidden"></div>
+
+    <div id="beast-slot" class="stone hidden">
+      <div id="beast-name"></div>
+      <div id="beast-bar"><div id="beast-fill"></div></div>
+      <div id="beast-key"></div>
+    </div>
+
+    <div id="vitals" class="stone">
+      <div class="label">LIFE</div>
+      <div id="hp-bar"><div id="hp-fill"></div><span id="hp-text">100</span></div>
+      <div id="armor-row" class="hidden">
+        <div id="armor-name"></div>
+        <div id="armor-bar"><div id="armor-fill"></div></div>
+      </div>
+      <div id="status-icons"></div>
+    </div>
+
+    <div id="spear-box" class="stone">
+      <div id="spear-icons"></div>
+      <div id="charge-bar"><div id="charge-fill"></div></div>
+      <div class="hint" id="spear-hint">HOLD RMB · THROW SPEAR</div>
+    </div>
+
+    <div id="weapon-card" class="stone">
+      <div id="wc-tier"></div>
+      <div id="wc-name"></div>
+      <div id="wc-stats"></div>
+      <div id="wc-desc"></div>
+      <div id="wc-cd"></div>
+    </div>
+
+    <div id="scoreboard" class="hidden stone">
+      <h2>TRIBE OF ROCK</h2>
+      <table><thead><tr><th>CAVEMAN</th><th>BONKS</th><th>NAPS</th></tr></thead><tbody id="score-rows"></tbody></table>
+      <div class="hint desk-only">C · TRIBE COUNCIL (RULES)</div>
+    </div>
+  </div>
+
+  <!-- ============ touch controls (phones / tablets) ============ -->
+  <div id="touch" class="hidden">
+    <div id="stick"><div id="stick-knob"></div></div>
+    <div id="t-top">
+      <div class="tbtn small" id="t-tilt" title="Tilt: tap to set straight ahead"><i id="t-tilt-gauge"></i></div>
+      <div class="tbtn small" id="t-grunt" title="Grunt">🗣</div>
+      <div class="tbtn small" id="t-tribe" title="Scores, settings, rules">☰</div>
+    </div>
+    <div id="grunts" class="hidden"></div>
+    <div id="t-menu" class="hidden">
+      <div class="tbtn menu-item" id="t-settings">⚙ SETTINGS</div>
+      <div class="tbtn menu-item hidden" id="t-council">⚑ RULES</div>
+    </div>
+    <div class="tbtn ring" id="t-throw"><span id="t-throw-label">THROW</span><b id="t-ammo"></b></div>
+    <div class="tbtn ring" id="t-bonk"><span>BONK</span></div>
+    <div class="tbtn" id="t-jump"><span>JUMP</span></div>
+    <div class="tbtn hidden" id="t-grab"><span>GRAB</span></div>
+    <div class="tbtn hidden" id="t-beast"><b id="t-beast-icon"></b><span id="t-beast-label">CALL</span></div>
+  </div>
+
+  <div id="rotate-hint">
+    <div>TURN PHONE SIDEWAYS</div>
+    <small>ROCK TOO BIG FOR TALL SCREEN. TAP TO PLAY TALL ANYWAY.</small>
+  </div>
+
+  <div id="net-banner" class="hidden"></div>
+
+  <div id="lock-hint" class="hidden">
+    <div>CLICK TO OOGA</div>
+    <small>Esc frees mouse · C for tribe council</small>
+    <button id="lock-settings" class="minor">⚙ SETTINGS (O)</button>
+  </div>
+
+  <div id="death" class="hidden">
+    <h1>YOU GO SLEEP</h1>
+    <p id="death-by"></p>
+    <p id="death-timer"></p>
+    <p id="death-quote"></p>
+  </div>
+
+  <div id="roundend" class="hidden">
+    <div class="tablet">
+      <h1 id="re-title">TIME DONE!</h1>
+      <p id="re-sub"></p>
+      <p id="re-winner"></p>
+      <table><thead><tr><th></th><th>CAVEMAN</th><th>BONKS</th><th>NAPS</th></tr></thead><tbody id="re-rows"></tbody></table>
+      <p id="re-profit"></p>
+      <p id="re-timer"></p>
+      <p id="re-quote"></p>
+    </div>
+  </div>
+
+  <div id="council" class="hidden">
+    <div class="tablet">
+      <h1>TRIBE COUNCIL</h1>
+      <div class="rules" id="council-rules"></div>
+      <p class="rules-note" id="council-note"></p>
+      <button id="council-close">BACK TO BONKING</button>
+    </div>
+  </div>
+
+  <div id="settings" class="hidden">
+    <div class="tablet">
+      <h1>CAVE SETTINGS</h1>
+      <div class="rules" id="settings-rows"></div>
+      <div class="row settings-buttons">
+        <button id="settings-reset" class="minor">RESET ALL</button>
+        <button id="settings-close">BACK</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="disconnected" class="hidden">
+    <div class="tablet">
+      <h1>ROCK FELL ON WIRE</h1>
+      <p>Lost connection to cave server.</p>
+      <button onclick="location.reload()">TRY AGAIN</button>
+    </div>
+  </div>
+
+  <!-- ============ lobby ============ -->
+  <div id="lobby">
+    <div class="tablet">
+      <h1 class="title">SPEAR<span>SPHERE</span></h1>
+      <p class="tag">Throw spear. Bonk friend. Ooga booga.</p>
+
+      <label for="name">CAVE NAME</label>
+      <div class="row">
+        <input id="name" maxlength="18" autocomplete="off" spellcheck="false">
+        <button id="reroll-name" title="Random name">?!</button>
+      </div>
+
+      <label>ANIMAL SKIN</label>
+      <div id="garbs" class="swatches"></div>
+
+      <label>SKIN</label>
+      <div id="skins" class="swatches"></div>
+
+      <div class="row toggles">
+        <label class="check"><input type="checkbox" id="opt-beard" checked> BIG BEARD</label>
+        <label class="check"><input type="checkbox" id="opt-bone"> BONE IN HAIR</label>
+      </div>
+
+      <label>PLANET RULES</label>
+      <div class="rules" id="lobby-rules"></div>
+      <div class="rules-note" id="lobby-note"></div>
+
+      <button id="play" disabled>CONNECTING...</button>
+      <div id="online"></div>
+      <button id="open-settings" class="minor">⚙ SETTINGS · SOUND, CONTROLS, GRAPHICS</button>
+      <div id="touch-note" class="touch-only">TURN PHONE SIDEWAYS. LEAN PHONE TO TURN, TIP IT TO AIM.</div>
+
+      <details class="how">
+        <summary>HOW TO OOGA</summary>
+        <div class="controls touch-only">
+          <div><b>LEFT THUMB</b> run</div><div><b>LEAN PHONE</b> turn</div>
+          <div><b>TIP PHONE</b> aim up / down</div><div><b>DRAG RIGHT</b> aim too</div>
+          <div><b>HOLD THROW</b> charge, let go</div><div><b>BONK</b> melee</div>
+          <div><b>JUMP</b> hop</div><div><b>GRAB</b> weapon / armor</div>
+          <div><b>◎</b> tilt straight ahead</div><div><b>🗣</b> grunt</div>
+          <div><b>☰</b> scores, settings, rules</div>
+        </div>
+        <div class="controls desk-only">
+          <div><b>WASD</b> run</div><div><b>MOUSE</b> look &amp; aim</div>
+          <div><b><span class="btn-melee">LMB</span> / F</b> bonk</div><div><b>HOLD <span class="btn-ranged">RMB</span></b> spear / bow</div>
+          <div><b>SPACE</b> jump</div><div><b>E</b> grab weapon / armor</div>
+          <div><b>1-6</b> grunt</div><div><b>TAB</b> tribe</div>
+          <div><b>C</b> tribe council</div><div><b>M / N</b> mute / drums</div>
+          <div><b>G</b> graphics low / auto / high</div><div><b>O</b> settings</div>
+        </div>
+      </details>
+
+      <div id="wise" title="Tap for another">
+        <p id="wise-text"></p>
+        <small id="wise-by"></small>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
