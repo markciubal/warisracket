@@ -3,6 +3,9 @@
 import { isTouch } from './touch.js';
 
 const KEY = 'ss-settings';
+// Bumped when a default changes in a way old saves should pick up (see the constructor).
+// 2: tilt aim starts OFF (it used to start on NORMAL).
+const VERSION = 2;
 
 export const DEFAULTS = {
   muted: false,
@@ -14,7 +17,7 @@ export const DEFAULTS = {
   sens: 1,             // look speed multiplier (mouse and touch drag)
   invertY: false,
   lefty: false,        // left-handed: mouse buttons swapped, throws with the left hand
-  tilt: 'normal',      // touch: off | soft | normal | wild
+  tilt: 'off',         // touch: off | soft | normal | wild. Off = thumbstick + drag to aim, like any phone game
   tiltFlip: false,
   vibrate: true,
   gfx: isTouch ? 'low' : 'auto',
@@ -45,7 +48,8 @@ export const SCHEMA = [
   { key: 'lefty', label: 'HANDED', type: 'seg', options: [[false, 'RIGHT'], [true, 'LEFT']],
     desc: isTouch ? 'WHICH HAND YOUR CAVEMAN THROWS WITH. THE OTHER ONE HOLDS THE CLUB.'
       : 'RIGHT: LEFT CLICK BONKS, HOLD RIGHT CLICK TO THROW. LEFT: THE OTHER WAY ROUND. YOUR CAVEMAN THROWS WITH THAT HAND TOO.' },
-  { key: 'tilt', label: 'TILT AIM', type: 'seg', touch: true, options: [['off', 'OFF'], ['soft', 'SOFT'], ['normal', 'NORMAL'], ['wild', 'WILD']] },
+  { key: 'tilt', label: 'TILT AIM', type: 'seg', touch: true, options: [['off', 'OFF'], ['soft', 'SOFT'], ['normal', 'NORMAL'], ['wild', 'WILD']],
+    desc: 'OFF: DRAG RIGHT SIDE TO AIM. ON: ALSO LEAN PHONE TO TURN, TIP IT TO AIM UP/DOWN (NEEDS HTTPS LINK).' },
   { key: 'tiltFlip', label: 'FLIP UP/DOWN TILT', type: 'seg', touch: true, options: onOff },
   { key: 'vibrate', label: 'BUZZ', type: 'seg', touch: true, options: onOff, desc: 'PHONE SHAKES WHEN YOU GET HIT (ANDROID).' },
 
@@ -96,12 +100,14 @@ function clean(raw) {
 export class Settings {
   constructor() {
     const saved = parse(storage.get(KEY));
-    this.values = { ...DEFAULTS, ...clean(saved && typeof saved === 'object' ? saved : oldKeys()) };
+    const raw = saved && typeof saved === 'object' ? saved : oldKeys();
+    // saves from before v2 hold tilt NORMAL just because that was the default then: those go to
+    // the new default (OFF). Anyone who picked SOFT or WILD keeps it.
+    if (!(raw.v >= 2) && raw.tilt === 'normal') delete raw.tilt;
+    this.values = { ...DEFAULTS, ...clean(raw) };
     this.listeners = [];
-    if (!saved) {
-      this.save();
-      for (const k of ['ss-gfx', 'ss-tilt', 'ss-tilt-flip', 'ss-muted', 'ss-music']) storage.del(k);
-    }
+    if (!saved || saved.v !== VERSION) this.save();
+    if (!saved) for (const k of ['ss-gfx', 'ss-tilt', 'ss-tilt-flip', 'ss-muted', 'ss-music']) storage.del(k);
   }
 
   get(k) { return this.values[k]; }
@@ -123,7 +129,7 @@ export class Settings {
     for (const [k, v] of Object.entries(this.values)) fn(k, v);
   }
 
-  save() { storage.set(KEY, JSON.stringify(this.values)); }
+  save() { storage.set(KEY, JSON.stringify({ ...this.values, v: VERSION })); }
 }
 
 // The settings tablet: one row per SCHEMA entry, kept in sync with the values.

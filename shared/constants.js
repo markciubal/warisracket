@@ -97,6 +97,15 @@ export const DOTIME = {
 
 export const MODES = { dotime: 'DO TIME', classic: 'FOREVER STONE', coop: 'TRIBE VS BOTS' };
 
+// Rocks (lobbies): each is its own planet on the same server, found by a short code. Codes the
+// server makes up skip vowels so they never spell anything; any 4 letters work in a link.
+export const ROOM_CODE = { len: 4, chars: 'BCDFGHJKLMNPQRSTVWXZ' };
+// Whatever was typed or linked, as a code ('' if it can't be one).
+export function cleanRoomCode(c) {
+  const s = String(c ?? '').toUpperCase().replace(/[^A-Z]/g, '');
+  return s.length === ROOM_CODE.len ? s : '';
+}
+
 // Co-op: every human is on one tribe against waves of bots. Wave n brings
 // min(maxBots, firstWave + (n - 1) + extra humans) bots, starting at the chosen bot brains and one
 // level smarter every `smarterEvery` waves. The ages move on every `ageEvery` waves.

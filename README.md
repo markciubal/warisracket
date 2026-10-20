@@ -16,11 +16,12 @@ npm install
 npm start
 ```
 
-Open http://localhost:3000. The server also prints a `Network:` address. Anyone on the
-same Wi‑Fi/LAN can open that address to join the same planet. On Windows, allow Node
-through the firewall when prompted (Private networks), or friends won't be able to connect.
+Open http://localhost:3000 and press **MAKE NEW ROCK**. The server also prints a `Network:`
+address for anyone on the same Wi‑Fi/LAN. On Windows, allow Node through the firewall when
+prompted (Private networks), or friends won't be able to connect.
 
-Starting rules can come from flags or environment variables (see the table under Heroku):
+The rules every new rock starts with can come from flags or environment variables (see the
+table under Heroku):
 
 ```
 node server.js --mode=classic         # Forever Stone instead of Do Time
@@ -30,7 +31,25 @@ npm run nobots                        # humans only
 PORT=8080 node server.js              # different port (PowerShell: $env:PORT=8080; node server.js)
 ```
 
-Once people are playing, the **chief** changes rules in-game (see Planet rules below).
+Once people are playing, each rock's **chief** changes its rules in-game (see Planet rules below).
+
+## Rocks (lobbies)
+
+One server runs any number of separate games at once. Each one is a **rock**: its own planet,
+cavemen, bots, Do Time clock, chief and rules, found by a 4-letter code.
+
+- **MAKE NEW ROCK** in the lobby rolls a fresh code (no vowels, so it never spells anything).
+  The address bar becomes the rock's link, e.g. `https://my-spear-sphere.herokuapp.com/KPTX`.
+  **COPY LINK** (**SHARE LINK** on phones) sends it to friends.
+- Friends open that link, or go to the bare URL and type the code into **JOIN ROCK**. Pasting
+  the whole link into the code box works too.
+- **OTHER ROCK** in the lobby leaves for a different one. The code also shows on the scoreboard
+  (Tab, or ☰ on phones) so you can read it out mid-game.
+- A rock closes as soon as nobody is on it or watching its lobby, but its link keeps working:
+  whoever opens it next gets a fresh planet under the same code. After a server restart,
+  everyone who was on a rock reconnects onto the same code with the rules it had.
+- Codes keep games apart; they aren't passwords. A wrong code is answered slowly so guessing
+  one takes a while, and `/health` never lists them.
 
 ## Deploy to Heroku
 
@@ -48,8 +67,9 @@ heroku ps:scale web=1
 heroku open
 ```
 
-Send friends the `https://my-spear-sphere-xxxx.herokuapp.com` URL and everyone lands on
-the same planet. To ship changes later: `git commit -am "more ooga"` then `git push heroku HEAD:main`.
+Make a rock and send friends its link (`https://my-spear-sphere-xxxx.herokuapp.com/KPTX`), and
+everyone lands on the same planet while other groups play on their own rocks. To ship changes
+later: `git commit -am "more ooga"` then `git push heroku HEAD:main`.
 
 Settings (optional), e.g. `heroku config:set BOT_LEVEL=7 ERA_SECONDS=120`:
 
@@ -59,24 +79,32 @@ Settings (optional), e.g. `heroku config:set BOT_LEVEL=7 ERA_SECONDS=120`:
 | `ERA_SECONDS` | `--era-seconds` | 45 | Length of each Do Time age |
 | `BOT_LEVEL` | `--bot-level` | 5 | Bot brains, 1–10: 1 wanders around and lags, 5 is a fair fight, 10 barely misses |
 | `BOTS` | `--bots` | 4 | Bots fill the planet up to this many cavemen (0–10). 0 = humans only |
-| `MAX_PLAYERS` | | 12 | Human cap. Extra visitors see "CAVE FULL" in the lobby |
-| `MAX_CONNECTIONS` | | 100 | Cap on open sockets, including people sitting in the lobby |
-| `PERF_LOG` | | off | Set to `1` to log the server's tick time every 10 s. A warning is logged either way if the server ever falls behind |
+| `MAX_PLAYERS` | | 12 | Human cap on each rock. Extra visitors see "CAVE FULL" in that rock's lobby |
+| `MAX_ROOMS` | | 20 | Most rocks at once. Past that, making a new one says "TOO MANY ROCKS" |
+| `MAX_CONNECTIONS` | | 100 | Cap on open sockets across all rocks, including people sitting in lobbies |
+| `PERF_LOG` | | off | Set to `1` to log the server's tick time (all rocks together) every 10 s. A warning is logged either way if the server ever falls behind |
 
-These are only the starting rules. The chief can change mode, bot brains and bot fill while
-playing, and those changes last until the server restarts.
+These are only the rules a new rock starts with. Each rock's chief can change mode, bot brains
+and bot fill while playing, and those changes last as long as the rock does.
 
 Things to know:
 
-- **Run exactly one web dyno.** The whole game lives in that process's memory, so a second
-  dyno would be a second, separate planet. `app.json` and the scale command above keep it at one.
+- **Run exactly one web dyno.** Every rock lives in that process's memory, so a second dyno
+  would split rocks between them and friends with the same code could land on different
+  planets. `app.json` and the scale command above keep it at one.
+- **How many rocks fit.** All rocks share one CPU, and bots are what cost: on a desktop PC, 20
+  rocks with the default 4-bot fill take about 1.5 ms of each 16.7 ms tick, while 20 rocks
+  of 10 cavemen each take about 8 ms. A Heroku dyno is slower than that, so if you raise
+  `MAX_ROOMS` or bot fill, run with `PERF_LOG=1` for a while and keep the average well under 16 ms.
 - **Restarts are fine.** Heroku restarts dynos about once a day and on every deploy. Players see
-  "CAVE SERVER MOVING" and are put back on the new planet automatically within a few seconds.
-  Scores reset with it, and the rules go back to the config vars.
+  "CAVE SERVER MOVING" and are put back on the same rock code automatically within a few
+  seconds, with the rules it had. The planet is new and scores reset with it.
 - **Eco dynos sleep** after a stretch without web traffic. The first visitor wakes it in a few
   seconds. Basic dynos stay awake.
-- `heroku logs --tail` shows players joining and leaving, age changes, round winners and rule
-  changes. `/health` returns live player counts, mode, age and bot level as JSON.
+- `heroku logs --tail` shows rocks opening and closing, players joining and leaving, age
+  changes, round winners and rule changes, each line tagged with its rock's code. `/health`
+  returns JSON with the number of rocks and players, and each rock's mode, age and bot level
+  (but not its code).
 - **What you see is what you hit.** Everyone else is drawn about 0.12 s in the past (that's
   what keeps them moving smoothly), plus your ping. Each spear, shot, beam and swing tells the
   server what moment was on your screen, and the server checks the hit against where cavemen
@@ -105,17 +133,24 @@ your router or use a tunnel such as `cloudflared tunnel --url http://localhost:3
 | M / N | Mute everything / toggle the drums |
 | G | Graphics: LOW / AUTO / HIGH |
 | O | Settings |
+| Esc | Pause: frees the mouse and shows **▶ BACK TO BONKING**, **⚙ SETTINGS** and **✕ QUIT** |
+
+**Quitting** takes you off the planet and back to your rock's lobby, where **OOGA BOOGA!** puts
+you straight back on (as a fresh caveman) and **OTHER ROCK** goes elsewhere. QUIT is on the pause
+screen, at the bottom of settings while you're playing, and in the ☰ menu on phones. It asks
+first ("SURE?"), and a second press within 3 seconds quits, so a stray tap doesn't cost you your
+score. Settings and the tribe council close with their ✕, their bottom button, or Esc.
 
 ### Settings
 
-Open **⚙ SETTINGS** from the lobby, press O in game, or use the button on the "click to ooga"
-screen after Esc frees the mouse (on phones: ☰ then ⚙). Everything is remembered in that browser,
+Open **⚙ SETTINGS** from the lobby, press O in game, or use the button on the pause screen
+after Esc frees the mouse (on phones: ☰ then ⚙). Everything is remembered in that browser,
 and **RESET ALL** puts it back the way it started.
 
 | Section | Settings |
 | --- | --- |
 | Sound | Mute all (M), all sound, bonks & booms, drums on/off (N), drum loudness, caveman voices (0 turns the spoken grunts off) |
-| Controls | Mouse speed (drag speed on phones), flip up/down look, handed (right / left). Phones also get tilt aim (off / soft / normal / wild), flip up/down tilt and buzz |
+| Controls | Mouse speed (drag speed on phones), flip up/down look, handed (right / left). Phones also get tilt aim (off by default / soft / normal / wild), flip up/down tilt and buzz |
 
 **Handed**: right-handed (the default) bonks with left click and throws with right click, and your
 caveman throws with his right hand and clubs with his left. Left-handed swaps both: right click
@@ -143,23 +178,31 @@ automatically (add `?touch` to the URL to try them on a computer with the mouse)
 
 | Touch | Action |
 | --- | --- |
+The controls are the usual phone-game ones: a thumbstick on the left, drag on the right to look.
+
+| Touch | Action |
+| --- | --- |
 | Left thumb, anywhere on the left half | Thumbstick: run. Push it halfway to walk |
-| **Lean the phone** like a steering wheel | Turn. The further you lean, the faster you turn |
-| **Tip the phone**: top edge away from you / toward you | Aim lower / higher |
-| Drag on the right half | Aim too, for small corrections or a quick 180 |
+| Drag on the right half | Turn and aim (DRAG SPEED in settings) |
 | THROW (hold, let go) | Charge and throw, same as the right mouse button. Slide your thumb on it to aim while charging |
 | BONK, JUMP | Melee, jump. BONK's ring shows when the swing is ready again |
 | GRAB | Shows up next to a totem or armor |
 | BEAST | Shows up with a killstreak beast: tap to call it, tap again to send it where you aim |
-| ◎ | "Straight ahead is how I'm holding it now". Also happens on its own when you start and after each respawn |
 | 🗣 | Grunts |
-| ☰ | Scores and your weapon card, plus ⚙ settings and ⚑ tribe council (only for the chief) |
+| ☰ | Scores (with the rock code) and your weapon card, plus ⚙ settings, ⚑ tribe council (only for the chief) and ✕ quit |
 
-- Settings has **TILT AIM** (OFF, SOFT, NORMAL, WILD), **FLIP UP/DOWN TILT** and **BUZZ**.
+- **Tilt aim** is off unless you turn it on in settings (**TILT AIM**: SOFT, NORMAL or WILD).
+  Then you also **lean the phone** like a steering wheel to turn (the further, the faster) and
+  **tip it** (top edge away from you / toward you) to aim lower / higher, and a **◎** button
+  appears: "straight ahead is how I'm holding it now" (this also happens on its own when you
+  start and after each respawn). **FLIP UP/DOWN TILT** reverses the tip. Players who had
+  tilt on only because it used to be the default are switched to off; anyone who picked SOFT or
+  WILD keeps it.
 - **Tilt needs an `https://` link.** The Heroku URL is fine. On an iPhone, tap *Allow* when the
   game asks for Motion & Orientation access. Over plain `http://` (for example
   `http://192.168.1.20:3000` on your Wi-Fi) phones won't share tilt with web pages, so you aim
   by dragging instead. For https at home, use the `cloudflared` tunnel from the Heroku section.
+- **BUZZ** in settings turns the hit rumble on and off.
 - On Android the game goes full screen and stays sideways. On iPhone, use Share → *Add to Home
   Screen* and start it from there for full screen.
 - Phones start on LOW graphics. Android phones buzz when you get hit or bonk someone.
@@ -255,8 +298,8 @@ scoreboard). The chief opens the **tribe council** with C to change:
 
 - **Bot fill**: bots join until the planet has this many cavemen and leave as humans arrive.
 
-If nobody is playing yet, the lobby shows the same controls, so whoever arrives first sets the
-rules and becomes chief.
+Every rock has its own chief and rules. If nobody is playing on a rock yet, its lobby shows the
+same controls, so whoever makes the rock (or arrives first) sets the rules and becomes chief.
 
 ## How it plays
 
@@ -408,8 +451,9 @@ Feathered (run faster) · Ancient, Lucky (crits) · **Ooga's** (gold glow, bette
 
 ```
 Procfile, app.json   Heroku process type and app manifest (one web dyno)
-server.js            HTTP static server + WebSocket game server (projectiles, hits, armor,
-                     Do Time clock, rules, hazards, bots)
+server.js            HTTP static server + WebSocket front door: makes rocks (lobbies) by code,
+                     puts each socket on its rock, ticks every rock on one clock
+room.js              One rock's game: projectiles, hits, armor, Do Time clock, rules, hazards, bots
 shared/constants.js  Tuning: ages, ranged weapons, armor, bot levels, melee weapons, names
 shared/math.js       Sphere-surface movement, collisions, projectile physics
 public/index.html    Page shell, HUD, lobby, council and round-end markup

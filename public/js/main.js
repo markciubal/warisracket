@@ -77,7 +77,7 @@ const sound = new Sound();
 const hud = new Hud();
 const input = new Input(canvas, isTouch);
 const tilt = new TiltAim();
-const touch = isTouch ? new TouchControls(input, tilt, { council: () => toggleCouncil(), settings: () => toggleSettings(true), recenter: recenterTilt }) : null;
+const touch = isTouch ? new TouchControls(input, tilt, { council: () => toggleCouncil(), settings: () => toggleSettings(true), recenter: recenterTilt, quit: btn => askQuit(btn) }) : null;
 const projTemplates = Object.fromEntries(['spear', 'arrow', 'ball', 'bullet'].map(k => [k, buildProjectile(k)]));
 
 // Render resolution, adjusted on the fly (see adaptResolution).
@@ -163,6 +163,9 @@ addEventListener('resize', () => {
 // ====================================================================== state
 const state = {
   ws: null,
+  connected: false,
+  room: '',            // code of the rock (lobby) we're on, '' while still picking one
+  asking: false,       // asked the server for a rock, no answer yet
   worldReady: false,
   joined: false,
   myId: 0,
@@ -245,18 +248,31 @@ function setGame(info) {
 }
 
 // ====================================================================== networking
+// Off any rock (still picking one, or just left one) only these count: anything else is a
+// straggler from the rock we left.
+const OFF_ROCK = new Set(['room', 'noroom', 'world', 'restart', 'pong']);
+
 // Same host and port as the page, so it works locally, on a LAN and behind Heroku's HTTPS router.
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = state.ws = new WebSocket(`${proto}://${location.host}`);
+  ws.onopen = () => {
+    state.connected = true;
+    refreshRoomPick();
+    requestRoom();
+    send({ t: 'ping', ts: clock() });
+  };
   ws.onmessage = e => {
     const m = JSON.parse(e.data);
+    if (!state.worldReady && !OFF_ROCK.has(m.t)) return;
     const fn = handlers[m.t];
     if (fn) fn(m);
   };
   ws.onclose = () => {
     if (state.ws !== ws) return;
     state.ws = null;
+    Object.assign(state, { connected: false, asking: false });
+    refreshRoomPick();
     state.retries++;
     netBanner(state.restarting ? 'CAVE SERVER MOVING. BACK SOON...' : 'LOST CAVE SIGNAL. RECONNECTING...');
     // keep retrying forever, but after about a minute also offer a manual reload
@@ -290,6 +306,85 @@ function netBanner(text) {
   if (text) $('net-banner').textContent = text;
 }
 
+function backOnline() {
+  state.retries = 0;
+  state.restarting = false;
+  netBanner(null);
+  $('disconnected').classList.add('hidden');
+}
+
+// ====================================================================== rocks (lobbies)
+// Each rock is its own planet on the server, found by a short code. The address bar always
+// shows ours (/KPTX), so it's the link to share and a reload lands back on it.
+function setRoom(code) {
+  state.room = code;
+  history.replaceState(null, '', `/${code}${location.search}`);
+  $('room-pick').classList.toggle('hidden', !!code);
+  $('room-in').classList.toggle('hidden', !code);
+  $('room-show').textContent = code;
+  $('room-link').textContent = code ? `${location.host}/${code}` : '';
+  $('score-room').textContent = code ? `ROCK CODE ${code} · FRIENDS JOIN WITH IT` : '';
+  if (!state.worldReady) {
+    $('play').disabled = true;
+    $('play').textContent = 'CONNECTING...';
+  }
+  refreshRoomPick();
+}
+
+// (Re)connected: back onto our rock. make: if the server restarted, the rock comes back under the
+// same code with the rules it had, so the whole tribe lands together again.
+function requestRoom() {
+  if (!state.room) return;
+  const g = state.game;
+  send({ t: 'room', code: state.room, make: 1, rules: state.world ? { mode: g.mode, botLevel: g.botLevel, bots: g.bots } : undefined });
+}
+
+function askRoom(msg) {
+  if (!state.connected || state.asking) return;
+  state.asking = true;
+  send(msg);
+  roomNote('');
+  refreshRoomPick();
+}
+
+// Off this rock, back to picking one.
+function leaveRoom() {
+  send({ t: 'room', leave: 1 });
+  if (state.world) clearWorld();
+  setRoom('');
+}
+
+function refreshRoomPick() {
+  const ready = state.connected && !state.asking;
+  $('room-new').disabled = $('room-go').disabled = !ready;
+  $('room-new').textContent = state.connected ? 'MAKE NEW ROCK' : 'CONNECTING...';
+}
+
+const ROOM_HELP = 'NEW ROCK = NEW PLANET JUST FOR YOUR TRIBE. FRIENDS JOIN WITH ITS CODE.';
+function roomNote(text, err = false) {
+  $('room-note').textContent = text || ROOM_HELP;
+  $('room-note').classList.toggle('err', err);
+}
+
+// Phones get the share sheet; everyone else gets it on the clipboard (or a box to copy from,
+// where the browser won't allow that, e.g. plain http on a LAN).
+const shareLabel = () => (isTouch && navigator.share ? 'SHARE LINK' : 'COPY LINK');
+function shareRoom() {
+  const url = `${location.origin}/${state.room}`;
+  const btn = $('room-copy');
+  const manual = () => prompt('Copy this link for your friends:', url);
+  if (isTouch && navigator.share) {
+    navigator.share({ title: 'Spear Sphere', text: `Come bonk on rock ${state.room}!`, url }).catch(() => {});
+  } else if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(() => {
+      btn.textContent = 'COPIED!';
+      setTimeout(() => { btn.textContent = shareLabel(); }, 1500);
+    }, manual);
+  } else {
+    manual();
+  }
+}
+
 // Drop everything from the previous connection; a restarted server rolls a brand-new planet.
 function clearWorld() {
   state.world.dispose();
@@ -311,6 +406,51 @@ function clearWorld() {
   Object.assign(me, { alive: false, charging: false, armor: null, reward: null, beastId: 0 });
   hud.death(false);
   hud.roundEnd(null);
+}
+
+// Off the planet, back to the lobby tablet.
+function showLobby() {
+  Object.assign(state, { joined: false, joinMsg: null });
+  input.enabled = false;
+  input.unlock();
+  touch?.show(false);
+  hud.show(false);
+  // these live outside the HUD and only update while playing
+  hud.death(false);
+  hud.roundEnd(null);
+  $('lock-hint').classList.add('hidden');
+  $('lobby').classList.remove('hidden');
+}
+
+// Quit: off the planet and back to this rock's lobby, still watching it (OOGA BOOGA goes straight
+// back on, OTHER ROCK goes elsewhere). The first press only asks; a second one within 3 s quits,
+// so a stray tap doesn't throw away a good score.
+function askQuit(btn) {
+  if (!state.joined) return;
+  if (btn.classList.contains('armed')) { quitGame(); return; }
+  btn.dataset.label ??= btn.textContent;
+  btn.textContent = isTouch ? 'SURE? TAP AGAIN' : 'SURE? CLICK AGAIN';
+  btn.classList.add('armed');
+  clearTimeout(btn.disarm);
+  btn.disarm = setTimeout(() => disarmQuit(btn), 3000);
+}
+
+function disarmQuit(btn) {
+  clearTimeout(btn.disarm);
+  btn.classList.remove('armed');
+  if (btn.dataset.label) btn.textContent = btn.dataset.label;
+}
+
+function quitGame() {
+  if (!state.joined) return;
+  send({ t: 'quit' });
+  showLobby();
+  toggleSettings(false);
+  toggleCouncil(false, false);
+  for (const id of ['lock-quit', 'settings-quit', 't-quit']) disarmQuit($(id));
+  // our caveman goes when the server's pleave for him arrives
+  state.myId = 0;
+  Object.assign(me, { alive: false, charging: false, armor: null, reward: null, beastId: 0, buffs: {} });
 }
 
 const handlers = {
@@ -338,10 +478,7 @@ const handlers = {
     else renderer.compile(scene, camera);
     refreshRules();
     state.worldReady = true;
-    state.retries = 0;
-    state.restarting = false;
-    netBanner(null);
-    $('disconnected').classList.add('hidden');
+    backOnline();
     $('play').disabled = false;
     $('play').textContent = 'OOGA BOOGA!';
     if (state.joined && state.joinMsg) {
@@ -351,13 +488,23 @@ const handlers = {
   },
 
   full(m) {
-    Object.assign(state, { joined: false, joinMsg: null });
-    input.enabled = false;
-    input.unlock();
-    touch?.show(false);
-    hud.show(false);
-    $('lobby').classList.remove('hidden');
+    showLobby();
     $('play').textContent = `CAVE FULL (${m.max}). TRY AGAIN`;
+  },
+
+  // the server put us on a rock: one we made, typed in or linked, or ours again after a reconnect
+  room(m) {
+    state.asking = false;
+    setRoom(m.code);
+  },
+
+  noroom(m) {
+    state.asking = false;
+    if (state.joined) showLobby();
+    if (state.world) clearWorld();
+    setRoom('');
+    roomNote(m.full ? 'TOO MANY ROCKS ON SERVER RIGHT NOW. TRY AGAIN SOON.'
+      : m.code ? `NO ROCK WITH CODE ${m.code}. CHECK CODE WITH FRIEND.` : `CODE IS ${C.ROOM_CODE.len} LETTERS.`, true);
   },
 
   restart() { state.restarting = true; },
@@ -660,6 +807,8 @@ const handlers = {
   pong(m) {
     const rtt = (clock() - m.ts) * 1000;
     state.ping = state.ping ? state.ping * 0.7 + rtt * 0.3 : rtt;
+    // still picking a rock: no world is coming, so the server answering is what says we're back
+    if (!state.room && state.retries) backOnline();
   },
 
   you(m) {
@@ -2527,6 +2676,28 @@ function initLobby() {
   nameEl.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
   $('open-settings').onclick = () => toggleSettings(true);
 
+  // rocks: make one, or type in a friend's code (pasting their whole link works too)
+  const codeEl = $('room-code');
+  const joinCode = () => {
+    const code = C.cleanRoomCode(codeEl.value);
+    if (code) askRoom({ t: 'room', code });
+    else roomNote(`CODE IS ${C.ROOM_CODE.len} LETTERS.`, true);
+  };
+  codeEl.addEventListener('input', () => {
+    const v = codeEl.value.includes('/') ? codeEl.value.split('/').filter(Boolean).pop() ?? '' : codeEl.value;
+    codeEl.value = v.toUpperCase().replace(/[^A-Z]/g, '').slice(0, C.ROOM_CODE.len);
+    roomNote('');
+  });
+  codeEl.addEventListener('keydown', e => { if (e.key === 'Enter') joinCode(); });
+  $('room-go').onclick = joinCode;
+  $('room-new').onclick = () => askRoom({ t: 'room', create: 1 });
+  $('room-leave').onclick = leaveRoom;
+  $('room-copy').textContent = shareLabel();
+  $('room-copy').onclick = shareRoom;
+  roomNote('');
+  // opened from a share link (/KPTX): straight onto that rock once connected
+  setRoom(C.cleanRoomCode(location.pathname.slice(1)));
+
   // a Smedley Butler line at the bottom of the lobby, a new one every 14 s or on a tap
   const quotes = C.BUTLER.quotes;
   let wiseI = Math.floor(Math.random() * quotes.length);
@@ -2550,14 +2721,22 @@ const settingsOpen = () => !$('settings').classList.contains('hidden');
 function toggleSettings(open = !settingsOpen()) {
   $('settings').classList.toggle('hidden', !open);
   if (open) {
+    // quitting only makes sense from in a game (from the lobby it's just BACK)
+    $('settings-quit').classList.toggle('hidden', !state.joined);
     touch?.setTribe(false);
     input.unlock();
-  } else if (state.joined && (me.alive || isTouch) && $('council').classList.contains('hidden')) {
-    input.lock();
+  } else {
+    disarmQuit($('settings-quit'));
+    if (state.joined && (me.alive || isTouch) && $('council').classList.contains('hidden')) input.lock();
   }
 }
 $('settings-close').onclick = () => toggleSettings(false);
+$('settings-x').onclick = () => toggleSettings(false);
+$('settings-quit').onclick = () => askQuit($('settings-quit'));
+// the pause screen (mouse freed with Esc): back in, settings, or quit
+$('lock-resume').onclick = () => input.lock();
 $('lock-settings').onclick = () => toggleSettings(true);
+$('lock-quit').onclick = () => askQuit($('lock-quit'));
 $('settings-reset').onclick = () => {
   settings.reset();
   hud.center('SETTINGS RESET', 'BACK TO HOW SPIRITS MADE THEM', 1.5);
@@ -2662,6 +2841,7 @@ function toggleCouncil(open = $('council').classList.contains('hidden'), relock 
 buildRules($('lobby-rules'));
 buildRules($('council-rules'));
 $('council-close').onclick = () => toggleCouncil(false);
+$('council-x').onclick = () => toggleCouncil(false);
 refreshRules();
 
 addEventListener('keydown', e => {

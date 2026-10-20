@@ -81,6 +81,7 @@
     <div id="scoreboard" class="hidden stone">
       <h2>TRIBE OF ROCK</h2>
       <table><thead><tr><th>CAVEMAN</th><th>BONKS</th><th>NAPS</th></tr></thead><tbody id="score-rows"></tbody></table>
+      <div class="hint" id="score-room"></div>
       <div class="hint desk-only">C · TRIBE COUNCIL (RULES)</div>
     </div>
   </div>
@@ -97,6 +98,7 @@
     <div id="t-menu" class="hidden">
       <div class="tbtn menu-item" id="t-settings">⚙ SETTINGS</div>
       <div class="tbtn menu-item hidden" id="t-council">⚑ RULES</div>
+      <div class="tbtn menu-item quit" id="t-quit">✕ QUIT</div>
     </div>
     <div class="tbtn ring" id="t-throw"><span id="t-throw-label">THROW</span><b id="t-ammo"></b></div>
     <div class="tbtn ring" id="t-bonk"><span>BONK</span></div>
@@ -112,10 +114,15 @@
 
   <div id="net-banner" class="hidden"></div>
 
+  <!-- desktop pause: the mouse is free (Esc). Clicking anywhere that isn't a button goes back in. -->
   <div id="lock-hint" class="hidden">
     <div>CLICK TO OOGA</div>
     <small>Esc frees mouse · C for tribe council</small>
-    <button id="lock-settings" class="minor">⚙ SETTINGS (O)</button>
+    <div class="row pause-buttons">
+      <button id="lock-resume">▶ BACK TO BONKING</button>
+      <button id="lock-settings" class="minor">⚙ SETTINGS (O)</button>
+      <button id="lock-quit" class="minor quit">✕ QUIT</button>
+    </div>
   </div>
 
   <div id="death" class="hidden">
@@ -137,21 +144,33 @@
     </div>
   </div>
 
+  <!-- panels: title and buttons stay put, the middle scrolls when the screen is short -->
   <div id="council" class="hidden">
-    <div class="tablet">
-      <h1>TRIBE COUNCIL</h1>
-      <div class="rules" id="council-rules"></div>
-      <p class="rules-note" id="council-note"></p>
+    <div class="tablet panel">
+      <div class="panel-head">
+        <h1>TRIBE COUNCIL</h1>
+        <button class="close-x" id="council-x" title="Close (Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body">
+        <div class="rules" id="council-rules"></div>
+        <p class="rules-note" id="council-note"></p>
+      </div>
       <button id="council-close">BACK TO BONKING</button>
     </div>
   </div>
 
   <div id="settings" class="hidden">
-    <div class="tablet">
-      <h1>CAVE SETTINGS</h1>
-      <div class="rules" id="settings-rows"></div>
+    <div class="tablet panel">
+      <div class="panel-head">
+        <h1>CAVE SETTINGS</h1>
+        <button class="close-x" id="settings-x" title="Close (Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body">
+        <div class="rules" id="settings-rows"></div>
+      </div>
       <div class="row settings-buttons">
         <button id="settings-reset" class="minor">RESET ALL</button>
+        <button id="settings-quit" class="minor quit hidden">✕ QUIT GAME</button>
         <button id="settings-close">BACK</button>
       </div>
     </div>
@@ -188,24 +207,45 @@
         <label class="check"><input type="checkbox" id="opt-bone"> BONE IN HAIR</label>
       </div>
 
-      <label>PLANET RULES</label>
-      <div class="rules" id="lobby-rules"></div>
-      <div class="rules-note" id="lobby-note"></div>
+      <!-- not on a rock yet: make one, or type in a friend's code -->
+      <div id="room-pick">
+        <label for="room-code">PICK ROCK</label>
+        <button id="room-new" disabled>CONNECTING...</button>
+        <div class="row room-join">
+          <input id="room-code" placeholder="CODE" autocomplete="off" spellcheck="false" autocapitalize="characters" enterkeyhint="go">
+          <button id="room-go" disabled>JOIN ROCK</button>
+        </div>
+        <div class="rules-note" id="room-note"></div>
+      </div>
 
-      <button id="play" disabled>CONNECTING...</button>
-      <div id="online"></div>
+      <!-- on a rock: its code to share, its rules, and in you go -->
+      <div id="room-in" class="hidden">
+        <label>ROCK CODE</label>
+        <div class="row room-code-row">
+          <b id="room-show"></b>
+          <button id="room-copy" class="minor">COPY LINK</button>
+          <button id="room-leave" class="minor" title="Make or join a different rock">OTHER ROCK</button>
+        </div>
+        <div class="rules-note" id="room-link"></div>
+
+        <label>PLANET RULES</label>
+        <div class="rules" id="lobby-rules"></div>
+        <div class="rules-note" id="lobby-note"></div>
+
+        <button id="play" disabled>CONNECTING...</button>
+        <div id="online"></div>
+      </div>
       <button id="open-settings" class="minor">⚙ SETTINGS · SOUND, CONTROLS, GRAPHICS</button>
-      <div id="touch-note" class="touch-only">TURN PHONE SIDEWAYS. LEAN PHONE TO TURN, TIP IT TO AIM.</div>
+      <div id="touch-note" class="touch-only">TURN PHONE SIDEWAYS. LEFT THUMB RUN, DRAG RIGHT SIDE TO AIM.</div>
 
       <details class="how">
         <summary>HOW TO OOGA</summary>
         <div class="controls touch-only">
-          <div><b>LEFT THUMB</b> run</div><div><b>LEAN PHONE</b> turn</div>
-          <div><b>TIP PHONE</b> aim up / down</div><div><b>DRAG RIGHT</b> aim too</div>
+          <div><b>LEFT THUMB</b> run</div><div><b>DRAG RIGHT</b> turn &amp; aim</div>
           <div><b>HOLD THROW</b> charge, let go</div><div><b>BONK</b> melee</div>
           <div><b>JUMP</b> hop</div><div><b>GRAB</b> weapon / armor</div>
-          <div><b>◎</b> tilt straight ahead</div><div><b>🗣</b> grunt</div>
-          <div><b>☰</b> scores, settings, rules</div>
+          <div><b>🗣</b> grunt</div><div><b>☰</b> scores, settings, rules, quit</div>
+          <div><b>TILT AIM</b> in ⚙ settings: lean phone to turn</div>
         </div>
         <div class="controls desk-only">
           <div><b>WASD</b> run</div><div><b>MOUSE</b> look &amp; aim</div>

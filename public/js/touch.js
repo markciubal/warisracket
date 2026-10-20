@@ -1,6 +1,7 @@
-// Phones and tablets: a floating thumbstick, big action buttons, drag-to-aim on the right half,
-// and tilt aiming from the motion sensors (lean the phone like a steering wheel to turn, tip it
-// toward or away from you to aim up and down).
+// Phones and tablets: a floating thumbstick, big action buttons and drag-to-aim on the right half,
+// like any phone game. Tilt aiming from the motion sensors (lean the phone like a steering wheel
+// to turn, tip it toward or away from you to aim up and down) is there too, off unless turned on
+// in settings.
 import { EMOTES } from '/shared/constants.js';
 import { BUTTON } from './input.js';
 
@@ -31,7 +32,7 @@ const PITCH_GAIN = 1.25;         // aim pitch per radian of tip
 
 export class TiltAim {
   constructor() {
-    this.level = 'normal';
+    this.level = 'off';
     this.flip = false;
     this.started = false;
     this.status = 'idle';        // idle | waiting | live | none | denied | insecure
@@ -161,7 +162,7 @@ export class TouchControls {
   constructor(input, tilt, actions) {
     this.input = input;
     this.tilt = tilt;
-    this.actions = actions;            // { council(), recenter() }
+    this.actions = actions;            // { council(), settings(), recenter(), quit(button) }
     this.root = $('touch');
     this.stickEl = $('stick');
     this.knob = $('stick-knob');
@@ -188,6 +189,8 @@ export class TouchControls {
     // these open a full-screen panel: eat the click the tap fires next, or it would land on the panel
     this.bind('t-council', () => { this.setTribe(false); swallowNextClick(); actions.council(); });
     this.bind('t-settings', () => { this.setTribe(false); swallowNextClick(); actions.settings(); });
+    // asks once ("SURE?"), quits on the second tap; the menu stays open in between
+    this.bind('t-quit', () => { swallowNextClick(); actions.quit($('t-quit')); });
     this.bind('t-tilt', () => actions.recenter());
     this.bind('t-grunt', () => $('grunts').classList.toggle('hidden'));
     $('grunts').innerHTML = EMOTES.map((e, i) => `<div class="tbtn grunt" data-i="${i}">${e}</div>`).join('');
@@ -318,6 +321,8 @@ export class TouchControls {
     set('charge', Math.round(s.charge * 20), v => $('t-throw').style.setProperty('--fill', `${v * 5}%`));
     set('cd', Math.round(Math.min(1, s.cooldown) * 20), v => $('t-bonk').style.setProperty('--fill', `${v * 5}%`));
     const t = this.tilt;
+    // the re-center button only means something with tilt turned on
+    set('tiltShown', TILT_LEVELS[t.level] > 0, v => $('t-tilt').classList.toggle('hidden', !v));
     set('tiltOn', t.on, v => $('t-tilt').classList.toggle('live', v));
     if (t.on) {
       set('gauge', `${Math.round(t.roll / DEG)}:${Math.round(t.tip / DEG)}`, () => {

@@ -107,7 +107,7 @@ html, body {
 .tablet label.check { display: flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; }
 .check input { width: 18px; height: 18px; accent-color: #ff8a1f; }
 
-#name {
+#name, #room-code {
   flex: 1;
   min-width: 0;
   font: 22px var(--font-ui);
@@ -120,7 +120,7 @@ html, body {
   outline: none;
   text-align: center;
 }
-#name:focus { box-shadow: 0 0 0 3px rgba(255, 138, 31, 0.6); }
+#name:focus, #room-code:focus { box-shadow: 0 0 0 3px rgba(255, 138, 31, 0.6); }
 
 button {
   font: 20px var(--font-ui);
@@ -143,6 +143,17 @@ button:disabled { filter: grayscale(0.8) brightness(0.8); cursor: wait; }
 #play { margin-top: 20px; width: 100%; font-size: 30px; padding: 12px; }
 
 #online { margin-top: 10px; font-size: 14px; color: #2b241d; min-height: 18px; }
+
+/* rocks (lobbies): make one, join one by code, share yours */
+#room-new { width: 100%; font-size: 24px; padding: 10px; }
+.room-join { margin-top: 12px; }
+#room-code { width: 0; text-transform: uppercase; letter-spacing: 0.3em; }
+#room-code::placeholder { letter-spacing: 0.1em; color: #8a7a62; }
+#room-go { white-space: nowrap; }
+#room-note.err { color: #7a1408; }
+.room-code-row { flex-wrap: wrap; gap: 10px; }
+#room-show { font-size: 34px; font-weight: 400; letter-spacing: 0.18em; color: #f7d58b; text-shadow: 0 3px 0 #6b3a12; user-select: text; -webkit-user-select: text; }
+#room-link { user-select: text; -webkit-user-select: text; }
 
 .swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .swatch {
@@ -451,9 +462,33 @@ button:disabled { filter: grayscale(0.8) brightness(0.8); cursor: wait; }
 #roundend { z-index: 15; pointer-events: none; }
 #council { z-index: 22; }
 
+/* ---------------------------------------------------------------- panels (council, settings) */
+/* title (with its ✕) and the bottom buttons stay put; only the middle scrolls on short screens */
+.tablet.panel { display: flex; flex-direction: column; max-height: calc(100vh - 32px); }
+.panel > * { flex: none; }
+.panel-head { position: relative; }
+.panel-head h1 { padding: 0 34px; }
+.panel .panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.close-x {
+  position: absolute;
+  top: -10px;
+  right: -16px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+  border-radius: 50%;
+  background: linear-gradient(#e9dcbc, #c9b48c);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4), 0 3px 0 #4a2408;
+}
+/* quit asks first: the armed button glows red until the second press (or 3 s pass) */
+button.minor.quit, .tbtn.menu-item.quit { background: linear-gradient(#f4b39c, #d9765a); }
+button.minor.quit.armed, .tbtn.menu-item.quit.armed { color: #fff3e0; background: linear-gradient(#ff6b4a, #b8250f); }
+
 /* ---------------------------------------------------------------- settings */
 #settings { z-index: 23; }
-#settings .tablet { width: min(540px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; text-align: left; }
+#settings .tablet { width: min(540px, 100%); text-align: left; }
 #settings h1 { margin: 0 0 4px; font-size: 38px; text-align: center; color: #f7d58b; text-shadow: 0 4px 0 #6b3a12; }
 #settings-rows h2 {
   margin: 12px 0 0;
@@ -516,7 +551,9 @@ button.minor {
   box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4), 0 3px 0 #4a2408;
 }
 #open-settings { margin-top: 10px; width: 100%; }
-#lock-settings { margin-top: 22px; font-size: 16px; text-shadow: none; }
+.pause-buttons { margin-top: 22px; gap: 12px; flex-wrap: wrap; }
+#lock-hint button { font-size: 16px; text-shadow: none; }
+#lock-hint #lock-resume { font-size: 20px; }
 #roundend h1, #council h1 { margin: 0 0 6px; font-size: 52px; color: #f7d58b; text-shadow: 0 4px 0 #6b3a12; }
 #council h1 { font-size: 40px; }
 #re-winner { margin: 4px 0 12px; font-size: 24px; color: #ffd34d; text-shadow: 0 2px 0 #3a1f08; }
@@ -920,7 +957,9 @@ body.touch #scoreboard table { font-size: 13px; }
 body.touch.tribe-open #weapon-card { display: block !important; left: calc(10px + var(--sl)); right: auto; top: 50%; bottom: auto; transform: translateY(-50%); width: min(240px, 34vw); }
 body.touch.tribe-open #touch > .tbtn, body.touch.tribe-open #t-top .tbtn:not(#t-tribe) { opacity: 0.3; }
 
-body.touch #roundend .tablet, body.touch #council .tablet, body.touch #settings .tablet { max-height: calc(100vh - 24px); overflow-y: auto; padding: 14px 18px; }
+body.touch #roundend .tablet { max-height: calc(100vh - 24px); overflow-y: auto; padding: 14px 18px; }
+body.touch .tablet.panel { max-height: calc(100vh - 24px); padding: 14px 18px; }
+body.touch .close-x { top: -6px; right: -10px; }
 body.touch #settings h1 { font-size: 28px; }
 body.touch #settings .rule { grid-template-columns: 130px 1fr; }
 body.touch #roundend h1, body.touch #council h1 { font-size: 30px; }
@@ -962,4 +1001,7 @@ body.touch #re-winner { font-size: 17px; margin: 2px 0 6px; }
   .swatch.small { width: 32px; height: 32px; }
   #garbs { margin-bottom: 10px; }
   #play { margin-top: 12px; font-size: 24px; padding: 8px; }
+  #room-new { font-size: 20px; padding: 8px; }
+  .room-join { margin-top: 8px; }
+  #room-show { font-size: 26px; }
 }
