@@ -5,15 +5,16 @@ import { isTouch } from './touch.js';
 const KEY = 'ss-settings';
 // Bumped when a default changes in a way old saves should pick up (see the constructor).
 // 2: tilt aim starts OFF (it used to start on NORMAL).
-const VERSION = 2;
+// 3: all sound starts at 65% and caveman voices at 50% (both used to start at 100%).
+const VERSION = 3;
 
 export const DEFAULTS = {
   muted: false,
-  volMaster: 100,      // percent
+  volMaster: 65,       // percent
   volSfx: 100,
   music: true,
   volMusic: 100,
-  volVoice: 100,
+  volVoice: 50,
   sens: 1,             // look speed multiplier (mouse and touch drag)
   invertY: false,
   lefty: false,        // left-handed: mouse buttons swapped, throws with the left hand
@@ -104,6 +105,9 @@ export class Settings {
     // saves from before v2 hold tilt NORMAL just because that was the default then: those go to
     // the new default (OFF). Anyone who picked SOFT or WILD keeps it.
     if (!(raw.v >= 2) && raw.tilt === 'normal') delete raw.tilt;
+    // likewise, saves from before v3 at full volume just had the old default: they get the new
+    // ones. Any volume someone actually set stays.
+    if (!(raw.v >= 3)) for (const k of ['volMaster', 'volVoice']) if (raw[k] === 100) delete raw[k];
     this.values = { ...DEFAULTS, ...clean(raw) };
     this.listeners = [];
     if (!saved || saved.v !== VERSION) this.save();

@@ -149,7 +149,7 @@ and **RESET ALL** puts it back the way it started.
 
 | Section | Settings |
 | --- | --- |
-| Sound | Mute all (M), all sound, bonks & booms, drums on/off (N), drum loudness, caveman voices (0 turns the spoken grunts off) |
+| Sound | Mute all (M), all sound (starts at 65%), bonks & booms, drums on/off (N), drum loudness, caveman voices (starts at 50%; 0 turns the spoken grunts off) |
 | Controls | Mouse speed (drag speed on phones), flip up/down look, handed (right / left). Phones also get tilt aim (off by default / soft / normal / wild), flip up/down tilt and buzz |
 
 **Handed**: right-handed (the default) bonks with left click and throws with right click, and your
