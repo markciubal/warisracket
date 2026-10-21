@@ -191,7 +191,7 @@ export const BOT_LEVELS = [
     wobble: [0.003, 0.012], lead: 1, throwGap: [0.45, 1], windup: 0.22, think: [0.06, 0.15], speed: 1.12, dodge: 1.4, gear: 50,
     chase: 75, daydream: 0, swingRest: [0, 0], deflect: true },
 ];
-export const BOT_LEVEL_DEFAULT = 5;
+export const BOT_LEVEL_DEFAULT = 1;
 // Level n (1..10) -> its settings.
 export const botLevelDef = n => BOT_LEVELS[Math.min(BOT_LEVELS.length, Math.max(1, n)) - 1];
 export const MAX_BOTS = 10;

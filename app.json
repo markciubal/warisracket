@@ -19,7 +19,7 @@
     },
     "BOT_LEVEL": {
       "description": "Bot brains new rocks start with, 1-10: 1 wanders around and lags, 5 is a fair fight, 10 barely misses.",
-      "value": "5",
+      "value": "1",
       "required": false
     },
     "BOTS": {

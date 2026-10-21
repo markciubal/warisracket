@@ -77,7 +77,7 @@ Settings (optional), e.g. `heroku config:set BOT_LEVEL=7 ERA_SECONDS=120`:
 | --- | --- | --- | --- |
 | `MODE` | `--mode` | `dotime` | `dotime`, `classic` (Forever Stone) or `coop` (Tribe vs Bots) |
 | `ERA_SECONDS` | `--era-seconds` | 45 | Length of each Do Time age |
-| `BOT_LEVEL` | `--bot-level` | 5 | Bot brains, 1–10: 1 wanders around and lags, 5 is a fair fight, 10 barely misses |
+| `BOT_LEVEL` | `--bot-level` | 1 | Bot brains, 1–10: 1 wanders around and lags, 5 is a fair fight, 10 barely misses |
 | `BOTS` | `--bots` | 4 | Bots fill the planet up to this many cavemen (0–10). 0 = humans only |
 | `MAX_PLAYERS` | | 12 | Human cap on each rock. Extra visitors see "CAVE FULL" in that rock's lobby |
 | `MAX_ROOMS` | | 20 | Most rocks at once. Past that, making a new one says "TOO MANY ROCKS" |
@@ -290,11 +290,11 @@ scoreboard). The chief opens the **tribe council** with C to change:
 
   | Level | Name | What they're like |
   | --- | --- | --- |
-  | 1 | Pebble Brain | Wanders around. Freezes mid-step every few seconds and walks in stuttery stop-go jerks, like a caveman on a bad connection. Usually forgets to fight, only notices you up close, swings rarely, throws almost never and wildly, walks into boulders |
+  | 1 | Pebble Brain | Wanders around. Freezes mid-step every few seconds and walks in stuttery stop-go jerks, like a caveman on a bad connection. Usually forgets to fight, only notices you up close, swings rarely, throws almost never and wildly, walks into boulders (the default) |
   | 2 | Sleepy | Slow, wild aim, an occasional freeze, sometimes wanders off |
   | 3 | Dozy | Misses most throws, slow to swing, rare freezes |
   | 4 | Clumsy | Tries hard, not very good |
-  | 5 | Normal | A fair fight (the default) |
+  | 5 | Normal | A fair fight |
   | 6 | Hungry | Better aim, shoots more often |
   | 7 | Smart | Tight aim, leads moving targets, goes after armor and better weapons |
   | 8 | Cunning | Quicker, sneakier, good aim |
