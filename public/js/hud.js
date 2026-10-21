@@ -1,4 +1,4 @@
-import { TIER_COLORS, PLAYER, ARMORS, ERAS, MODES, DISASTERS, BUTLER, SHROOMS } from '/shared/constants.js';
+import { TIER_COLORS, PLAYER, ARMORS, ERAS, MODES, DISASTERS, SHROOMS } from '/shared/constants.js';
 import * as M from '/shared/math.js';
 
 const $ = id => document.getElementById(id);
@@ -16,15 +16,15 @@ const STAT_ROWS = [
   ['RUN', w => w.speed, 1.3, v => `${Math.round(v * 100)}%`],
 ];
 
+// A weapon's extras, in plain words.
 export function weaponSpecials(w) {
   const s = [];
-  if (w.stun) s.push(`STUN ${w.stun}s`);
-  if (w.slow) s.push(`STINK SLOW ${w.slow}s`);
-  if (w.bleed) s.push(`LEAK ${w.bleed}/s`);
-  if (w.leech) s.push(`STEAL ${Math.round(w.leech * 100)}% LIFE`);
-  if (w.heal) s.push(`SNACK +${w.heal} HP`);
-  if (w.crit) s.push(`${Math.round(w.crit * 100)}% BIG BONK`);
-  if (w.arc >= 130) s.push('WIDE SWING');
+  if (w.stun) s.push('STUNS');
+  if (w.slow) s.push('SLOWS');
+  if (w.bleed) s.push('BLEEDS');
+  if (w.leech) s.push('STEALS LIFE');
+  if (w.heal) s.push(`HEALS ${w.heal}`);
+  if (w.crit) s.push(`${Math.round(w.crit * 100)}% CRIT`);
   return s;
 }
 
@@ -80,7 +80,11 @@ export class Hud {
     }
     this.rangedHint = def.hint || 'HOLD RMB · THROW';
     this.setThrowButton(this.throwButton);
+    $('spear-hint').classList.remove('used');   // a new kind of weapon: say how it works again
   }
+
+  // the "HOLD RMB" hint goes once you've used that kind of weapon
+  rangedUsed() { $('spear-hint').classList.add('used'); }
 
   // The weapon hints are written for right-handers (RMB throws); left-handed, it's LMB.
   setThrowButton(name = 'RMB') {
@@ -156,33 +160,23 @@ export class Hud {
 
   // disaster: DISASTERS key if the world ended, null if time just ran out.
   // wave: co-op only, the wave the tribe got wiped on.
-  // quote: a Smedley Butler line for the bottom of the screen.
   // profit: the Businessman's take this round, in shiny rocks. buried: the end of the world got him.
-  roundEnd(standings, myId, left, disaster = null, wave = 0, quote = '', profit = 0, buried = false) {
+  roundEnd(standings, myId, left, disaster = null, wave = 0, profit = 0, buried = false) {
     if (!standings) { $('roundend').classList.add('hidden'); return; }
-    const rocks = `${profit.toLocaleString('en-US')} SHINY ROCKS`;
-    $('re-profit').textContent = !profit ? '' : buried
-      ? `THE BUSINESSMAN MADE ${rocks} OFF YOU. THEY BURIED HIM WITH IT.`
-      : `MEANWHILE THE BUSINESSMAN MADE ${rocks}.`;
-    if (quote !== this.lastRoundQuote) {
-      this.lastRoundQuote = quote;
-      $('re-quote').innerHTML = quote ? `“${esc(quote)}”<small>${esc(BUTLER.by)}</small>` : '';
-    }
+    $('re-profit').textContent = profit ? `THE BUSINESSMAN ${buried ? 'WAS BURIED WITH' : 'MADE'} ${profit.toLocaleString('en-US')} SHINY ROCKS` : '';
     const doom = DISASTERS[disaster];
     $('roundend').classList.remove('hidden');
     const [win] = standings;
     if (wave) {
-      $('re-title').textContent = 'TRIBE WIPED OUT!';
-      $('re-sub').textContent = `TRIBE MADE IT TO WAVE ${wave}. BOTS DANCE ON ROCK.`;
-      $('re-winner').innerHTML = win ? `MOST BONKS: ${esc(win.name.toUpperCase())} (${win.k})` : 'NOBODY BONK. SAD.';
+      $('re-title').textContent = `TRIBE WIPED · WAVE ${wave}`;
+      $('re-winner').innerHTML = win ? `MOST BONKS: ${esc(win.name.toUpperCase())} (${win.k})` : 'NOBODY BONK';
     } else {
       $('re-title').textContent = doom ? 'EVERYTHING GONE!' : 'TIME DONE!';
-      $('re-sub').textContent = doom ? doom.end : '';
-      $('re-winner').innerHTML = win ? `${esc(win.name.toUpperCase())} MOST BONK${doom ? ' BEFORE THE END' : ''} (${win.k})` : 'NOBODY BONK. SAD.';
+      $('re-winner').innerHTML = win ? `${esc(win.name.toUpperCase())} WINS (${win.k})` : 'NOBODY BONK';
     }
     $('re-rows').innerHTML = standings.map((p, i) =>
       `<tr class="${p.id === myId ? 'me' : ''}"><td>${i + 1}.</td><td>${esc(p.name)}${p.bot ? '<span class="bot">(BOT)</span>' : ''}</td><td>${p.k}</td><td>${p.d}</td></tr>`).join('');
-    $('re-timer').textContent = wave ? `WAVE 1 AGAIN IN ${Math.ceil(left)}...` : `NEW STONE AGE IN ${Math.ceil(left)}...`;
+    $('re-timer').textContent = wave ? `WAVE 1 AGAIN IN ${Math.ceil(left)}` : `NEW ROUND IN ${Math.ceil(left)}`;
   }
 
   show(on) { this.root.classList.toggle('hidden', !on); }
@@ -197,6 +191,8 @@ export class Hud {
   }
 
   setAmmo(n, regenFrac) {
+    // out: the box says so rather than going blank
+    $('spear-box').classList.toggle('out', n === 0);
     if (this.counter) {
       this.counter.count.textContent = n;
       this.counter.fill.style.width = `${(n / this.ammoMax) * 100}%`;
@@ -208,7 +204,11 @@ export class Hud {
     });
   }
 
-  setCharge(c) { this.chargeFill.style.width = `${c * 100}%`; }
+  // the charge bar only shows while you're charging a throw
+  setCharge(c) {
+    this.chargeFill.style.width = `${c * 100}%`;
+    this.chargeFill.parentElement.classList.toggle('idle', c <= 0);
+  }
 
   setWeapon(w) {
     const color = TIER_COLORS[w.tier] || '#fff';
@@ -216,6 +216,9 @@ export class Hud {
     $('wc-tier').style.color = color;
     $('wc-name').textContent = w.name.toUpperCase();
     $('wc-name').style.color = color;
+    // long names get smaller type rather than cut off
+    $('wc-name').classList.toggle('long', w.name.length > 14);
+    $('wc-name').classList.toggle('longer', w.name.length > 19);
     $('wc-stats').innerHTML = STAT_ROWS.map(([label, get, max, fmt]) => {
       const v = get(w);
       return `<span>${label}</span><div class="bar"><i style="width:${Math.min(100, (v / max) * 100)}%"></i></div><span class="val">${fmt(v)}</span>`;
@@ -232,9 +235,9 @@ export class Hud {
     if (key === this.lastStatus) return;
     this.lastStatus = key;
     this.statusEl.innerHTML = [
-      stun && '<span class="status stun">SEE STARS</span>',
-      slow && '<span class="status slow">STINKY</span>',
-      bleed && '<span class="status bleed">LEAKING</span>',
+      stun && '<span class="status stun">STUNNED</span>',
+      slow && '<span class="status slow">SLOWED</span>',
+      bleed && '<span class="status bleed">BLEEDING</span>',
       ...buffs.map(b => `<span class="status buff" style="background:${SHROOMS[b.kind].color}">${SHROOMS[b.kind].buff} ${b.left}</span>`),
     ].filter(Boolean).join('');
   }
@@ -244,9 +247,9 @@ export class Hud {
     el.className = 'kf';
     el.innerHTML = html;
     this.killfeed.appendChild(el);
-    while (this.killfeed.children.length > 6) this.killfeed.firstChild.remove();
-    setTimeout(() => el.classList.add('fade'), 6000);
-    setTimeout(() => el.remove(), 6700);
+    while (this.killfeed.children.length > 4) this.killfeed.firstChild.remove();
+    setTimeout(() => el.classList.add('fade'), 4500);
+    setTimeout(() => el.remove(), 5100);
   }
 
   center(text, sub = '', dur = 2) {
@@ -265,24 +268,22 @@ export class Hud {
     if (html) this.promptEl.innerHTML = html;
   }
 
+  // How it compares to what you hold, in words (the numbers are on the weapon card with Tab).
   pickupPrompt(pk, current) {
     if (!pk) { this.prompt(null); return; }
     const w = pk.wpn;
-    const cmp = (label, a, b, fmt = v => v.toFixed(0), higherBetter = true) => {
-      const d = a - b;
-      if (Math.abs(d) < 1e-3) return `${label} ${fmt(a)}`;
-      const good = higherBetter ? d > 0 : d < 0;
-      return `${label} ${fmt(a)} <span class="${good ? 'up' : 'down'}">${d > 0 ? '+' : ''}${fmt(d)}</span>`;
+    const say = (a, b, better, worse) => {
+      const d = (a - b) / Math.max(1e-6, Math.abs(b));
+      return Math.abs(d) < 0.06 ? '' : `<span class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${d > 0 ? better : worse}</span>`;
     };
     const parts = current ? [
-      cmp('BONK', w.dmg, current.dmg),
-      cmp('SPEED', 1 / w.cd, 1 / current.cd, v => v.toFixed(1)),
-      cmp('REACH', w.range, current.range, v => v.toFixed(1)),
-      cmp('KNOCK', w.kb, current.kb),
-    ] : [];
-    const specials = weaponSpecials(w);
+      say(w.dmg, current.dmg, 'HARDER', 'WEAKER'),
+      say(1 / w.cd, 1 / current.cd, 'FASTER', 'SLOWER'),
+      say(w.range, current.range, 'LONGER', 'SHORTER'),
+    ].filter(Boolean) : [];
+    const line = [...parts, ...weaponSpecials(w)].join(' · ');
     this.prompt(`<span class="key">E</span>GRAB <span style="color:${TIER_COLORS[w.tier]}">${esc(w.name.toUpperCase())}</span>`
-      + `<span class="cmp">${parts.join(' · ')}${specials.length ? `<br>${specials.join(' · ')}` : ''}</span>`);
+      + (line ? `<span class="cmp">${line}</span>` : ''));
   }
 
   armorPrompt(drop, current) {
@@ -300,7 +301,7 @@ export class Hud {
   }
 
   miniScore(players, myId) {
-    $('mini-score').innerHTML = sortScores(players).slice(0, 5).map(p =>
+    $('mini-score').innerHTML = '<div class="head"><span></span><span>BONKS</span></div>' + sortScores(players).slice(0, 5).map(p =>
       `<div class="${p.id === myId ? 'me' : ''}"><span>${esc(p.name)}</span><span>${p.k}</span></div>`).join('');
   }
 
@@ -379,11 +380,6 @@ export class Hud {
       $('death-by').innerHTML = by;
       $('death-timer').textContent = timer;
     }
-  }
-
-  // the quote under YOU GO SLEEP, picked once per nap
-  deathQuote(text, by) {
-    $('death-quote').innerHTML = `“${esc(text)}”<small>${esc(by)}</small>`;
   }
 
   flash(amount, kind = 'hurt') {

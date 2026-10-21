@@ -380,17 +380,6 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     }
   }
 
-  // A bot shouts a Smedley Butler line (C.BUTLER.shouts), if the moment's dice say so and nobody
-  // has quoted him planet-wide in the last little while.
-  let lastButler = -99;
-  function butlerSay(pl, moment, t) {
-    const m = C.BUTLER_MOMENTS[moment];
-    const gap = moment === 'doom' ? C.BUTLER_MOMENTS.doomGap : C.BUTLER_MOMENTS.gap;
-    if (!pl || t - lastButler < gap || Math.random() >= m.chance) return;
-    lastButler = t;
-    broadcast({ t: 'say', id: pl.id, q: m.shouts[Math.floor(Math.random() * m.shouts.length)] });
-  }
-
   function emote(pl, i, t) {
     if (i < 0 || i >= C.EMOTES.length || t - pl.lastEmote < 1.2) return;
     pl.lastEmote = t;
@@ -509,7 +498,6 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       if (reward) grantReward(killer, reward, t);
     }
     broadcast({ t: 'die', v: v.id, a: killer ? killer.id : 0, k: info.kind, w: info.wname || '', vb: info.verb || '', hs: info.head ? 1 : 0 });
-    if (v.bot) butlerSay(v, 'dying', t);
     // Everything they carried falls out for someone else: armor, weapon and spare ammo,
     // spread a little so each is easy to pick.
     const side = M.randomTangent(v.p);
@@ -982,11 +970,6 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       pk.wpn = newWeapon();
       pk.rerollAt = t + rand(40, 60);
       broadcast({ t: 'pickup', id: pk.id, wpn: pk.wpn });
-    }
-    // gunpowder arrives: somebody has thoughts about that
-    if (['musket', 'gun', 'laser'].includes(era.id)) {
-      const bots = [...players.values()].filter(p => p.bot && p.alive);
-      butlerSay(bots[Math.floor(Math.random() * bots.length)], 'gunpowder', t);
     }
     log(`era   ${era.name}`);
   }
@@ -1802,8 +1785,6 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       if (Math.random() < 0.25) ai.strafe = -ai.strafe;
       const chatty = game.phase === 'doom' ? 0.35 : fighting() ? 0.015 : 0.08;   // the end of the world makes everyone yell
       if (Math.random() < chatty) emote(b, Math.floor(Math.random() * C.EMOTES.length), t);
-      else if (game.phase === 'doom') butlerSay(b, 'doom', t);
-      else if (fighting()) butlerSay(b, 'fighting', t);
     }
 
     const def = rangedDef();

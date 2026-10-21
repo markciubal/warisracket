@@ -128,7 +128,7 @@ your router or use a tunnel such as `cloudflared tunnel --url http://localhost:3
 | E | Swap weapons at a glowing totem, put on armor, or (when hurt) eat the roast at a campfire |
 | Q | Killstreak beast: call it, then aim and Q again to send it |
 | 1–6 | Grunt: OOGA!, BOOGA!, UNGA BUNGA!, ME SMASH!, ME HUNGRY., WAR IS RACKET! |
-| Tab | Scoreboard |
+| Tab | Scores (with the rock code), plus your weapon's full stats on its card |
 | C | Tribe council (planet rules) |
 | M / N | Mute everything / toggle the drums |
 | G | Graphics: LOW / AUTO / HIGH |
@@ -147,9 +147,14 @@ Open **⚙ SETTINGS** from the lobby, press O in game, or use the button on the 
 after Esc frees the mouse (on phones: ☰ then ⚙). Everything is remembered in that browser,
 and **RESET ALL** puts it back the way it started.
 
+The drums play the whole time, from the lobby on. Browsers don't let a page make sound until you
+click, tap or press a key, so if yours holds it back they start with your first click anywhere
+in the lobby. In the lobby you only hear the drums; the bots fighting on the planet behind it
+stay quiet until you join.
+
 | Section | Settings |
 | --- | --- |
-| Sound | Mute all (M), all sound (starts at 65%), bonks & booms, drums on/off (N), drum loudness, caveman voices (starts at 50%; 0 turns the spoken grunts off) |
+| Sound | Sound on/off (M), all sound (starts at 65%), bonks & booms, drums on/off (N), drum loudness, caveman voices (starts at 50%; 0 turns the spoken grunts off) |
 | Controls | Mouse speed (drag speed on phones), flip up/down look, handed (right / left). Phones also get tilt aim (off by default / soft / normal / wild), flip up/down tilt and buzz |
 
 **Handed**: right-handed (the default) bonks with left click and throws with right click, and your
@@ -157,7 +162,7 @@ caveman throws with his right hand and clubs with his left. Left-handed swaps bo
 bonks, left click throws, and your caveman is the mirror image, throwing with his left hand. Your
 shots come out of that side, the camera moves to that shoulder, and everyone else sees the hands
 swap. About one bot in ten is left-handed too.
-| Screen | Graphics (G), view width (field of view, 50–95°), screen shake, screen flashes (red hurt flash, age glow, end-of-world whiteout), damage numbers, FPS counter, show ping (your latency under the radar: green under 90 ms, yellow under 180, red above; on by default on computers, off on phones) |
+| Screen | Graphics (G), view width (field of view, 50–95°), screen shake, screen flashes (red hurt flash, age glow, end-of-world whiteout), damage numbers, FPS counter, show ping (your latency under the radar: green under 90 ms, yellow under 180, red above; off to start) |
 
 ### Graphics
 
@@ -189,7 +194,7 @@ The controls are the usual phone-game ones: a thumbstick on the left, drag on th
 | GRAB | Shows up next to a totem or armor |
 | BEAST | Shows up with a killstreak beast: tap to call it, tap again to send it where you aim |
 | 🗣 | Grunts |
-| ☰ | Scores (with the rock code) and your weapon card, plus ⚙ settings, ⚑ tribe council (only for the chief) and ✕ quit |
+| ☰ | Scores (with the rock code) and your weapon card with its full stats, plus ⚙ settings, ⚑ tribe council (only for the chief) and ✕ quit |
 
 - **Tilt aim** is off unless you turn it on in settings (**TILT AIM**: SOFT, NORMAL or WILD).
   Then you also **lean the phone** like a steering wheel to turn (the further, the faster) and
@@ -362,16 +367,6 @@ Any reward has an 8% chance of coming out as a T-Rex instead.
 - Its kills count for its owner but don't build the streak, so one beast can't earn the next.
 - Bots earn beasts too, and set them loose straight away. In co-op your beast only goes after
   bots.
-- **Smedley Butler, in cave talk**: the Marine general with two Medals of Honor who wrote *War
-  Is a Racket* (1935) has thoughts on all this bonking. His lines, put into caveman, turn up:
-  - at the bottom of the lobby (tap for another)
-  - on the YOU GO SLEEP screen
-  - on every end-of-round screen
-  - and from the bots: as their last words, when the gunpowder ages arrive, now and then
-    mid-fight, and a lot while the world ends
-
-  Bot quotes show in the kill feed, credited to him. Grunt 6 lets you say WAR IS RACKET! too.
-  The lines and the originals they come from are in `BUTLER` in `shared/constants.js`.
 
 ### Roast meat and magic mushrooms
 

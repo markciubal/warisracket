@@ -60,27 +60,27 @@ export const ERAS = [
 // `strikes` land on red rings between `first` and `last` seconds and get anyone within `blast`.
 // A `wave` sweeps across the planet from a random point between its start and end seconds.
 // At `final` seconds the big one gets everybody; the round ends at `duration`.
-// kill: death feed line, finale: banner when the big one hits, end: round-end subtitle.
+// kill: death feed line, finale: banner when the big one hits.
 export const DISASTERS = {
   meteor: {
     name: 'BIG ROCK FROM SKY', icon: '☄', sub: 'SKY FALLING. FOR REAL THIS TIME.',
     strikes: 7, first: 2.5, last: 6.5, blast: 8, final: 9, duration: 11.5,
-    kill: 'SKY ROCK SQUISH', finale: ['SPLAT.', 'BIG ROCK WIN. OOGA SORRY.'], end: 'SKY ROCK HIT PLANET. LIFE START OVER.',
+    kill: 'SKY ROCK SQUISH', finale: 'SPLAT.',
   },
   volcano: {
     name: 'MOUNTAIN GO BOOM', icon: '🌋', sub: 'MOUNTAIN TOO ANGRY. MOUNTAIN EXPLODE.',
     strikes: 10, first: 2, last: 7, blast: 6, final: 9, duration: 11.5,
-    kill: 'MOUNTAIN COOK', finale: ['KABOOM.', 'MOUNTAIN GONE. EVERYTHING GONE.'], end: 'MOUNTAIN EXPLODE. LIFE START OVER.',
+    kill: 'MOUNTAIN COOK', finale: 'KABOOM.',
   },
   flood: {
     name: 'BIG WATER', icon: '🌊', sub: 'WATER COME. OOGA NO CAN SWIM. RUN!',
     wave: { start: 1.5, end: 9 }, final: 9.2, duration: 11.5,
-    kill: 'BIG WATER SWALLOW', finale: ['BLUB.', 'WATER EVERYWHERE. OOGA SHOULD LEARN SWIM.'], end: 'WATER COVER EVERYTHING. LIFE START OVER.',
+    kill: 'BIG WATER SWALLOW', finale: 'BLUB.',
   },
   freeze: {
     name: 'BIG COLD', icon: '❄', sub: 'SUN GO AWAY. ICE FALL FROM SKY.',
     strikes: 8, first: 2, last: 7, blast: 5, final: 9, duration: 11.5,
-    kill: 'BIG COLD FREEZE', finale: ['CRACK.', 'EVERYBODY ICE CUBE NOW.'], end: 'PLANET TURN TO ICE. LIFE START OVER.',
+    kill: 'BIG COLD FREEZE', finale: 'CRACK.',
   },
 };
 
@@ -375,66 +375,6 @@ export const HAIRS = ['#2b1a0e', '#4a2c12', '#161212', '#7a4a1f', '#8b2d0f', '#b
 
 export const EMOTES = ['OOGA!', 'BOOGA!', 'UNGA BUNGA!', 'ME SMASH!', 'ME HUNGRY.', 'WAR IS RACKET!'];
 export const EMOTE_SPEECH = ['ooga!', 'booga!', 'unga bunga!', 'me smash!', 'me hungry', 'war is racket!'];
-
-// Smedley Butler: US Marine Corps general, two Medals of Honor, then author of "War Is a Racket"
-// (1935). His words, put into cave talk; the original is in the comment after each one.
-export const BUTLER = {
-  by: 'SMEDLEY BUTLER, IN CAVE TALK',
-  quotes: [
-    'WAR IS RACKET. ALWAYS BEEN. MAYBE OLDEST RACKET. SURE MOST SHINY-ROCK RACKET. SURE MOST MEAN.',
-    // "War is a racket. It always has been. It is possibly the oldest, easily the most profitable, surely the most vicious."
-    'RACKET IS THING NOT WHAT IT LOOK LIKE. ONLY SMALL INSIDE TRIBE KNOW. IT FOR VERY FEW CAVEMEN. VERY MANY CAVEMEN PAY.',
-    // "A racket is best described, I believe, as something that is not what it seems to the majority of the people.
-    //  Only a small 'inside' group knows what it is about. It is conducted for the benefit of the very few, at the expense of the very many."
-    'OUT OF WAR, FEW CAVEMEN GET GIANT PILE OF SHINY ROCK.',
-    // "Out of war a few people make huge fortunes."
-    'ONLY RACKET WHERE WIN COUNTED IN SHINY ROCK AND LOSS COUNTED IN CAVEMEN.',
-    // "It is the only one in which the profits are reckoned in dollars and the losses in lives."
-    'HOW MANY WAR-RICH CAVEMEN CARRY SPEAR? HOW MANY DIG DITCH IN MUD?',
-    // "How many of these war millionaires shouldered a rifle? How many of them dug a trench?"
-    'ONLY TWO THINGS WORTH BONK FOR: DEFEND OWN CAVE, AND DEFEND TRIBE RIGHTS. BONK FOR ANY OTHER REASON IS JUST RACKET.',
-    // "There are only two things we should fight for. One is the defense of our homes and the other is the Bill of Rights.
-    //  War for any other reason is simply a racket."
-    'ME SPEND 33 WINTERS AS FANCY MUSCLE CAVEMAN FOR BIG ROCK-HOARDERS. ME WAS RACKETEER. GANGSTER FOR SHINY ROCK.',
-    // "I spent 33 years and four months in active military service ... being a high class muscle man for Big Business,
-    //  for Wall Street and the bankers. In short, I was a racketeer, a gangster for capitalism."
-    'CAPONE RUN RACKET IN THREE VALLEYS. ME RUN RACKET ON THREE BIG LANDS. MAYBE ME TEACH CAPONE FEW TRICKS.',
-    // "I might have given Al Capone a few hints. The best he could do was to operate his racket in three districts.
-    //  I operated on three continents."
-    'ME HELP MAKE FAR SOUTH LAND SAFE FOR BLACK-GOO HOARDERS.',
-    // "I helped make Mexico and especially Tampico safe for American oil interests in 1914."
-    'PRETTY WORDS PAINTED FOR YOUNG CAVEMEN. THEN YOUNG CAVEMEN SENT TO GO SLEEP FOREVER.',
-    // "Beautiful ideals were painted for our boys who were sent out to die."
-    'WHO PAY BILL? WHOLE TRIBE PAY. BILL IS NEW GRAVE ROCKS. BROKEN BONES. BROKEN HEADS. BROKEN CAVES.',
-    // "The general public shoulders the bill. And what is this bill? ... Newly placed gravestones. Mangled bodies.
-    //  Shattered minds. Broken hearts and homes."
-    'FLAG FOLLOW SHINY ROCK. SPEAR CAVEMEN FOLLOW FLAG.',
-    // "The flag follows the dollar and the soldiers follow the flag." (attributed)
-    'TO HELL WITH WAR!',
-    // "TO HELL WITH WAR!" (the last line of War Is a Racket)
-  ],
-  // short ones the bots shout (see BUTLER_MOMENTS for when)
-  shouts: [
-    'WAR IS RACKET!',
-    'TO HELL WITH WAR!',
-    'ME GANGSTER FOR SHINY ROCK!',
-    'FLAG FOLLOW SHINY ROCK!',
-    'FEW GET SHINY ROCK. MANY GO SLEEP.',
-    'ONLY BONK FOR OWN CAVE!',
-    'WAR-RICH CAVEMAN NO CARRY SPEAR!',
-  ],
-};
-// Which shouts fit which moment, and how often (chance, with a planet-wide quiet gap in seconds).
-export const BUTLER_MOMENTS = {
-  dying: { shouts: [1, 4, 6], chance: 0.3 },        // a bot's last words
-  gunpowder: { shouts: [0, 3], chance: 1 },         // musket, gun and laser ages arrive
-  fighting: { shouts: [0, 2, 5], chance: 0.004 },   // per bot decision
-  doom: { shouts: [1, 0], chance: 0.05 },           // the end of the world
-  gap: 18,
-  doomGap: 4,
-};
-// The fitting quote for each end-of-round screen (BUTLER.quotes index).
-export const BUTLER_ENDINGS = { doom: [12, 3, 10], time: [0, 2, 4], wiped: [9, 5, 1] };
 
 const FIRST = ['Grok', 'Ugg', 'Thag', 'Zug', 'Oog', 'Brak', 'Krunk', 'Mog', 'Gronk', 'Durg', 'Rok', 'Bok',
   'Nug', 'Zorg', 'Hurg', 'Grub', 'Lug', 'Tharg', 'Ook', 'Glub', 'Krag', 'Urk', 'Dag', 'Gork', 'Mung',

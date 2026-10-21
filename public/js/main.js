@@ -242,7 +242,7 @@ function setGame(info) {
   if (prev.mode !== state.game.mode) for (const pl of state.players.values()) pl.model.setTeam(teamOf(pl));
   if (prev.chief !== state.game.chief) {
     for (const pl of state.players.values()) pl.model.setChief(pl.id === state.game.chief);
-    if (state.game.chief && state.game.chief === state.myId) hud.feed(`<span class="me">YOU ARE CHIEF NOW.</span> ${isTouch ? 'TAP RULES' : 'PRESS C'} FOR TRIBE COUNCIL`);
+    if (state.game.chief && state.game.chief === state.myId) hud.feed(`<span class="me">YOU ARE CHIEF</span> · ${isTouch ? 'RULES IN ☰' : 'C FOR RULES'}`);
   }
   refreshRules();
 }
@@ -322,8 +322,8 @@ function setRoom(code) {
   $('room-pick').classList.toggle('hidden', !!code);
   $('room-in').classList.toggle('hidden', !code);
   $('room-show').textContent = code;
-  $('room-link').textContent = code ? `${location.host}/${code}` : '';
-  $('score-room').textContent = code ? `ROCK CODE ${code} · FRIENDS JOIN WITH IT` : '';
+  $('room-show').title = code ? `${location.host}/${code}` : '';
+  $('score-room').textContent = code ? `ROCK CODE ${code}` : '';
   if (!state.worldReady) {
     $('play').disabled = true;
     $('play').textContent = 'CONNECTING...';
@@ -349,9 +349,11 @@ function askRoom(msg) {
 
 // Off this rock, back to picking one.
 function leaveRoom() {
+  const code = state.room;
   send({ t: 'room', leave: 1 });
   if (state.world) clearWorld();
   setRoom('');
+  roomNote(`LEFT ROCK ${code}. A ROCK CLOSES WHEN NOBODY IS ON IT; ITS LINK STILL WORKS.`);
 }
 
 function refreshRoomPick() {
@@ -360,7 +362,7 @@ function refreshRoomPick() {
   $('room-new').textContent = state.connected ? 'MAKE NEW ROCK' : 'CONNECTING...';
 }
 
-const ROOM_HELP = 'NEW ROCK = NEW PLANET JUST FOR YOUR TRIBE. FRIENDS JOIN WITH ITS CODE.';
+const ROOM_HELP = 'EACH ROCK IS ITS OWN GAME. SHARE ITS CODE SO FRIENDS JOIN YOURS.';
 function roomNote(text, err = false) {
   $('room-note').textContent = text || ROOM_HELP;
   $('room-note').classList.toggle('err', err);
@@ -429,13 +431,14 @@ function askQuit(btn) {
   if (!state.joined) return;
   if (btn.classList.contains('armed')) { quitGame(); return; }
   btn.dataset.label ??= btn.textContent;
-  btn.textContent = isTouch ? 'SURE? TAP AGAIN' : 'SURE? CLICK AGAIN';
+  btn.textContent = 'SURE?';
   btn.classList.add('armed');
   clearTimeout(btn.disarm);
   btn.disarm = setTimeout(() => disarmQuit(btn), 3000);
 }
 
 function disarmQuit(btn) {
+  if (!btn.classList.contains('armed')) return;
   clearTimeout(btn.disarm);
   btn.classList.remove('armed');
   if (btn.dataset.label) btn.textContent = btn.dataset.label;
@@ -523,18 +526,14 @@ const handlers = {
   era(m) {
     setGame(m);
     const era = C.ERAS[m.era];
-    const len = Math.round(m.eraLen);
-    // co-op ages last a couple of waves, not a set time
-    mammonSay(pick(C.MAMMON.newAge), { force: true, feed: true });
-    const howLong = m.mode === 'coop' ? `${C.COOP.ageEvery} WAVES` : len >= 60 ? `${Math.round(len / 6) / 10} MIN` : `${len} SEC`;
-    hud.center(`${era.name}!`, `${era.sub} · ${howLong}`, 3.5);
-    hud.feed(`<span class="streak">${era.name}</span> BEGIN`);
+    mammonSay(pick(C.MAMMON.newAge), { force: true });
+    // a new age's weapon lands in front of you (the server drops it); yours is still yours
+    const gift = era.regear && state.myId && me.alive;
+    hud.center(`${era.name}!`, gift ? `NEW WEAPON AT YOUR FEET · ${isTouch ? 'GRAB' : 'E'} TO TAKE IT` : era.sub, 2.5);
     hud.flash(0.6, 'era');
     sound.play('era');
     const shout = { bow: 'bendy stick!', sword: 'shiny rock!', musket: 'boom stick!', gun: 'bang bang!', laser: 'zap zap!' }[era.id];
     if (shout) sound.speak(shout, { pitch: 0.3 });
-    // a new age's weapon lands in front of you (the server drops it); yours is still yours
-    if (era.regear && state.myId && me.alive) hud.feed(`SPIRITS DROP A NEW WEAPON IN FRONT OF YOU · <span class="me">${isTouch ? 'GRAB' : 'E'}</span> TO TAKE IT, OR KEEP YOURS`);
     if (state.myId && me.alive) {
       const up = v3(me.p);
       fx.burst(up.clone().multiplyScalar(R + 1.5), { count: 30, color: '#ffd34d', speed: 6, size: 0.1, life: 1.2, up, emissive: true });
@@ -547,27 +546,23 @@ const handlers = {
     me.charging = false;
     if (!state.game.mmDead) {
       state.roundProfit = mammonGrowth().profit;
-      mammonSay(C.MAMMON.end, { force: true, feed: true });
+      mammonSay(C.MAMMON.end, { force: true });
     }
-    const ending = m.mode === 'coop' ? 'wiped' : m.disaster ? 'doom' : 'time';
-    state.roundQuote = C.BUTLER.quotes[pick(C.BUTLER_ENDINGS[ending])];
     if (m.mode === 'coop') {
       sound.play('die');
       sound.speak('tribe fall down', { pitch: 0.2 });
-      hud.feed(`<span class="streak">TRIBE WIPED OUT</span> ON WAVE ${m.wave}`);
       return;
     }
     const doomed = !!m.disaster;
     if (!doomed) sound.play('era');
     const won = m.standings[0]?.id === state.myId;
     sound.speak(won ? 'me win! me best caveman!' : doomed ? 'everything gone' : 'time done', { pitch: 0.25 });
-    hud.feed(`<span class="streak">${doomed ? 'EVERYTHING GONE!' : 'TIME DONE!'}</span> ${m.standings[0] ? `${esc(m.standings[0].name)} WIN` : ''}`);
   },
 
   // The end of the world: the server picked the disaster and when and where everything lands.
   doom(m) {
     setGame(m);
-    mammonSay(C.MAMMON.doom, { force: true, feed: true });
+    mammonSay(C.MAMMON.doom, { force: true });
     startDoom(m);
   },
 
@@ -577,7 +572,7 @@ const handlers = {
     const mm = state.world?.mammon;
     if (!mm || mm.dead) return;
     state.roundProfit = mammonGrowth().profit;
-    mammonSay(C.MAMMON.death, { force: true, feed: true });
+    mammonSay(C.MAMMON.death, { force: true });
     mm.onLand = () => {
       const d = M.arcDist(me.p, C.MAMMON.at);
       sound.play('stomp', d);
@@ -608,14 +603,8 @@ const handlers = {
     for (const f of state.world?.fires || []) f.readyAt = 0;
     for (const pk of m.pickups) state.world?.setPickupWeapon(pk.id, pk.wpn);
     if (state.joined) {
-      const intro = {
-        dotime: ['NEW STONE AGE!', 'LIFE FIND WAY. DO TIME AGAIN.'],
-        classic: ['FOREVER STONE!', 'SPEARS AND BONES. NO END.'],
-        coop: ['TRIBE VS BOTS!', 'ALL HUMANS ONE TRIBE. BOTS COME IN WAVES. GET READY.'],
-      }[m.mode];
-      hud.center(intro[0], intro[1], 3);
+      hud.center({ dotime: 'NEW STONE AGE!', classic: 'FOREVER STONE!', coop: 'TRIBE VS BOTS!' }[m.mode], '', 2);
       setTimeout(() => mammonSay(C.MAMMON.start, { force: true }), 3500);
-      hud.feed(`<span class="streak">NEW ROUND</span> · ${C.MODES[m.mode]}`);
     }
   },
 
@@ -624,14 +613,11 @@ const handlers = {
     setGame(m);
     if (!state.joined) return;
     if (m.start) {
-      const lvl = C.botLevelDef(m.waveLevel);
-      hud.center(`WAVE ${m.wave}!`, `${m.waveSize} BOTS COMING · BRAINS ${m.waveLevel}/10 ${lvl.name}`, 3);
-      hud.feed(`<span class="streak">WAVE ${m.wave}</span> · ${m.waveSize} BOTS`);
+      hud.center(`WAVE ${m.wave}!`, `${m.waveSize} BOTS COMING`, 2.5);
       sound.play('era');
       sound.speak(pick(['here they come!', 'bots! many bots!', 'tribe! bonk them!']), { pitch: 0.3 });
     } else if (m.cleared) {
-      hud.center(`WAVE ${m.wave} DONE!`, 'FALLEN FRIENDS WAKE UP. EVERYBODY EAT. NEXT WAVE SOON.', 3.5);
-      hud.feed(`<span class="streak">WAVE ${m.wave} CLEARED</span>`);
+      hud.center(`WAVE ${m.wave} DONE!`, 'FALLEN FRIENDS WAKE UP', 2.5);
       hud.flash(0.5, 'era');
       sound.play('kill');
       sound.speak('tribe strong!', { pitch: 0.3 });
@@ -683,7 +669,7 @@ const handlers = {
     const pl = state.players.get(m.id);
     const def = C.BEASTS[m.kind];
     if (!def) return;
-    if (state.joined) hud.feed(`<span class="streak">${esc(playerName(pl))} EARN ${def.icon} ${def.name.toUpperCase()}!</span>`);
+    if (state.joined && !pl.bot) hud.feed(`<span class="streak">${esc(playerName(pl))} EARN ${def.icon} ${def.name.toUpperCase()}!</span>`);
     if (m.id !== state.myId) return;
     me.reward = m.kind;
     const how = isTouch ? 'TAP BEAST TO CALL IT. TAP AGAIN TO SEND IT.' : 'PRESS Q TO CALL IT. AIM + Q TO SEND IT.';
@@ -733,7 +719,7 @@ const handlers = {
       const by = state.players.get(m.by);
       if (state.joined) hud.feed(by ? `<span class="${m.by === state.myId ? 'me' : ''}">${esc(by.name)}</span> SLAY ${name}!` : `${name} GO SLEEP`);
       sound.play('die', distTo(b.rp));
-      if (m.by === state.myId) hud.center(`YOU SLAY ${b.name.toUpperCase()}!`, b.kind === 'dog' ? 'BAD DOG. BAD.' : 'BIG BONK. TRIBE TELL STORY FOREVER.', 2.4);
+      if (m.by === state.myId) hud.center(`YOU SLAY ${b.name.toUpperCase()}!`, '', 1.6);
     } else if (state.joined) hud.feed(`${name} WANDER OFF`);
     removeBeast(m.id, m.reason === 'slain');
   },
@@ -823,17 +809,17 @@ const handlers = {
     hud.setHp(me.hp);
     if (!me.helped) {
       me.helped = true;
-      const dotime = state.game.mode === 'dotime';
-      hud.center(dotime ? 'DO TIME! BONK THROUGH THE AGES.' : 'THROW SPEAR. BONK CAVEMEN.',
-        dotime ? `STONE → BOW → SWORD → BOOM → BANG → ZAP → ??? · ${state.game.eraSeconds} SEC EACH · GRAB ARMOR · E AT TOTEMS`
-          : `${mouseWord('melee')} MOUSE / F TO BONK · HOLD ${mouseWord('ranged')} MOUSE TO THROW · E AT TOTEMS FOR NEW WEAPON`, 5);
+      // first time on: the mode, and how to play
+      const how = isTouch ? 'LEFT THUMB RUN · DRAG RIGHT SIDE TO AIM'
+        : `WASD RUN · ${mouseWord('melee')} CLICK BONK · HOLD ${mouseWord('ranged')} CLICK THROW`;
+      hud.center({ dotime: 'MOST BONKS WINS!', classic: 'BONK EVERYBODY!', coop: 'BEAT THE BOT WAVES!' }[state.game.mode] || 'OOGA!', how, 4);
     }
   },
 
   pjoin(m) {
     const pl = addPlayer(m.pl);
     // while our own join is in flight (no id yet), the next pjoin is us
-    if (state.joined && state.myId && pl.id !== state.myId) hud.feed(`${esc(pl.name)} JOIN TRIBE${pl.bot ? ' (BOT)' : ''}`);
+    if (state.joined && state.myId && pl.id !== state.myId && !pl.bot) hud.feed(`${esc(pl.name)} JOIN TRIBE`);
   },
 
   pleave(m) {
@@ -841,7 +827,7 @@ const handlers = {
     if (!pl) return;
     pl.model.dispose();
     state.players.delete(m.id);
-    if (state.joined) hud.feed(`${esc(pl.name)} WANDER OFF`);
+    if (state.joined && !pl.bot) hud.feed(`${esc(pl.name)} WANDER OFF`);
     updateOnline();
   },
 
@@ -1065,7 +1051,7 @@ const handlers = {
       if (!C.BEASTS[m.k]) k.streak++;
       if (m.k !== 'doom' && Math.random() < 0.35) mammonSay(pick(C.MAMMON.gloat));
       const title = C.STREAKS[k.streak];
-      if (title) {
+      if (title && !k.bot) {
         hud.feed(`<span class="streak">${esc(k.name)} ${title}</span>`);
         if (k.id === state.myId) sound.speak(title.toLowerCase(), { pitch: 0.25 });
       }
@@ -1075,13 +1061,12 @@ const handlers = {
       me.deadAt = clock();
       me.charging = false;
       me.deathText = line;
-      hud.deathQuote(pick(C.BUTLER.quotes), C.BUTLER.by);   // something to think about while you nap
       sound.speak(pick(['ugh', 'oof', 'ow ow ow']), { pitch: 0.1 });
       buzz([60, 40, 120]);
     }
     if (m.a === state.myId && m.v !== state.myId) {
       const title = C.STREAKS[k?.streak];
-      hud.center(`YOU BONK ${playerName(v).toUpperCase()}!`, title || pick(['BOOGA!', 'ME STRONGEST!', 'GO SLEEP, SMALL BRAIN!', 'TRIBE PROUD!', 'MORE MEAT FOR ME!']), 2.4);
+      hud.center(`YOU BONK ${playerName(v).toUpperCase()}!`, title || '', 1.6);
       sound.play('kill');
       if (!title) sound.speak(pick(['booga!', 'ooga ooga!', 'me win!']), { pitch: 0.3 });
     }
@@ -1107,19 +1092,8 @@ const handlers = {
       hud.death(false);
       hud.setHp(me.hp);
       hud.setWeapon(m.wpn);
-      hud.center('WAKE UP!', `SPIRITS GIVE YOU ${m.wpn.name.toUpperCase()}`, 2.4);
+      hud.center('WAKE UP!', m.wpn.name.toUpperCase(), 1.6);
     }
-  },
-
-  // a bot quoting Smedley Butler (in cave talk)
-  say(m) {
-    const pl = state.players.get(m.id);
-    const text = C.BUTLER.shouts[m.q];
-    if (!pl || !text) return;
-    pl.model.playEmote();
-    fx.float(v3(pl.rp).multiplyScalar(R + pl.rh), text, 'emote quote', { life: 3, rise: 0.4, follow: pl.model.root, offset: 3 });
-    sound.speak(text.toLowerCase(), { pitch: 0.15, dist: distTo(pl.rp) });
-    if (state.joined) hud.feed(`${esc(pl.name)}: <span class="quote">"${text}"</span> <span class="by">(SMEDLEY BUTLER)</span>`);
   },
 
   emote(m) {
@@ -1139,11 +1113,9 @@ const handlers = {
     if (m.id === state.myId) {
       me.wpn = m.wpn;
       hud.setWeapon(m.wpn);
-      if (m.era) {
-        hud.feed(`SPIRITS GIVE YOU <span class="me">${esc(m.wpn.name.toUpperCase())}</span>`);
-      } else {
+      if (!m.era) {
         sound.play('pickup');
-        hud.center(`GOT ${m.wpn.name.toUpperCase()}!`, m.wpn.desc.toUpperCase(), 1.8);
+        hud.center(`GOT ${m.wpn.name.toUpperCase()}!`, '', 1.4);
       }
     }
   },
@@ -1186,7 +1158,7 @@ function killText(m, v, k) {
     case 'self': return `${vn} HIT OWN SELF. OOGA SAD.`;
     case 'boulder': return k ? `${kn} PUSH ${vn} UNDER BIG ROCK` : `BIG ROCK FLATTEN ${vn}`;
     case 'fire': return k ? `${kn} FEED ${vn} TO MOUNTAIN` : `MOUNTAIN FIRE COOK ${vn}`;
-    case 'bleed': return k ? `${vn} LEAK TOO MUCH (THANK ${kn})` : `${vn} LEAK TOO MUCH`;
+    case 'bleed': return k ? `${vn} BLED OUT (THANK ${kn})` : `${vn} BLED OUT`;
     case 'dog': case 'mammoth': case 'trex':
       return `${kn}'S ${(m.w || C.BEASTS[m.k].name).toUpperCase()} ${C.BEASTS[m.k].verb} ${vn}`;
     default: return `${vn} GO SLEEP`;
@@ -1528,19 +1500,19 @@ function mammonGrowth() {
 }
 
 // He speaks (bubble over his head, a fat little laugh, a cash register) if he hasn't just.
-function mammonSay(text, { force = false, feed = false } = {}) {
+function mammonSay(text, { force = false } = {}) {
   const mm = state.world?.mammon;
   if (!mm || mm.dead || (!force && clock() - state.mammonSaid < 7)) return;
   state.mammonSaid = clock();
   mm.laugh();
-  const at = mm.headPosition(new THREE.Vector3());
+  mm.sign.updateWorldMatrix(true, false);
+  const at = mm.sign.getWorldPosition(new THREE.Vector3());   // above his sign, not on top of it
   const d = M.arcDist(me.p, C.MAMMON.at);
   if (state.joined && d < 45) {
-    fx.float(at.addScaledVector(at.clone().normalize(), 1.2), text, 'emote quote mammon', { life: 3.4, rise: 0.3 });
+    fx.float(at.addScaledVector(at.clone().normalize(), 0.9), text, 'emote mammon', { life: 3, rise: 0.3 });
     sound.play('chaching', d);
     sound.speak(text.toLowerCase().replace('cha-ching', ''), { pitch: 0.05, dist: d });
   }
-  if (feed && state.joined) hud.feed(`<span class="mammon">THE BUSINESSMAN:</span> <span class="quote">"${esc(text)}"</span>`);
 }
 
 // Whose skin he has: mine. My caveman's once I'm on the planet, else whatever I've picked in the lobby.
@@ -1590,7 +1562,7 @@ function addBeast(m, fresh = true) {
     fx.burst(up.clone().multiplyScalar(R + 0.5), { count: 24, color: '#8a6a45', speed: 7, size: 0.16, life: 1, up });
     fx.addShake(Math.max(0, 0.5 - distTo(b.rp) / 60));
     sound.play(BEAST_CALL[m.kind], distTo(b.rp));
-    if (state.joined) hud.feed(`<span class="streak">${esc(playerName(owner))} CALL ${def.icon} ${b.name.toUpperCase()}!</span>`);
+    if (state.joined && owner && !owner.bot) hud.feed(`<span class="streak">${esc(playerName(owner))} CALL ${def.icon} ${b.name.toUpperCase()}!</span>`);
   }
   return b;
 }
@@ -1909,6 +1881,7 @@ function fireRanged(t, charge) {
     const end = traceZap(pos, dir.toArray(), def.range);
     fx.beam(v3(pos), v3(end), { color: '#7fe8ff' });
     sendAttack({ t: 'throw', pos: r4(pos), vel: r4(dir.toArray()) });
+    hud.rangedUsed();
     fx.addShake(0.04);
     return;
   }
@@ -1917,6 +1890,7 @@ function fireRanged(t, charge) {
   s.tid = tid;
   state.pending.set(tid, s);
   sendAttack({ t: 'throw', pos: r4(pos), vel: r4(vel), tid });
+  hud.rangedUsed();
   if (def.proj === 'ball') fx.addShake(0.25);
   if (def.proj === 'bullet') fx.addShake(0.05);
   if (SHOUTS[def.proj] && Math.random() < 0.3) fx.float(v3(me.p).multiplyScalar(R + me.h + 2.2), pick(SHOUTS[def.proj]), 'ooga', { life: 0.9 });
@@ -2140,8 +2114,7 @@ function startDoom(m) {
   for (const id of [...state.armorDrops.keys()]) removeArmorDrop(id);
   clearLoot();
   if (el > 1) return;   // joined partway through: skip the announcement
-  hud.center(`${def.icon} ${def.name}! ${def.icon}`, def.sub, 4);
-  hud.feed(`<span class="streak">${def.name}</span> · RUN! (IT NO HELP)`);
+  hud.center(`${def.icon} ${def.name}! ${def.icon}`, def.sub, 3);
   sound.play(DOOM[kind].intro);
   sound.speak('uh oh', { pitch: 0.2 });
 }
@@ -2367,7 +2340,7 @@ function cloudColumn(ground, u) {
 
 // The big one: it gets everybody.
 function finale(run) {
-  hud.center(run.def.finale[0], run.def.finale[1], 4);
+  hud.center(run.def.finale, '', 2.5);
   state.doomTarget = 1;
   fx.addShake(1.2);
   if (run.kind === 'meteor' || run.kind === 'volcano') {
@@ -2554,9 +2527,13 @@ function updateHud(dt, t) {
   hud.setStatus({ stun: t < me.stunUntil, slow: t < me.slowUntil, bleed: mine && mine.flags & 16, buffs });
   hud.eruptWarning(t < state.eruptUntil);
   hud.scoreboard(state.players.values(), state.myId, input.down('Tab'), state.game.chief);
-  hud.roundEnd(state.game.phase === 'end' ? state.standings : null, state.myId, left, state.game.disaster, coop ? state.game.wave : 0, state.roundQuote, state.roundProfit || 0, !!state.game.mmDead);
+  // weapon stats only while the scores are up (Tab, or ☰ on a phone)
+  document.body.classList.toggle('details', input.down('Tab'));
+  const roundOver = state.game.phase === 'end';
+  hud.roundEnd(roundOver ? state.standings : null, state.myId, left, state.game.disaster, coop ? state.game.wave : 0, state.roundProfit || 0, !!state.game.mmDead);
   const councilOpen = !$('council').classList.contains('hidden');
   $('lock-hint').classList.toggle('hidden', input.locked || !me.alive || councilOpen || settingsOpen());
+  if ($('lock-hint').classList.contains('hidden')) disarmQuit($('lock-quit'));
   if (touch) {
     const def = rangedDef();
     touch.update({
@@ -2565,7 +2542,7 @@ function updateHud(dt, t) {
       throwLabel: THROW_LABEL[def.proj] || 'THROW',
       ammo: me.ammo,
       charge: me.charging && !def.auto ? me.charge : 0,
-      verb: me.wpn?.verb || 'BONK',
+      verb: 'BONK',   // one word that always means melee (weapon verbs like ZAP clash with the throw button)
       cooldown: me.wpn ? (t - me.lastSwing) / me.wpn.cd : 1,
     });
   }
@@ -2578,11 +2555,12 @@ function updateHud(dt, t) {
       // co-op: down until the tribe clears the wave
       let standing = 0;
       for (const p of state.players.values()) if (!p.bot && p.alive) standing++;
-      line = standing ? `${standing} FRIEND${standing > 1 ? 'S' : ''} STILL BONKING. WAKE UP WHEN WAVE DONE...` : 'WHOLE TRIBE DOWN...';
+      line = standing ? `WAKE UP WHEN WAVE DONE · ${standing} FRIEND${standing > 1 ? 'S' : ''} LEFT` : 'WHOLE TRIBE DOWN';
     } else {
-      line = waiting ? 'WAIT FOR NEW STONE AGE...' : left > 0.2 ? `WAKE UP IN ${Math.ceil(left)}...` : 'WAKING UP...';
+      line = waiting ? 'WAIT FOR NEW STONE AGE' : left > 0.2 ? `WAKE UP IN ${Math.ceil(left)}` : 'WAKING UP...';
     }
-    hud.death(true, me.deathText, line);
+    // the round-end scores take over the screen
+    hud.death(!roundOver, me.deathText, line);
   }
 
   if (settings.get('fps')) {
@@ -2666,6 +2644,7 @@ function initLobby() {
     state.joinMsg = { t: 'join', name, look: { ...look, lefty: settings.get('lefty') ? 1 : 0 } };
     send(state.joinMsg);
     state.joined = true;
+    sound.inWorld = true;   // now, not next frame, so the shout below is heard
     $('lobby').classList.add('hidden');
     hud.show(true);
     input.enabled = true;
@@ -2677,7 +2656,6 @@ function initLobby() {
       // full screen and sideways where the browser allows it (Android); iPhones ignore this
       const fs = document.documentElement.requestFullscreen?.({ navigationUI: 'hide' });
       fs?.then(() => screen.orientation?.lock?.('landscape')).catch(() => {});
-      hud.center('OOGA BOOGA!', TILT_LEVELS[tilt.level] ? 'LEFT THUMB RUN · LEAN PHONE TO TURN · TIP PHONE TO AIM UP/DOWN' : 'LEFT THUMB RUN · DRAG RIGHT SIDE TO AIM', 3.5);
     }
   };
   $('play').onclick = join;
@@ -2705,21 +2683,6 @@ function initLobby() {
   roomNote('');
   // opened from a share link (/KPTX): straight onto that rock once connected
   setRoom(C.cleanRoomCode(location.pathname.slice(1)));
-
-  // a Smedley Butler line at the bottom of the lobby, a new one every 14 s or on a tap
-  const quotes = C.BUTLER.quotes;
-  let wiseI = Math.floor(Math.random() * quotes.length);
-  const wise = $('wise-text');
-  const showWise = () => { wise.textContent = `“${quotes[wiseI]}”`; wise.classList.add('show'); };
-  const nextWise = () => {
-    wiseI = (wiseI + 1 + Math.floor(Math.random() * (quotes.length - 1))) % quotes.length;
-    wise.classList.remove('show');
-    setTimeout(showWise, 300);
-  };
-  $('wise-by').textContent = `— ${C.BUTLER.by}`;
-  $('wise').onclick = nextWise;
-  setInterval(() => { if (!state.joined) nextWise(); }, 14000);
-  showWise();
 }
 
 // ====================================================================== settings panel
@@ -2731,11 +2694,13 @@ function toggleSettings(open = !settingsOpen()) {
   if (open) {
     // quitting only makes sense from in a game (from the lobby it's just BACK)
     $('settings-quit').classList.toggle('hidden', !state.joined);
+    // opened from the pause screen: BACK goes back to it rather than into the game
+    state.settingsFromPause = state.joined && !isTouch && !input.locked;
     touch?.setTribe(false);
     input.unlock();
   } else {
     disarmQuit($('settings-quit'));
-    if (state.joined && (me.alive || isTouch) && $('council').classList.contains('hidden')) input.lock();
+    if (state.joined && !state.settingsFromPause && (me.alive || isTouch) && $('council').classList.contains('hidden')) input.lock();
   }
 }
 $('settings-close').onclick = () => toggleSettings(false);
@@ -2817,23 +2782,19 @@ function refreshRules() {
     root.querySelectorAll('.levels button').forEach(b => b.classList.toggle('lit', Number(b.dataset.v) <= g.botLevel));
     const lvl = C.botLevelDef(g.botLevel);
     const coop = g.mode === 'coop';
-    root.querySelector('[data-level-desc]').textContent = `${g.botLevel}/10 ${lvl.name}: ${lvl.desc}${coop ? ` (WAVE 1. +1 EVERY ${C.COOP.smarterEvery} WAVES)` : ''}`;
+    root.querySelector('[data-level-desc]').textContent = `${g.botLevel}/10 ${lvl.name}: ${lvl.desc}`;
     root.querySelector('[data-bots]').textContent = g.bots;
-    root.querySelector('[data-fill-desc]').textContent = coop
-      ? 'NOT USED IN TRIBE VS BOTS: EACH WAVE BRING MORE BOTS.'
-      : 'BOTS JOIN UNTIL ROCK HAS THIS MANY CAVEMEN. 0 = HUMANS ONLY.';
+    root.querySelector('[data-fill-desc]').textContent = coop ? 'NOT USED: WAVES DECIDE.' : '0 = HUMANS ONLY.';
     root.querySelector('[data-desc]').textContent = {
-      dotime: `STONE → BOW → SWORD → MUSKET → GUN → LASER → DISASTER (SKY ROCK, MOUNTAIN BOOM, BIG WATER OR BIG COLD). EACH AGE ${g.eraSeconds} SEC. ARMOR FALL FROM SKY. MOST BONKS BEFORE THE END WIN.`,
-      classic: 'SPEARS AND BONES FOREVER. NO CLOCK. NO ARMOR.',
-      coop: `CO-OP. ALL HUMANS ONE TRIBE VS WAVES OF BOTS. NO HURTING FRIENDS. FALL DOWN = WAIT TILL WAVE DONE. WHOLE TRIBE DOWN = START OVER. NEW AGE EVERY ${C.COOP.ageEvery} WAVES.`,
+      dotime: `SIX AGES, ${g.eraSeconds} SEC EACH, THEN THE WORLD ENDS. MOST BONKS WINS.`,
+      classic: 'SPEARS AND BONES FOREVER. NO CLOCK.',
+      coop: 'ALL HUMANS VS WAVES OF BOTS.',
     }[g.mode];
   }
-  $('lobby-note').textContent = humans.length === 0
-    ? 'NOBODY ON ROCK YET. YOU PICK RULES, THEN YOU CHIEF.'
-    : `CHIEF ${chiefName} PICK RULES · ${humans.length} HUMAN${humans.length > 1 ? 'S' : ''} ON ROCK`;
-  $('council-note').textContent = iAmChief
-    ? 'YOU ARE CHIEF. YOU PICK. NEW MODE = NEW ROUND.'
-    : `ONLY CHIEF ${chiefName} CHANGE RULES. CHIEF = LONGEST ON ROCK.`;
+  // folded away in the lobby: one line says what's set
+  $('rules-sum').textContent = `RULES: ${C.MODES[g.mode]} · ${g.mode === 'coop' ? 'WAVES' : `${g.bots} BOTS`} · BRAINS ${g.botLevel}`;
+  $('lobby-note').textContent = humans.length === 0 ? 'YOU PICK THE RULES.' : `CHIEF ${chiefName} PICKS THE RULES.`;
+  $('council-note').textContent = iAmChief ? 'NEW MODE = NEW ROUND.' : `ONLY CHIEF ${chiefName} CAN CHANGE RULES.`;
 }
 
 function toggleCouncil(open = $('council').classList.contains('hidden'), relock = true) {
@@ -2861,8 +2822,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyN') hud.center(settings.toggle('music') ? 'DRUMS ON' : 'DRUMS OFF', '', 1);
   if (e.code === 'KeyG') {
     settings.set('gfx', GFX_ORDER[(GFX_ORDER.indexOf(gfxKey) + 1) % GFX_ORDER.length]);
-    const tips = { low: 'FAST ROCK. NO SHADOW, LESS SMOKE.', auto: 'ROCK PICK SHARPNESS BY SPEED.', high: 'PRETTY ROCK. NEEDS STRONG COMPUTER.' };
-    hud.center(`GRAPHICS: ${GFX[gfxKey].label}`, tips[gfxKey], 1.5);
+    hud.center(`GRAPHICS: ${GFX[gfxKey].label}`, '', 1.2);
   }
   if (e.code === 'KeyC') toggleCouncil();
   if (e.code === 'Escape' && !$('council').classList.contains('hidden')) toggleCouncil(false, false);
@@ -2902,6 +2862,7 @@ function frame() {
   // Down to 10 fps the game keeps real time; only slower than that does it go slow-motion
   // (huge steps would let a caveman skip through things). Projectiles step at a fixed 1/60 s.
   const dt = Math.min(0.1, t - last);
+  sound.inWorld = state.joined;   // game sounds only while playing; the lobby just has the drums
   if (gfxKey !== 'high') adaptResolution(t - last);
   last = t;
   if ((state.pingT -= dt) <= 0) {
@@ -2943,5 +2904,6 @@ if (new URLSearchParams(location.search).has('debug')) window.__ss = { state, me
 
 initLobby();
 settings.onChange(applySetting);   // applies every saved setting now, then each change as it happens
+sound.autostart();                 // drums from the start (after the settings, so at the saved volumes)
 connect();
 frame();

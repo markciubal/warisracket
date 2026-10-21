@@ -16,6 +16,9 @@ export class Sound {
     this.musicOn = true;
     this.vol = { master: 1, sfx: 1, music: 1, voice: 1 };   // 0..1, from the settings panel
     this.lastSpeech = 0;
+    // on the planet (playing)? Off it, in the lobby, there are only the drums: the bots fighting
+    // in the background stay quiet
+    this.inWorld = false;
   }
 
   // Volumes and switches from the settings. Safe to call before the first click unlocks audio.
@@ -37,8 +40,20 @@ export class Sound {
     glide(this.music.gain, this.musicOn ? 0.32 * this.vol.music : 0);
   }
 
+  // Music from the moment the page opens, lobby included. The sound is set up right away; browsers
+  // that allow it start playing at once, the rest hold it until the first click, tap or key press
+  // anywhere (their autoplay rules), so every one of those nudges it. It keeps listening, because
+  // phones pause audio when the app goes to the background and need a touch to start it again.
+  autostart() {
+    this.unlock();
+    if (!this.ctx) return;
+    const wake = () => { if (this.ctx.state !== 'running') this.ctx.resume()?.catch?.(() => {}); };
+    for (const ev of ['pointerdown', 'keydown', 'touchend', 'click']) addEventListener(ev, wake, true);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+  }
+
   unlock() {
-    if (this.ctx) { this.ctx.resume(); return; }
+    if (this.ctx) { this.ctx.resume()?.catch?.(() => {}); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     const ctx = this.ctx = new AC();
@@ -116,7 +131,7 @@ export class Sound {
 
   // dist: world distance from the listener, fades sounds far away
   play(name, dist = 0) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || this.muted || !this.inWorld) return;
     const v = Math.max(0.06, 1 - dist / 55);
     switch (name) {
       case 'throw':
@@ -323,7 +338,7 @@ export class Sound {
 
   // Deep, slow speech for the full caveman experience. Falls back to a synthesized grunt.
   speak(text, { pitch = 0.2, dist = 0 } = {}) {
-    if (this.muted || dist > 40 || !this.vol.voice || !this.vol.master) return;
+    if (this.muted || !this.inWorld || dist > 40 || !this.vol.voice || !this.vol.master) return;
     const t = performance.now();
     if (!window.speechSynthesis || t - this.lastSpeech < 700) { this.play('grunt', dist); return; }
     this.lastSpeech = t;

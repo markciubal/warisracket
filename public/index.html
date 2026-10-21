@@ -55,7 +55,6 @@
     </div>
 
     <div id="vitals" class="stone">
-      <div class="label">LIFE</div>
       <div id="hp-bar"><div id="hp-fill"></div><span id="hp-text">100</span></div>
       <div id="armor-row" class="hidden">
         <div id="armor-name"></div>
@@ -67,6 +66,7 @@
     <div id="spear-box" class="stone">
       <div id="spear-icons"></div>
       <div id="charge-bar"><div id="charge-fill"></div></div>
+      <div class="hint" id="ammo-out">OUT · REFILLING</div>
       <div class="hint" id="spear-hint">HOLD RMB · THROW SPEAR</div>
     </div>
 
@@ -79,8 +79,8 @@
     </div>
 
     <div id="scoreboard" class="hidden stone">
-      <h2>TRIBE OF ROCK</h2>
-      <table><thead><tr><th>CAVEMAN</th><th>BONKS</th><th>NAPS</th></tr></thead><tbody id="score-rows"></tbody></table>
+      <h2>SCORES</h2>
+      <table><thead><tr><th>CAVEMAN</th><th>BONKS</th><th>DEATHS</th></tr></thead><tbody id="score-rows"></tbody></table>
       <div class="hint" id="score-room"></div>
       <div class="hint desk-only">C · TRIBE COUNCIL (RULES)</div>
     </div>
@@ -117,9 +117,9 @@
   <!-- desktop pause: the mouse is free (Esc). Clicking anywhere that isn't a button goes back in. -->
   <div id="lock-hint" class="hidden">
     <div>CLICK TO OOGA</div>
-    <small>Esc frees mouse · C for tribe council</small>
+    <small>THE GAME KEEPS GOING</small>
     <div class="row pause-buttons">
-      <button id="lock-resume">▶ BACK TO BONKING</button>
+      <button id="lock-resume">▶ PLAY</button>
       <button id="lock-settings" class="minor">⚙ SETTINGS (O)</button>
       <button id="lock-quit" class="minor quit">✕ QUIT</button>
     </div>
@@ -129,18 +129,15 @@
     <h1>YOU GO SLEEP</h1>
     <p id="death-by"></p>
     <p id="death-timer"></p>
-    <p id="death-quote"></p>
   </div>
 
   <div id="roundend" class="hidden">
     <div class="tablet">
       <h1 id="re-title">TIME DONE!</h1>
-      <p id="re-sub"></p>
       <p id="re-winner"></p>
-      <table><thead><tr><th></th><th>CAVEMAN</th><th>BONKS</th><th>NAPS</th></tr></thead><tbody id="re-rows"></tbody></table>
+      <table><thead><tr><th></th><th>CAVEMAN</th><th>BONKS</th><th>DEATHS</th></tr></thead><tbody id="re-rows"></tbody></table>
       <p id="re-profit"></p>
       <p id="re-timer"></p>
-      <p id="re-quote"></p>
     </div>
   </div>
 
@@ -185,81 +182,75 @@
   </div>
 
   <!-- ============ lobby ============ -->
+  <!-- two groups: you (name, look) and the game (rock, rules, play). Side by side on a sideways phone. -->
   <div id="lobby">
-    <div class="tablet">
+    <div class="tablet lobby-tablet">
       <h1 class="title">SPEAR<span>SPHERE</span></h1>
-      <p class="tag">Throw spear. Bonk friend. Ooga booga.</p>
-
-      <label for="name">CAVE NAME</label>
-      <div class="row">
-        <input id="name" maxlength="18" autocomplete="off" spellcheck="false">
-        <button id="reroll-name" title="Random name">?!</button>
-      </div>
-
-      <label>ANIMAL SKIN</label>
-      <div id="garbs" class="swatches"></div>
-
-      <label>SKIN</label>
-      <div id="skins" class="swatches"></div>
-
-      <div class="row toggles">
-        <label class="check"><input type="checkbox" id="opt-beard" checked> BIG BEARD</label>
-        <label class="check"><input type="checkbox" id="opt-bone"> BONE IN HAIR</label>
-      </div>
-
-      <!-- not on a rock yet: make one, or type in a friend's code -->
-      <div id="room-pick">
-        <label for="room-code">PICK ROCK</label>
-        <button id="room-new" disabled>CONNECTING...</button>
-        <div class="row room-join">
-          <input id="room-code" placeholder="CODE" autocomplete="off" spellcheck="false" autocapitalize="characters" enterkeyhint="go">
-          <button id="room-go" disabled>JOIN ROCK</button>
+      <div class="lobby-cols">
+        <div class="lobby-me">
+          <label for="name">CAVE NAME</label>
+          <div class="row">
+            <input id="name" maxlength="18" autocomplete="off" spellcheck="false">
+            <button id="reroll-name" title="Random name">?!</button>
+          </div>
+          <label>LOOK</label>
+          <div id="garbs" class="swatches"></div>
+          <div id="skins" class="swatches"></div>
+          <div class="row toggles">
+            <label class="check"><input type="checkbox" id="opt-beard" checked> BEARD</label>
+            <label class="check"><input type="checkbox" id="opt-bone"> BONE IN HAIR</label>
+          </div>
         </div>
-        <div class="rules-note" id="room-note"></div>
-      </div>
 
-      <!-- on a rock: its code to share, its rules, and in you go -->
-      <div id="room-in" class="hidden">
-        <label>ROCK CODE</label>
-        <div class="row room-code-row">
-          <b id="room-show"></b>
-          <button id="room-copy" class="minor">COPY LINK</button>
-          <button id="room-leave" class="minor" title="Make or join a different rock">OTHER ROCK</button>
+        <div class="lobby-go">
+          <!-- not on a rock yet: make one, or type in a friend's code -->
+          <div id="room-pick">
+            <label for="room-code">PICK ROCK</label>
+            <button id="room-new" disabled>CONNECTING...</button>
+            <div class="row room-join">
+              <input id="room-code" placeholder="CODE" autocomplete="off" spellcheck="false" autocapitalize="characters" enterkeyhint="go">
+              <button id="room-go" disabled>JOIN</button>
+            </div>
+            <div class="rules-note" id="room-note"></div>
+          </div>
+
+          <!-- on a rock: its code to share, its rules (folded away), and in you go -->
+          <div id="room-in" class="hidden">
+            <label>ROCK CODE</label>
+            <div class="row room-code-row">
+              <b id="room-show"></b>
+              <button id="room-copy" class="minor">COPY LINK</button>
+              <button id="room-leave" class="minor" title="Make or join a different rock">OTHER ROCK</button>
+            </div>
+            <details class="fold" id="rules-box">
+              <summary id="rules-sum">RULES</summary>
+              <div class="rules" id="lobby-rules"></div>
+              <div class="rules-note" id="lobby-note"></div>
+            </details>
+            <button id="play" disabled>CONNECTING...</button>
+            <div id="online"></div>
+          </div>
+
+          <div class="row lobby-foot">
+            <button id="open-settings" class="minor">⚙ SETTINGS</button>
+          </div>
+          <details class="fold how">
+            <summary>CONTROLS</summary>
+            <div class="controls touch-only">
+              <div><b>LEFT THUMB</b> run</div><div><b>DRAG RIGHT</b> turn &amp; aim</div>
+              <div><b>HOLD THROW</b> charge, let go</div><div><b>BONK</b> melee</div>
+              <div><b>JUMP</b> hop</div><div><b>GRAB</b> weapon / armor</div>
+              <div><b>🗣</b> grunt</div><div><b>☰</b> scores, settings, quit</div>
+            </div>
+            <div class="controls desk-only">
+              <div><b>WASD</b> run</div><div><b>MOUSE</b> look &amp; aim</div>
+              <div><b><span class="btn-melee">LMB</span> / F</b> bonk</div><div><b>HOLD <span class="btn-ranged">RMB</span></b> throw</div>
+              <div><b>SPACE</b> jump</div><div><b>E</b> grab weapon / armor</div>
+              <div><b>TAB</b> scores</div><div><b>1-6</b> grunt</div>
+              <div><b>ESC</b> pause</div><div><b>O</b> settings</div>
+            </div>
+          </details>
         </div>
-        <div class="rules-note" id="room-link"></div>
-
-        <label>PLANET RULES</label>
-        <div class="rules" id="lobby-rules"></div>
-        <div class="rules-note" id="lobby-note"></div>
-
-        <button id="play" disabled>CONNECTING...</button>
-        <div id="online"></div>
-      </div>
-      <button id="open-settings" class="minor">⚙ SETTINGS · SOUND, CONTROLS, GRAPHICS</button>
-      <div id="touch-note" class="touch-only">TURN PHONE SIDEWAYS. LEFT THUMB RUN, DRAG RIGHT SIDE TO AIM.</div>
-
-      <details class="how">
-        <summary>HOW TO OOGA</summary>
-        <div class="controls touch-only">
-          <div><b>LEFT THUMB</b> run</div><div><b>DRAG RIGHT</b> turn &amp; aim</div>
-          <div><b>HOLD THROW</b> charge, let go</div><div><b>BONK</b> melee</div>
-          <div><b>JUMP</b> hop</div><div><b>GRAB</b> weapon / armor</div>
-          <div><b>🗣</b> grunt</div><div><b>☰</b> scores, settings, rules, quit</div>
-          <div><b>TILT AIM</b> in ⚙ settings: lean phone to turn</div>
-        </div>
-        <div class="controls desk-only">
-          <div><b>WASD</b> run</div><div><b>MOUSE</b> look &amp; aim</div>
-          <div><b><span class="btn-melee">LMB</span> / F</b> bonk</div><div><b>HOLD <span class="btn-ranged">RMB</span></b> spear / bow</div>
-          <div><b>SPACE</b> jump</div><div><b>E</b> grab weapon / armor</div>
-          <div><b>1-6</b> grunt</div><div><b>TAB</b> tribe</div>
-          <div><b>C</b> tribe council</div><div><b>M / N</b> mute / drums</div>
-          <div><b>G</b> graphics low / auto / high</div><div><b>O</b> settings</div>
-        </div>
-      </details>
-
-      <div id="wise" title="Tap for another">
-        <p id="wise-text"></p>
-        <small id="wise-by"></small>
       </div>
     </div>
   </div>

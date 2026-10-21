@@ -192,7 +192,14 @@ export class TouchControls {
     // asks once ("SURE?"), quits on the second tap; the menu stays open in between
     this.bind('t-quit', () => { swallowNextClick(); actions.quit($('t-quit')); });
     this.bind('t-tilt', () => actions.recenter());
-    this.bind('t-grunt', () => $('grunts').classList.toggle('hidden'));
+    // one pop-up at a time: grunts and the ☰ menu close each other
+    this.bind('t-grunt', () => {
+      this.setTribe(false);
+      $('grunts').classList.toggle('hidden');
+      // left open, it closes itself so it doesn't sit over the buttons
+      clearTimeout(this.gruntsT);
+      this.gruntsT = setTimeout(() => $('grunts').classList.add('hidden'), 4000);
+    });
     $('grunts').innerHTML = EMOTES.map((e, i) => `<div class="tbtn grunt" data-i="${i}">${e}</div>`).join('');
     for (const b of $('grunts').children) {
       this.bind(b, () => { input.tapKey(`Digit${Number(b.dataset.i) + 1}`); $('grunts').classList.add('hidden'); });
@@ -242,6 +249,7 @@ export class TouchControls {
   // ☰: scores and your weapon card, plus the settings and rules buttons
   setTribe(open) {
     this.tribeOpen = open;
+    if (open) $('grunts').classList.add('hidden');
     this.input.setKey('Tab', open);
     document.body.classList.toggle('tribe-open', open);
     $('t-tribe').classList.toggle('on', open);

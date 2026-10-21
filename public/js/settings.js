@@ -6,7 +6,8 @@ const KEY = 'ss-settings';
 // Bumped when a default changes in a way old saves should pick up (see the constructor).
 // 2: tilt aim starts OFF (it used to start on NORMAL).
 // 3: all sound starts at 65% and caveman voices at 50% (both used to start at 100%).
-const VERSION = 3;
+// 4: the ping readout starts off on computers too (it used to start on).
+const VERSION = 4;
 
 export const DEFAULTS = {
   muted: false,
@@ -27,7 +28,7 @@ export const DEFAULTS = {
   flashes: 100,        // percent: hurt / age / disaster screen flashes
   dmgNumbers: true,
   fps: false,
-  ping: !isTouch,      // latency readout under the radar (phones start without it: less clutter)
+  ping: false,         // latency readout under the radar (off to start: one less thing on screen)
 };
 
 const pct = v => `${v}%`;
@@ -36,7 +37,7 @@ const onOff = [[true, 'ON'], [false, 'OFF']];
 // type: range | seg. touch: only shown on touch screens. hot: its keyboard shortcut.
 export const SCHEMA = [
   { section: 'SOUND' },
-  { key: 'muted', label: 'MUTE ALL', type: 'seg', options: [[false, 'SOUND'], [true, 'QUIET']], hot: 'M' },
+  { key: 'muted', label: 'SOUND', type: 'seg', options: [[false, 'ON'], [true, 'OFF']], hot: 'M' },
   { key: 'volMaster', label: 'ALL SOUND', type: 'range', min: 0, max: 100, step: 5, fmt: pct },
   { key: 'volSfx', label: 'BONKS & BOOMS', type: 'range', min: 0, max: 100, step: 5, fmt: pct },
   { key: 'music', label: 'DRUMS', type: 'seg', options: onOff, hot: 'N' },
@@ -108,6 +109,7 @@ export class Settings {
     // likewise, saves from before v3 at full volume just had the old default: they get the new
     // ones. Any volume someone actually set stays.
     if (!(raw.v >= 3)) for (const k of ['volMaster', 'volVoice']) if (raw[k] === 100) delete raw[k];
+    if (!(raw.v >= 4) && raw.ping === true) delete raw.ping;
     this.values = { ...DEFAULTS, ...clean(raw) };
     this.listeners = [];
     if (!saved || saved.v !== VERSION) this.save();
