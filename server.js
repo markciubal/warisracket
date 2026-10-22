@@ -24,7 +24,7 @@ const PEACE_SECONDS = Math.max(20, Number(arg('peace-seconds') ?? process.env.PE
 // what every new rock starts with, until its chief changes it
 const START_RULES = cleanRules(
   { mode: arg('mode') ?? process.env.MODE, botLevel: arg('bot-level') ?? process.env.BOT_LEVEL, bots: arg('bots') ?? process.env.BOTS },
-  { mode: 'dotime', botLevel: C.BOT_LEVEL_DEFAULT, bots: 4 },
+  { mode: 'dotime', botLevel: C.BOT_LEVEL_DEFAULT, bots: 4, open: 0 },
 );
 const HEARTBEAT_MS = 20000;   // below Heroku's 55 s idle cutoff; also reaps half-open sockets
 const MSG_RATE = 60;          // messages/second refilled per socket (a client sends ~25)
@@ -36,6 +36,7 @@ const startedAt = Date.now();
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.webmanifest': 'application/manifest+json',
@@ -47,6 +48,8 @@ const MIME = {
 const ROUTES = [
   ['/shared/', path.join(ROOT, 'shared'), 'no-cache'],
   ['/three/', path.join(ROOT, 'node_modules', 'three'), 'public, max-age=604800'],
+  // (the rock's QR code: see qrSvg in public/js/main.js)
+  ['/qr/', path.join(ROOT, 'node_modules', 'qrcode-generator', 'dist'), 'public, max-age=604800'],
   ['/', path.join(ROOT, 'public'), 'no-cache'],
 ];
 // single files outside those folders: the game itself, for playing offline in the browser (see
@@ -59,7 +62,7 @@ const ROOM_PATH = new RegExp(`^/[A-Za-z]{${C.ROOM_CODE.len}}/?$`);
 // The service worker (public/sw.js) keeps a copy of everything the game needs, so it opens and
 // plays with no connection (installed as an app or not). It goes out with the list of files and a
 // version that changes whenever any of them does, so browsers pick up each new deploy.
-const THREE_FILES = ['/three/build/three.module.js', '/three/build/three.core.js', '/three/examples/jsm/utils/BufferGeometryUtils.js'];
+const LIB_FILES = ['/three/build/three.module.js', '/three/build/three.core.js', '/three/examples/jsm/utils/BufferGeometryUtils.js', '/qr/qrcode.mjs'];
 const fileFor = url => FILES[url] || (() => {
   for (const [prefix, dir] of ROUTES) if (url.startsWith(prefix)) return path.join(dir, url.slice(prefix.length));
   return null;
@@ -69,7 +72,7 @@ function precacheList() {
     (e.isDirectory() ? walk(path.join(dir, e.name), `${base}${e.name}/`) : [`${base}${e.name}`]));
   const pub = walk(path.join(ROOT, 'public'), '/').filter(u => u !== '/sw.js');
   const shared = walk(path.join(ROOT, 'shared'), '/shared/').filter(u => u.endsWith('.js'));
-  return ['/', ...pub, ...shared, '/room.js', ...THREE_FILES];
+  return ['/', ...pub, ...shared, '/room.js', ...LIB_FILES];
 }
 let swCache = { sig: '', version: '' };
 function serveServiceWorker(res) {
@@ -180,8 +183,15 @@ function freshCode() {
 function openRoom(code, rules) {
   const room = createRoom(code, { rules, maxPlayers: MAX_PLAYERS, eraSeconds: ERA_SECONDS, peaceSeconds: PEACE_SECONDS });
   rooms.set(code, room);
-  console.log(`[${code}] open  (${rooms.size}/${MAX_ROOMS} rocks) ${C.MODES[rules.mode]}, ${rules.bots} bots, brains ${rules.botLevel}/10`);
+  console.log(`[${code}] open  (${rooms.size}/${MAX_ROOMS} rocks) ${C.MODES[rules.mode]}, ${rules.bots} bots, brains ${rules.botLevel}/10, ${rules.open ? 'public' : 'private'}`);
   return room;
+}
+
+// The open rocks list: every public rock, busiest first. (Private ones are only for whoever has
+// the code; they never show here, or in /health.)
+function publicRocks() {
+  return [...rooms.values()].filter(r => r.rules().open).map(r => r.listing())
+    .sort((a, b) => b.humans - a.humans || a.code.localeCompare(b.code));
 }
 
 // A closed rock's rules, kept a while so opening its code again (a reload, a friend arriving
@@ -217,13 +227,17 @@ function leaveRoom(client, rebalance = true) {
   }
 }
 
-// { t: 'room', create: 1 }            a new rock under a fresh code
-// { t: 'room', code }                 a rock that's already there (typed in), else 'noroom'
+// { t: 'room', create: 1, open }      a new rock under a fresh code, public (open: 1) or private
+// { t: 'room', quick: 1 }             QUICK PLAY: the busiest public rock with room for one more,
+//                                     else a new public one
+// { t: 'room', code }                 a rock that's already there (typed in, or picked from the
+//                                     open rocks list), else 'noroom'
 // { t: 'room', code, make: 1, rules } that rock, made on the spot if it isn't there: a shared
 //                                     link, or a reconnect after a restart (bringing its old rules)
 // { t: 'room', leave: 1 }             back to picking a rock
 function pickRoom(client, m) {
   if (m.leave) { leaveRoom(client); return; }
+  if (m.quick) { quickRoom(client); return; }
   const code = m.create ? '' : C.cleanRoomCode(m.code);
   let room = code ? rooms.get(code) : null;
   if (room && room === client.room) return;
@@ -237,10 +251,28 @@ function pickRoom(client, m) {
     if (rooms.size >= MAX_ROOMS) { send(client, { t: 'noroom', code, full: 1 }); return; }
     // reopening a code: the rules it brings (a reconnect), else the ones it had when it closed
     const back = m.make && !m.rules ? rulesFor(code) : null;
-    room = openRoom(code || freshCode(), m.make ? cleanRules(m.rules || back, START_RULES) : START_RULES);
+    room = openRoom(code || freshCode(), m.make ? cleanRules(m.rules || back, START_RULES) : { ...START_RULES, open: m.open ? 1 : 0 });
   }
+  enterRoom(client, room);
+}
+
+function quickRoom(client) {
+  let best = null, most = -1;
+  for (const room of rooms.values()) {
+    if (room === client.room || !room.rules().open) continue;
+    const { humans } = room.listing();
+    if (humans < MAX_PLAYERS && humans > most) { best = room; most = humans; }
+  }
+  leaveRoom(client);
+  if (!best && rooms.size >= MAX_ROOMS) { send(client, { t: 'noroom', full: 1 }); return; }
+  // nobody on a public rock with room: a new one, for the next person to find
+  enterRoom(client, best || openRoom(freshCode(), { ...START_RULES, open: 1 }), { quick: 1, humans: Math.max(0, most) });
+}
+
+// extra: for the page to say how it got there (QUICK PLAY: and how many were already on it)
+function enterRoom(client, room, extra = {}) {
   client.room = room;
-  send(client, { t: 'room', code: room.code });
+  send(client, { t: 'room', code: room.code, ...extra });
   room.attach(client);
 }
 
@@ -266,6 +298,7 @@ wss.on('connection', ws => {
     if (!msg || typeof msg.t !== 'string') return;
     if (msg.t === 'ping') send(client, { t: 'pong', ts: msg.ts });
     else if (msg.t === 'room') pickRoom(client, msg);
+    else if (msg.t === 'rocks') send(client, { t: 'rocks', list: publicRocks(), max: MAX_PLAYERS });
     else client.room?.handleMessage(client, msg);
   });
   ws.on('close', () => {

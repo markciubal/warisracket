@@ -36,13 +36,25 @@ Once people are playing, each rock's **chief** changes its rules in-game (see Pl
 ## Rocks (lobbies)
 
 One server runs any number of separate games at once. Each one is a **rock**: its own planet,
-cavemen, bots, Do Time clock, chief and rules, found by a 4-letter code.
+cavemen, bots, Do Time clock, chief and rules, found by a 4-letter code. A rock is **public**
+(anyone can find it and join) or **private** (only people with its code or link).
 
-- **MAKE NEW ROCK** in the lobby rolls a fresh code (no vowels, so it never spells anything).
-  The address bar becomes the rock's link, e.g. `https://my-war-is-racket.herokuapp.com/KPTX`.
-  **COPY LINK** (**SHARE LINK** on phones) sends it to friends.
-- Friends open that link, or go to the bare URL and type the code into **JOIN ROCK**. Pasting
-  the whole link into the code box works too.
+- **QUICK PLAY** puts you on the busiest public rock that has room, so you play with whoever
+  else is on. If there isn't one, it makes a new public rock for the next person to find.
+- **OPEN ROCKS** lists every public rock, busiest first: its code, mode, the age (or wave, or
+  peace), whose rock it is (the chief) and how many people are on it, e.g. `KPTX · DO TIME ·
+  ZAP AGE · CHIEF THAG · 3/12`. The list keeps itself up to date; tap one to go there.
+- **MAKE NEW ROCK** rolls a fresh code (no vowels, so it never spells anything). The
+  **PUBLIC / PRIVATE** switch next to it picks which (it remembers your pick). The address bar
+  becomes the rock's link, e.g. `https://my-war-is-racket.herokuapp.com/KPTX`.
+- **The code is big** in the lobby, ready to read out. **COPY LINK** (**SHARE LINK** on phones)
+  sends the link, and **▦ QR CODE** shows a QR code of it: friends point a phone camera at it
+  and they're on your rock. In a game, the code shows under the radar, and the QR code is on
+  the pause screen (**▦ ROCK**), or under ☰ on phones (**▦ ROCK CODE**).
+- Friends open that link, scan it, or go to the bare URL and type the code into **JOIN ROCK**.
+  Pasting the whole link into the code box works too.
+- **ROCK IS: PUBLIC / PRIVATE** is one of the rock's rules: the chief can switch it at any time
+  (everyone's told), like the mode. It's on the scoreboard too (`ROCK CODE KPTX · PUBLIC`).
 - **OTHER ROCK** in the lobby leaves for a different one. The code also shows on the scoreboard
   (Tab, or ☰ on phones) so you can read it out mid-game.
 - A rock closes as soon as nobody is on it or watching its lobby, but its link keeps working:
@@ -50,7 +62,8 @@ cavemen, bots, Do Time clock, chief and rules, found by a 4-letter code.
   planet under the same code, with the mode and bots it had (remembered for 6 hours). After a
   server restart, everyone who was on a rock reconnects onto the same code with the rules it had.
 - Codes keep games apart; they aren't passwords. A wrong code is answered slowly so guessing
-  one takes a while, and `/health` never lists them.
+  one takes a while. Private rocks never show in the list, and `/health` lists no codes at all.
+  A link to a code nobody has used makes a private rock.
 
 ## The app, and playing offline
 
@@ -102,9 +115,9 @@ Settings (optional), e.g. `heroku config:set BOT_LEVEL=7 ERA_SECONDS=120`:
 
 | Config var | Flag | Default | What it does |
 | --- | --- | --- | --- |
-| `MODE` | `--mode` | `dotime` | `dotime`, `plough` (Ploughshares), `classic` (Forever Stone) or `coop` (Tribe vs Bots) |
-| `ERA_SECONDS` | `--era-seconds` | 45 | Length of each Do Time (and Ploughshares) age |
-| `PEACE_SECONDS` | `--peace-seconds` | 120 | Ploughshares: farming time before each vote to keep going |
+| `MODE` | `--mode` | `dotime` | `dotime`, `plough` (Peace mode), `classic` (Forever Stone) or `coop` (Tribe vs Bots) |
+| `ERA_SECONDS` | `--era-seconds` | 45 | Length of each Do Time age |
+| `PEACE_SECONDS` | `--peace-seconds` | 180 | Peace mode: time before each vote to keep going |
 | `BOT_LEVEL` | `--bot-level` | 1 | Bot brains, 1–10: 1 wanders around and lags, 5 is a fair fight, 10 barely misses |
 | `BOTS` | `--bots` | 4 | Bots fill the planet up to this many cavemen (0–10). 0 = humans only |
 | `MAX_PLAYERS` | | 12 | Human cap on each rock. Extra visitors see "CAVE FULL" in that rock's lobby |
@@ -153,10 +166,10 @@ your router or use a tunnel such as `cloudflared tunnel --url http://localhost:3
 | Left mouse / F | Bonk with your melee weapon (right mouse when left-handed) |
 | Hold right mouse | Charge a spear, draw a bow or steady a musket (a dotted arc shows where it lands), then release. Guns and lasers fire while held (left mouse when left-handed) |
 | Space | Jump (you can hop over boulders if you time it) |
-| E | Swap weapons at a glowing totem, put on armor, or (when hurt) eat the roast at a campfire |
+| E | Swap weapons at a glowing totem, put on armor, (when hurt) eat the roast at a campfire, or talk business with the Businessman at his podium. In peace mode, use the town: the doctor, the range shed, the duel rack, the tailor, cast and reel in at a pond, dance at the bonfire |
 | Q | Killstreak beast: call it, then aim and Q again to send it |
 | 1–6 | Grunt: OOGA!, BOOGA!, UNGA BUNGA!, ME SMASH!, ME HUNGRY., WAR IS RACKET! |
-| Enter | In peace (Ploughshares): talk, in words of one syllable |
+| Enter | In peace mode: talk, one syllable per word |
 | Tab | Scores (with the rock code), plus your weapon's full stats on its card |
 | C | Tribe council (planet rules) |
 | M / N | Mute everything / toggle the drums |
@@ -285,17 +298,10 @@ With the default `ERA_SECONDS=45` a whole round is 4½ minutes plus the finale.
 
 **Forever Stone** is the original mode: spears and bones only, no clock, no armor.
 
-## Ploughshares
+## Peace mode
 
-The ages go by as in Do Time, with the same weapons, but **bots never start a fight**: they
-only fight back, against whoever hurt them, for a while. So whether there's peace is up to the
-people. Hurting anybody (bonk, spear, shot, beast; not boulders, lava or your own spear) breaks
-the peace for that age: the age panel shows **☮ PEACE HOLDING** or **⚔ PEACE BROKEN**, and the
-feed says who broke it.
-
-If a **whole age goes by with nobody hurt**: **SWORDS INTO PLOUGHSHARES!** Every weapon turns
-into a hoe, anyone down gets up, and **nobody can die** until the round is over. The **Plough
-Age** begins:
+**No war at all.** Every round starts in **PEACE TIME**: weapons are hoes, **nobody can die**,
+and the whole town opens up within seconds, so everything below is there to do from the start:
 
 - **Plant**: the attack button (left click / F, PLANT on phones) puts a seed in the ground just
   in front of you: wheat, corn or pumpkin. Crops grow (15 to 30 s) and sway when they're ripe.
@@ -304,26 +310,28 @@ Age** begins:
 - **Build**: the throw button (right click, BUILD on phones) builds in front of you, paid for
   out of the store: a **fence** (2 food), a **hut** (6) or a big **stone head** (12). **Q**
   (NEXT on phones) picks which. They face whoever built them, and they're solid.
-- **Vote**: when the farming time is up (2 minutes, `PEACE_SECONDS`) everyone votes **KEEP
-  FARMING?** with Y / N or the buttons. More yes than no gives another stretch of farming;
-  anything else ends the round with a **HARVEST FESTIVAL** ranking who picked the most food and
-  built the most. Then a new Stone Age, the fields, buildings and town gone, the planet back to
-  its usual size, and the peace has to be kept all over again.
+- **Vote**: when the time is up (3 minutes, `PEACE_SECONDS`) everyone votes **KEEP FARMING?**
+  with Y / N or the buttons. More yes than no gives another stretch; anything else ends the
+  round with a **HARVEST FESTIVAL** ranking who picked the most food and built the most. Then a
+  fresh planet, the fields, buildings and town gone, and a new peace with a new town.
 
 ### The town
 
-As peace breaks out **the planet grows** (radius 30 to 40, over 12 seconds), and a town opens up
-on the new ground, one shop at a time, near wherever people are: a **doctor**, a **target range**,
-a **duel ring**, a **tailor**, a **haunted hollow**, and later two more ranges. Each shop has a
-floating sign and shows on the radar as a square; stand in its circle to use it.
+As a round starts **the planet grows** (radius 30 to 40, over 5 seconds), and the town opens
+up on the new ground straight after, near wherever people are: a **doctor**, a **target range**,
+a **duel ring**, a **tailor**, a **haunted hollow**, a **fishing pond**, a **hot spring** and a
+**bonfire**, then another range and another pond. Each has a floating sign and shows on the
+radar as a square; stand in its circle to use it.
 
 **Every time the tribe votes to keep farming, the planet grows again**: 10 more each time (40, 50,
-60...), up to 80, with a new haunted hollow and another doctor on the new ground. The shops keep
-their size as it grows under them. The new Stone Age is back to the usual 30.
+60...), up to 80, with a new haunted hollow, another doctor, another bonfire and another hot
+spring on the new ground. The shops keep their size as it grows under them. A new round starts
+back at the usual 30.
 
-- **Shells** 🐚 are the money. Everyone gets 3 when peace breaks out (they're shown under your
+- **Shells** 🐚 are the money. Everyone gets 3 when a peace starts (they're shown under your
   health) and earns more: **1 for every crop you pick** (the food still goes to the tribe), 1 for
-  every target hit, 3 for every duel won. Your shells stay with you from round to round.
+  every target hit, 3 for every duel won, fish, dancing and monsters. Your shells stay with you
+  from round to round.
 - **Doctor**: **E** (HEAL on phones) gets you all better for **1 shell**.
 - **Target range**: **E** at the range shed (WEAPONS on phones) opens its rack: every age's ranged
   weapon (spear, bow, longbow, boom stick, bang stick, zap stick) and four you only get here, never
@@ -337,9 +345,13 @@ their size as it grows under them. The new Stone Age is back to the usual 30.
   through the straw. Without a practice weapon, nobody throws or shoots in peace.
 - **Duel ring**: inside the ropes your hoe becomes a padded **practice club**, and you can bonk
   anyone else in the ring. **E** (WEAPON on phones) opens the **weapon rack**: pick any weapon of
-  any age (a Dino Femur, a Longsword, a Glow Stick...), and it's yours whenever you step back
-  into the ring. Bots grab whatever's on the rack. **Nobody goes below 1 HP**: knocking someone
-  down to 1 wins the bout and 3 shells, and the loser had better see the doctor.
+  any age (a Dino Femur, a Longsword, a Glow Stick...), and **it's yours to keep**: take it out of
+  the ring and anywhere in the peace (into a haunted hollow, say), until you hand it back at the
+  rack (**✋ HAND IT BACK**) or the peace ends. A note on screen says what you've got and where it
+  goes back. Your hands are full while you carry it, so it's no planting until you hand it back,
+  and out of the ring it only swings at the air (and at monsters). Bots grab whatever's on the
+  rack. **Nobody goes below 1 HP**: knocking someone down to 1 wins the bout and 3 shells, and
+  the loser had better see the doctor.
 - **Haunted hollow**: a dark place of dead trees, crooked gravestones and drifting wisps, where
   **ghosts and skeletons** roam. They never leave the hollow, but they go for anyone who comes in.
   Inside, your hoe becomes a **torch**; practice weapons work on them too (a bazooka does nicely).
@@ -348,6 +360,18 @@ their size as it grows under them. The new Stone Age is back to the usual 30.
 - **Tailor**: **E** (SHOP on phones) opens the counter: straw hat (2), flower crown (3), top hat
   (5), gold crown (10), red or blue cape (3), gold cape (8). Everyone sees what you wear, it stays
   on in later rounds, and anything you've bought you can put back on for free (or take off).
+- **Fishing pond**: stand on the sandy bank and press **E** (FISH on phones) to cast: a red
+  bobber goes out on the water. Wait. When a fish bites the bobber dips, the screen says
+  **BITE!**, and you have about a second to press **E** again (REEL!) and reel it in. Too soon and
+  it swims off; too slow and it gets away. What bites: a **minnow** (1 shell, 1 food for the
+  tribe), a **trout** (2 and 2), a **big pike** (3 shells, 4 food), now and then a **golden fish**
+  (10 shells, and everyone hears about it), or an **old boot**.
+- **Hot spring**: a steaming pool in a ring of stones. Stand in it and your life comes back,
+  **3 a second**. Free, but slower than the doctor.
+- **Bonfire**: a big fire in a dance circle, with log seats and drums. **E** (DANCE on phones)
+  and you dance; walking off stops it. Dancers earn shells, and the more dance together the
+  quicker: a shell every 8 seconds alone, every 4 with two, every 2 with four, up to five
+  dancers. Everyone sees you dance.
 - **It's still a dangerous world.** The volcano erupts again, boulders still roll, and now and
   then a **sky rock** falls near somebody (a red ring shows where, and the feed says LOOK UP!).
   They hurt, but in peace nothing takes you below 1 HP. Below 40 HP you **limp** (walk slower)
@@ -359,16 +383,21 @@ their size as it grows under them. The new Stone Age is back to the usual 30.
   anything else (a monster, a sky rock, a duel): a stranger always comes. The Businessman can't
   stand it.
 
-Bots use the town too: they see the doctor when they're hurt and can pay, buy hats when they're
-rich, take practice weapons to the ranges and duel each other in the ring. (They don't go looking
-for monsters, but one that wanders into a hollow gets a fright.)
+Bots use the town too: they see the doctor when they're hurt and can pay (and soak in a hot spring
+when they can't), buy hats when they're rich, take practice weapons to the ranges, duel each other
+in the ring, go fishing (they're not always quick enough) and dance round the bonfire, where a
+crowd draws a crowd. (They don't go looking for monsters, but one that wanders into a hollow gets
+a fright.)
 
 ### Peace chat
 
-When peace breaks out **the tribe can talk**, but only in **words of one syllable** ("one sound
-at a time"). **Enter** opens the chat box (**💬** on phones), Enter says it, Esc puts it away.
-As you type, any longer word is pointed out (**TOO LONG: BANANAS**) and the line can't be sent
-until it's gone; the server checks again. What's said shows in the chat log, in a bubble over
+In peace **the tribe can talk**, but **only one syllable per word**, and the chat box says so.
+**Enter** opens it (**💬** on phones), Enter says it, Esc puts it away. Under the box, two grey
+examples show how to say a long word in short ones (`"BANANA"? SAY "A LONG, SUN-LIKE FRUIT"`,
+`"DOCTOR"? SAY "THE ONE WHO HEALS"`; there are 26, in `SAY_IT` in `shared/chat.js`). As you type,
+any longer word is pointed out (**TOO LONG: BANANA. ONLY ONE SYLLABLE PER WORD.**), the example for
+it comes first if there is one, and the line can't be sent until it's gone; the server checks
+again. What's said shows in the chat log, in a bubble over
 the speaker's head, and is read out in a caveman voice to anyone nearby. Bots chime in now and
 then (**GROW, CORN, GROW.**), and so does the stranger. One line every 1.5 seconds, up to 80
 letters; rude words come out as **GRR**. When the peace ends, so does the talking.
@@ -379,9 +408,8 @@ and knows the usual silent ones (the e in "make", the ed in "jumped", the es in 
 gets nearly all everyday words right, but it can miss now and then; the words it's known to
 get wrong are listed at the top of the file, to add to.
 
-If an age does see a fight, the next age comes as normal, and fighting all the way through the
-Zap Age still ends the world. The Businessman hates all of it: no war, no profit, and he wastes
-away for as long as the peace lasts (though he does perk up when the first shop opens).
+The Businessman hates all of it: no war, no profit, and he wastes away for as long as the peace
+lasts (though he does perk up when the first shop opens).
 
 ## Tribe vs Bots (co-op)
 
@@ -410,7 +438,8 @@ Every human on the planet is one tribe, fighting waves of bots together.
 The human who's been on the planet longest is the **chief** (feather headdress, marked in the
 scoreboard). The chief opens the **tribe council** with C to change:
 
-- **Mode**: Do Time, Ploughshares, Forever Stone or Tribe vs Bots (co-op). Changing it starts a new round.
+- **Mode**: Do Time, Peace mode, Forever Stone or Tribe vs Bots (co-op). Changing it starts a new round.
+- **Rock is**: public (in everyone's OPEN ROCKS list) or private (code or link only).
 - **Bot brains**, from 1 to 10:
 
   | Level | Name | What they're like |
@@ -553,6 +582,14 @@ and his eyes glow red. He turns to watch you and laughs. He gloats in a gold spe
 when cavemen fall ("ME SELL SPEARS TO BOTH TRIBES."), cheers each new age, and the round-end
 screen tells you how much he made while you were bonking each other.
 
+**Talk business with him.** Walk up to his podium and press **E** (TALK on phones), and he
+shares his thinking on war and profit: "WAR IS JUST PEACE WITH BETTER MARGINS.", "ME SELL TO
+BOTH TRIBES. THAT CALLED DIVERSIFYING.", "THOUGHTS AND PRAYERS. AND AN INVOICE." There are 30
+of these, and you hear every one before any comes round again. Some know how the round is
+going ("PROFIT SO FAR: 0 SHINY ROCKS. DISAPPOINTING. BONK HARDER."). In peace mode he
+has 10 sour ones instead ("CABBAGE NOT GO BOOM. CABBAGE BAD INVESTMENT."), and while the world
+ends he gets in a last few ("ME SHORTED THE PLANET."). Only you see and hear his answer.
+
 **The end of the world gets him too.** When the Do Time finale starts he says "ME HAVE
 BUNKER." It doesn't help. About 5.5 s in, one of the falling rocks, lava bombs or ice chunks
 lands right on his podium (or the flood reaches him). He jolts with his eyes crossed out and
@@ -599,8 +636,8 @@ server.js            HTTP static server + WebSocket front door: makes rocks (lob
 room.js              One rock's game: projectiles, hits, armor, Do Time clock, rules, hazards, bots
 shared/constants.js  Tuning: ages, ranged weapons, armor, bot levels, melee weapons, names
 shared/math.js       Sphere-surface movement, collisions, projectile physics
-shared/chat.js       Ploughshares: peace chat's one-syllable rule (syllable counter) and its tidying
-shared/layout.js     Ploughshares: where a shop's parts go, so the server and clients agree as the planet grows
+shared/chat.js       Peace mode: the chat's one-syllable rule (syllable counter), its tidying, and the examples
+shared/layout.js     Peace mode: where a shop's parts go, so the server and clients agree as the planet grows
 public/index.html    Page shell, HUD, lobby, council and round-end markup
 public/style.css     Carved-stone UI
 public/js/main.js    Client: networking, local movement, camera, events, rules UI
@@ -616,8 +653,9 @@ public/js/settings.js Player settings (sound, controls, screen) and the settings
 public/js/beasts.js  Killstreak beast models and animation: attack dogs, mammoth, T-Rex; and the haunted hollows' ghosts and skeletons
 public/js/mammon.js  The Businessman: model, outfits per age, disaster gear, fattening stages,
                      coin heap and profit sign
-public/js/farm.js    Ploughshares: crops growing and the fences, huts and stone heads built in peace
-public/js/town.js    Ploughshares: the doctor, target ranges, duel ring and tailor of a long peace
+public/js/farm.js    Peace mode: crops growing and the fences, huts and stone heads built in peace
+public/js/town.js    Peace mode: the doctor, ranges, duel ring, tailor, hollows, ponds, hot springs and bonfires
+node_modules/qrcode-generator  The rock's QR code (served at /qr/, and kept for offline like three.js)
 public/js/offline.js Playing offline: stands in for the WebSocket, talking to offline-worker.js
 public/js/offline-worker.js  room.js running in the browser: your own rock, you and the bots
 public/sw.js         Service worker: keeps a copy of the game so it opens with no connection

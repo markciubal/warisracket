@@ -30,7 +30,8 @@ function pickRoom(m) {
     return;
   }
   room ||= createRoom(ROOM, {
-    rules: cleanRules(m.rules, START), maxPlayers: 1, eraSeconds: C.DOTIME.eraSeconds, peaceSeconds: C.PEACE.seconds,
+    // (never public: there's nobody else here to find it)
+    rules: cleanRules({ ...m.rules, open: 0 }, START), maxPlayers: 1, eraSeconds: C.DOTIME.eraSeconds, peaceSeconds: C.PEACE.seconds,
   });
   reply({ t: 'room', code: ROOM });
   room.attach(client);

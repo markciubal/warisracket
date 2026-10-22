@@ -8,7 +8,7 @@
   },
   "env": {
     "MODE": {
-      "description": "Mode every new rock (lobby) starts in: dotime (stone age to the end of the world, with armor), classic (Forever Stone) or coop (Tribe vs Bots: all humans against waves of bots). Each rock's chief can change it.",
+      "description": "Mode every new rock (lobby) starts in: dotime (stone age to the end of the world, with armor), plough (Peace mode: no war, farming, fishing, dancing and a town), classic (Forever Stone) or coop (Tribe vs Bots: all humans against waves of bots). Each rock's chief can change it.",
       "value": "dotime",
       "required": false
     },

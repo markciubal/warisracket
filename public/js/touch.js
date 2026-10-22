@@ -189,6 +189,7 @@ export class TouchControls {
     // these open a full-screen panel: eat the click the tap fires next, or it would land on the panel
     this.bind('t-council', () => { this.setTribe(false); swallowNextClick(); actions.council(); });
     this.bind('t-settings', () => { this.setTribe(false); swallowNextClick(); actions.settings(); });
+    this.bind('t-rock', () => { this.setTribe(false); swallowNextClick(); actions.rock(); });
     // asks once ("SURE?"), quits on the second tap; the menu stays open in between
     this.bind('t-quit', () => { swallowNextClick(); actions.quit($('t-quit')); });
     this.bind('t-tilt', () => actions.recenter());

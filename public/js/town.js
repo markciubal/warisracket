@@ -1,5 +1,5 @@
-// Ploughshares, in a long peace: the town that opens up as the planet grows. Doctors, target
-// ranges, a duel ring, a tailor and haunted hollows (SHOPS). Shops keep their size as the planet
+// Peace mode: the town that opens up as the planet grows. Doctors, target ranges, a duel ring, a
+// tailor, haunted hollows, fishing ponds, hot springs and bonfires (SHOPS). Shops keep their size as the planet
 // grows under them: each part knows where it goes (shared/layout.js for the range, so the server
 // agrees), and relayout() puts everything back after every change of size.
 import * as THREE from 'three';
@@ -8,6 +8,7 @@ import * as M from '/shared/math.js';
 import { shopLayout } from '/shared/layout.js';
 import { mat, lambert, shadows, placeOnSphere } from './util.js';
 import { buildWeapon } from './weapons.js';
+import { softDotTexture } from './textures.js';
 
 const clock = () => performance.now() / 1000;
 const WOOD = '#7a4b25', DARK = '#1a100a', STRAW = '#d9b45a';
@@ -17,6 +18,9 @@ export const SHOP_LOOK = {
   duel:   { color: '#ff9a3d', icon: '⚔️', sign: 'DUEL RING', sub: 'NOBODY GOES BELOW 1 HP' },
   tailor: { color: '#c58cff', icon: '🎩', sign: 'TAILOR', sub: 'HATS · CAPES' },
   haunt:  { color: '#a07cff', icon: '👻', sign: 'HAUNTED', sub: 'MONSTERS · 2 🐚 EACH' },
+  pond:   { color: '#4fb3ff', icon: '🎣', sign: 'FISHING', sub: 'FISH FOR 🐚 AND FOOD' },
+  spring: { color: '#7fe3d0', icon: '♨️', sign: 'HOT SPRING', sub: 'SOAK TO HEAL' },
+  bonfire: { color: '#ff7a2f', icon: '🔥', sign: 'BONFIRE', sub: 'DANCE FOR 🐚' },
 };
 
 function part(g, geo, material, x = 0, y = 0, z = 0) {
@@ -281,6 +285,107 @@ const CURVED = {
       s.wisps.push({ obj: wisp, a: i * 1.6, d: 1.5 + i * 1.2, ph: i * 1.7 });
     }
   },
+  // a fishing pond: deep water you can't walk into (r), a sandy bank all round to stand on and
+  // cast from (zone), reeds, stones and lily pads
+  pond(g, s) {
+    const { r, zone } = SHOPS.pond;
+    const bank = g.add(groundDisk(zone, r - 0.1, groundMat('#c9b27a', 0.6))).children.at(-1);
+    bank.position.y = 0.02;
+    const water = g.add(groundDisk(r, 0, groundMat('#2f78c0', 0.92))).children.at(-1);
+    water.position.y = 0.04;
+    s.shine = g.add(groundDisk(r * 0.5, 0, groundMat('#bfe6ff', 0.22))).children.at(-1);
+    s.shine.position.y = 0.06;
+    const reed = mat('#5d8f3a', { flatShading: true }), tail = mat('#6b4423');
+    for (let i = 0; i < 9; i++) {
+      const tuft = new THREE.Group();
+      for (let k = 0; k < 3; k++) {
+        const h = 0.8 + ((i + k) % 3) * 0.2;
+        const stalk = part(tuft, new THREE.CylinderGeometry(0.02, 0.03, h, 4), reed, (k - 1) * 0.12, h / 2, (k % 2) * 0.1);
+        stalk.rotation.z = (k - 1) * 0.15;
+        if (k !== 1) part(tuft, new THREE.CapsuleGeometry(0.045, 0.16, 2, 5), tail, (k - 1) * 0.12 + (k - 1) * h * 0.15, h, (k % 2) * 0.1);
+      }
+      g.add(standAt(tuft, r + 0.05, i * 0.7 + (i % 3) * 0.25, i));
+    }
+    const stone = mat('#8a857c', { flatShading: true });
+    for (let i = 0; i < 6; i++) {
+      const holder = new THREE.Group();
+      part(holder, new THREE.DodecahedronGeometry(0.22 + (i % 3) * 0.06, 0), stone, 0, 0.08, 0);
+      g.add(standAt(holder, r + 0.35, i * 1.05 + 0.4, i));
+    }
+    s.pads = [];
+    const pad = mat('#4f9a3a', { side: THREE.DoubleSide });
+    for (let i = 0; i < 4; i++) {
+      const lily = new THREE.Group();
+      const leaf = part(lily, new THREE.CircleGeometry(0.3, 12, 0.35, Math.PI * 2 - 0.7), pad, 0, 0.08, 0);
+      leaf.rotation.x = -Math.PI / 2;
+      if (i % 2 === 0) part(lily, new THREE.SphereGeometry(0.08, 6, 5), mat('#ffb6d9'), 0.05, 0.13, 0.05);
+      g.add(standAt(lily, 0.7 + i * 0.35, i * 1.7 + 0.8, i));
+      s.pads.push(lily);
+    }
+  },
+  // a hot spring: a steaming pool in a ring of stones, to stand in (no wall: you walk in)
+  spring(g, s) {
+    const { zone } = SHOPS.spring;
+    const water = g.add(groundDisk(zone - 0.2, 0, groundMat('#5fd6c8', 0.85))).children.at(-1);
+    water.position.y = 0.04;
+    const glow = g.add(groundDisk(zone * 0.45, 0, groundMat('#d9fff6', 0.25))).children.at(-1);
+    glow.position.y = 0.06;
+    const stones = [mat('#8a857c', { flatShading: true }), mat('#6f6a62', { flatShading: true }), mat('#a39b8b', { flatShading: true })];
+    for (let i = 0; i < 16; i++) {
+      const holder = new THREE.Group();
+      part(holder, new THREE.DodecahedronGeometry(0.26 + (i % 3) * 0.05, 0), stones[i % 3], 0, 0.1, 0).rotation.set(i, i * 2, 0);
+      g.add(standAt(holder, zone + 0.05, (i / 16) * Math.PI * 2, i));
+    }
+    // steam, curling up off the water (update moves it)
+    s.steam = [];
+    for (let i = 0; i < 8; i++) {
+      const puff = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDotTexture(), color: '#ffffff', transparent: true, opacity: 0, depthWrite: false }));
+      g.add(puff);
+      s.steam.push({ obj: puff, d: 0.4 + (i % 4) * 0.55, a: i * 2.4, ph: i / 8 });
+    }
+  },
+  // a bonfire: a big fire in a ring of stones (r: you can't walk into it), trampled dirt to dance
+  // on (zone), log seats and a couple of drums round the edge
+  bonfire(g, s) {
+    const { r, zone } = SHOPS.bonfire;
+    const dirt = g.add(groundDisk(zone, 0, groundMat('#7a5a3a', 0.45))).children.at(-1);
+    dirt.position.y = 0.02;
+    const edge = g.add(groundDisk(zone, zone - 0.25, groundMat('#ff7a2f', 0.4))).children.at(-1);
+    edge.position.y = 0.03;
+    const stone = mat('#6f6a62', { flatShading: true });
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      part(g, new THREE.DodecahedronGeometry(0.24, 0), stone, Math.cos(a) * r, 0.1, Math.sin(a) * r).rotation.set(i, i * 2, 0);
+    }
+    const wood = mat('#5a3519');
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      const log = part(g, new THREE.CylinderGeometry(0.1, 0.12, 1.5, 6), wood, Math.cos(a) * 0.25, 0.45, Math.sin(a) * 0.25);
+      log.rotation.set(Math.sin(a) * 0.8, 0, -Math.cos(a) * 0.8);
+    }
+    s.flames = ['#ff5a14', '#ff9a1f', '#ffe066'].map((color, i) =>
+      part(g, new THREE.ConeGeometry(0.7 - i * 0.18, 1.8 - i * 0.3, 8), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false }), 0, 0.8 + i * 0.08, 0));
+    // log seats, and drums
+    for (let i = 0; i < 4; i++) {
+      const seat = new THREE.Group();
+      part(seat, new THREE.CylinderGeometry(0.2, 0.22, 1.5, 8), wood, 0, 0.2, 0).rotation.z = Math.PI / 2;
+      g.add(standAt(seat, zone - 0.45, i * (Math.PI / 2) + 0.4, Math.PI / 2));
+    }
+    for (const a of [1.2, 4.3]) {
+      const drum = new THREE.Group();
+      part(drum, new THREE.CylinderGeometry(0.3, 0.26, 0.7, 12), mat('#8b5a2b'), 0, 0.35, 0);
+      part(drum, new THREE.CylinderGeometry(0.31, 0.31, 0.04, 12), mat('#e8dcc0'), 0, 0.72, 0);
+      g.add(standAt(drum, zone - 1.1, a));
+    }
+    // sparks, drifting up (update)
+    s.sparks = [];
+    for (let i = 0; i < 6; i++) {
+      const spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDotTexture(), color: '#ffb03a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+      spark.scale.setScalar(0.18);
+      g.add(spark);
+      s.sparks.push({ obj: spark, a: i * 1.1, ph: i / 6 });
+    }
+  },
 };
 
 export class Town {
@@ -461,6 +566,27 @@ export class Town {
       for (const w of s.wisps || []) {
         const { pos, up } = groundAt(w.d + Math.sin(t * 0.3 + w.ph) * 0.9, w.a + t * 0.12);
         w.obj.position.copy(pos).addScaledVector(up, 1.3 + Math.sin(t * 1.7 + w.ph) * 0.35);
+      }
+      // the pond: light on the water, lily pads turning slowly
+      if (s.shine) s.shine.material.opacity = 0.16 + Math.sin(t * 0.9 + s.id) * 0.08;
+      (s.pads || []).forEach((p, i) => { p.rotation.y = Math.sin(t * 0.25 + i) * 0.6; });
+      // steam off a hot spring: each puff rises, grows and fades, then starts again somewhere new
+      for (const p of s.steam || []) {
+        const k = (t * 0.32 + p.ph) % 1;
+        const { pos, up } = groundAt(p.d, p.a + Math.floor(t * 0.32 + p.ph));
+        p.obj.position.copy(pos).addScaledVector(up, 0.2 + k * 2.4);
+        p.obj.scale.setScalar(0.6 + k * 1.6);
+        p.obj.material.opacity = 0.42 * Math.sin(k * Math.PI);
+      }
+      // a bonfire flickers and throws sparks
+      (s.flames || []).forEach((fl, i) => {
+        fl.scale.set(1 + Math.sin(t * 11 + i) * 0.08, 1 + Math.sin(t * 13 + i * 2) * 0.18 + Math.random() * 0.08, 1 + Math.cos(t * 9 + i) * 0.08);
+        fl.rotation.y += 0.02 * (1 + i);
+      });
+      for (const sp of s.sparks || []) {
+        const k = (t * 0.5 + sp.ph) % 1;
+        sp.obj.position.set(Math.cos(sp.a + k * 3) * 0.4 * k, 1.2 + k * 3.2, Math.sin(sp.a + k * 3) * 0.4 * k);
+        sp.obj.material.opacity = Math.sin(k * Math.PI);
       }
     }
   }

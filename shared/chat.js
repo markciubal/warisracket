@@ -16,6 +16,37 @@ export const BOT_CHAT = [
   'WE DID IT.', 'SO CALM.', 'WHAT A VIEW.', 'BONK? NO. HUG.',
 ];
 
+// Long words said in short ones: the grey examples under the chat box (the one for a long word
+// you've just typed comes first). Every short side passes checkChat.
+export const SAY_IT = [
+  ['BANANA', 'A LONG, SUN-LIKE FRUIT'],
+  ['HELLO', 'HI THERE'],
+  ['GOODBYE', 'SEE YOU'],
+  ['DOCTOR', 'THE ONE WHO HEALS'],
+  ['HUNGRY', 'I NEED FOOD'],
+  ['WATER', 'WET STUFF'],
+  ['TOMATO', 'RED BALL YOU EAT'],
+  ['CABBAGE', 'BIG GREEN HEAD YOU EAT'],
+  ['CARROT', 'THIN ROOT YOU EAT'],
+  ['BUSINESSMAN', 'FAT CAT IN A SUIT'],
+  ['SKELETON', 'BONE MAN'],
+  ['MONSTER', 'BEAST'],
+  ['TOGETHER', 'AS ONE'],
+  ['AMAZING', 'SO GOOD'],
+  ['VILLAGE', 'TOWN'],
+  ['FARMING', 'GROW FOOD'],
+  ['WEAPON', 'THING THAT HURTS'],
+  ['PEACEFUL', 'CALM'],
+  ['THANK YOU VERY MUCH', 'THANKS A TON'],
+  ['FOLLOW ME', 'COME WITH ME'],
+  ['TARGET PRACTICE', 'THROW AT THE MARKS'],
+  ['EVERYBODY', 'ALL OF YOU'],
+  ['DANGER', 'LOOK OUT'],
+  ['HAPPY', 'GLAD'],
+  ['MUSHROOM', 'TOAD STOOL'],
+  ['HOSPITAL', 'SICK HUT'],
+];
+
 // The rules below get these wrong, one way or the other.
 const ONE = new Set(['aisle', 'isle', 'aisles', 'isles', 'prayer', 'prayers', 'squire', 'choir', 'ache', 'aches']);
 const MORE = new Set([

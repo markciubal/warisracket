@@ -172,6 +172,9 @@ export class Effects {
     this.beams = [];
     this.floaters = [];
     this.floaterRoot = document.getElementById('floaters');
+    this.hudEl = null;   // the panel at the top that belowHud floaters stay under (main.js sets it)
+    this.hudTop = 0;
+    this.hudAt = 0;
     this.flashLight = new THREE.PointLight('#ff9a3c', 0, 18, 1.5);
     scene.add(this.flashLight);
     this.flashT = 0;
@@ -286,13 +289,19 @@ export class Effects {
   }
 
   // ---------------------------------------------------------------- floating text
-  float(pos, text, cls = '', { life = 1.1, rise = 1.4, follow = null, offset = 0 } = {}) {
-    if (!this.numbers && (cls.startsWith('dmg') || cls === 'block')) return;
+  // belowHud: kept below hudEl (the panel at the top of the screen), never under it.
+  // Returns the floater (set its life lower to fade it out early).
+  float(pos, text, cls = '', { life = 1.1, rise = 1.4, follow = null, offset = 0, belowHud = false } = {}) {
+    if (!this.numbers && (cls.startsWith('dmg') || cls === 'block')) return null;
     const el = document.createElement('div');
     el.className = `floater ${cls}`;
     el.textContent = text;
     this.floaterRoot.appendChild(el);
-    this.floaters.push({ el, pos: pos.clone(), life, max: life, rise, follow, offset, jitter: (Math.random() - 0.5) * 30 });
+    // (its centre is what moves: kept half its height further down)
+    const half = belowHud ? el.offsetHeight / 2 : 0;
+    const f = { el, pos: pos.clone(), life, max: life, rise, follow, offset, belowHud, half, jitter: (Math.random() - 0.5) * 30 };
+    this.floaters.push(f);
+    return f;
   }
 
   addShake(amount) { this.shake = Math.min(1.2, this.shake + amount); }
@@ -390,6 +399,11 @@ export class Effects {
 
     // DOM floaters
     const w = window.innerWidth, h = window.innerHeight;
+    // (the HUD panel's bottom edge, for floaters kept below it: looked up now and then, not every frame)
+    if (this.hudEl && (this.hudAt -= dt) <= 0) {
+      this.hudAt = 0.5;
+      this.hudTop = this.hudEl.getBoundingClientRect().bottom + 6;
+    }
     const cam = this.camera.position;
     for (let i = this.floaters.length - 1; i >= 0; i--) {
       const f = this.floaters[i];
@@ -403,7 +417,7 @@ export class Effects {
       world.project(this.camera);
       if (hidden || world.z > 1) { f.el.style.opacity = 0; continue; }
       const x = (world.x * 0.5 + 0.5) * w + f.jitter * k;
-      const y = (-world.y * 0.5 + 0.5) * h;
+      const y = Math.max(f.belowHud ? this.hudTop + f.half : -Infinity, (-world.y * 0.5 + 0.5) * h);
       const pop = k < 0.15 ? 0.6 + (k / 0.15) * 0.5 : 1.1 - Math.min(0.1, (k - 0.15));
       f.el.style.opacity = Math.min(1, f.life / (f.max * 0.3));
       f.el.style.transform = `translate(-50%, -50%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) scale(${pop.toFixed(3)})`;

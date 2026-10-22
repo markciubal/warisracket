@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- (maximum-scale: iPhones don't zoom in on a text box when you tap it) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#140f1f">
   <!-- "Add to Home Screen" opens it full screen, without the browser bars -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -42,6 +43,7 @@
 
     <div id="top-right">
       <canvas id="radar" width="180" height="180"></canvas>
+      <div id="rock-chip" class="desk-only hidden"></div>
       <div id="mini-score"></div>
       <div id="ping"></div>
       <div id="fps" class="hidden"></div>
@@ -49,15 +51,17 @@
 
     <div id="erupt-warning" class="hidden">MOUNTAIN ANGRY! FIRE ROCKS COMING!</div>
 
-    <!-- Ploughshares, in peace: the tribe can talk, one beat per word (Enter, or 💬 on phones) -->
+    <!-- Ploughshares, in peace: the tribe can talk, one syllable per word (Enter, or 💬 on phones),
+         with examples of saying long words in short ones -->
     <div id="chat">
       <div id="chat-log"></div>
       <form id="chat-form" class="hidden" autocomplete="off">
-        <input id="chat-input" type="text" maxlength="80" spellcheck="false" enterkeyhint="send" placeholder="TALK. ONE SOUND AT A TIME.">
+        <input id="chat-input" type="text" maxlength="80" spellcheck="false" enterkeyhint="send" placeholder="ONE SYLLABLE PER WORD ONLY">
         <button type="submit">SAY</button>
         <div id="chat-hint"></div>
+        <div id="chat-eg"></div>
       </form>
-      <div id="chat-tip" class="desk-only">ENTER · TALK</div>
+      <div id="chat-tip" class="desk-only">ENTER · TALK (ONE SYLLABLE PER WORD)</div>
     </div>
 
     <!-- Ploughshares: while you've got a practice weapon from a range shed -->
@@ -123,6 +127,7 @@
     </div>
     <div id="grunts" class="hidden"></div>
     <div id="t-menu" class="hidden">
+      <div class="tbtn menu-item hidden" id="t-rock">▦ ROCK CODE</div>
       <div class="tbtn menu-item" id="t-settings">⚙ SETTINGS</div>
       <div class="tbtn menu-item hidden" id="t-council">⚑ RULES</div>
       <div class="tbtn menu-item quit" id="t-quit">✕ QUIT</div>
@@ -157,8 +162,29 @@
     <small>THE GAME KEEPS GOING</small>
     <div class="row pause-buttons">
       <button id="lock-resume">▶ PLAY</button>
+      <button id="lock-rock" class="minor hidden" title="This rock's code, link and QR code, to bring friends in">▦ ROCK</button>
       <button id="lock-settings" class="minor">⚙ SETTINGS (O)</button>
       <button id="lock-quit" class="minor quit">✕ QUIT</button>
+    </div>
+  </div>
+
+  <!-- this rock's code, big, with its link and a QR code to scan (lobby, pause screen, phone ☰) -->
+  <div id="qr" class="hidden">
+    <div class="tablet panel">
+      <div class="panel-head">
+        <h1>JOIN MY ROCK</h1>
+        <button class="close-x" id="qr-x" title="Close (Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body">
+        <div id="qr-code"></div>
+        <b id="qr-rock"></b>
+        <div id="qr-link"></div>
+        <p class="rules-note">POINT A PHONE CAMERA AT THE SQUARE, OR GO TO THE GAME AND TYPE THE CODE INTO JOIN ROCK.</p>
+      </div>
+      <div class="row qr-buttons">
+        <button id="qr-copy" class="minor">COPY LINK</button>
+        <button id="qr-close">DONE</button>
+      </div>
     </div>
   </div>
 
@@ -231,7 +257,7 @@
         <button class="close-x" id="rack-x" title="Close (Esc)" aria-label="Close">✕</button>
       </div>
       <div class="panel-body">
-        <p class="rules-note">ANY WEAPON YOU LIKE. NOBODY IN THE RING GOES BELOW 1 HP.</p>
+        <p class="rules-note">ANY WEAPON YOU LIKE, YOURS TO KEEP: TAKE IT ANYWHERE. BRING IT BACK HERE TO FARM AGAIN. NOBODY IN THE RING GOES BELOW 1 HP.</p>
         <div id="rack-items"></div>
       </div>
       <button id="rack-close">DONE</button>
@@ -285,10 +311,21 @@
         </div>
 
         <div class="lobby-go">
-          <!-- not on a rock yet: make one, or type in a friend's code -->
+          <!-- not on a rock yet: jump onto a public one, make one (public or private), or type in a
+               friend's code -->
           <div id="room-pick">
-            <label for="room-code">PICK ROCK</label>
-            <button id="room-new" disabled>CONNECTING...</button>
+            <label>PICK ROCK</label>
+            <button id="room-quick" disabled title="Onto the busiest public rock with room for you (or a new public one, if there isn't one)">QUICK PLAY</button>
+            <label id="rocks-head">OPEN ROCKS</label>
+            <div id="rock-list"></div>
+            <div class="row room-make">
+              <button id="room-new" disabled>CONNECTING...</button>
+              <div class="seg" id="room-vis">
+                <button data-v="1" title="In the open rocks list: anyone can join">PUBLIC</button>
+                <button data-v="0" title="Only people you give the code or link to">PRIVATE</button>
+              </div>
+            </div>
+            <div class="rule-desc" id="room-vis-desc"></div>
             <div class="row room-join">
               <input id="room-code" placeholder="CODE" autocomplete="off" spellcheck="false" autocapitalize="characters" enterkeyhint="go">
               <button id="room-go" disabled>JOIN</button>
@@ -300,11 +337,15 @@
           <!-- on a rock: its code to share, its rules (open to start with, to change before playing; they
                fold away), and in you go -->
           <div id="room-in" class="hidden">
-            <label>ROCK CODE</label>
-            <div class="row room-code-row">
+            <!-- the code, big: friends type it in, open its link, or scan its QR code -->
+            <div id="room-card">
+              <label id="room-card-label">ROCK CODE · FRIENDS TYPE IT IN, OR SCAN IT</label>
               <b id="room-show"></b>
-              <button id="room-copy" class="minor">COPY LINK</button>
-              <button id="room-leave" class="minor" title="Make or join a different rock">OTHER ROCK</button>
+              <div class="row room-code-row">
+                <button id="room-copy" class="minor">COPY LINK</button>
+                <button id="room-qr" class="minor" title="A QR code for this rock: friends point a phone camera at it">▦ QR CODE</button>
+                <button id="room-leave" class="minor" title="Make or join a different rock">OTHER ROCK</button>
+              </div>
             </div>
             <div class="rules-note" id="room-mode"></div>
             <details class="fold" id="rules-box" open>

@@ -494,6 +494,8 @@ export class Caveman {
     this.look.lefty = on ? 1 : 0;
   }
   playEmote() { this.emoteT = 0; }
+  // round a bonfire (peace): bounce, sway, twist, arms up in turn, until told to stop
+  setDancing(on) { this.dancing = !!on; }
   hurt() { this.hurtT = 0.2; }
 
   die() {
@@ -627,6 +629,23 @@ export class Caveman {
       if (this.swingT < 0) this.armL.rotation.x = lerp(this.armL.rotation.x, -2.9 - Math.sin(t * 18) * 0.2, k);
       this.head.rotation.x -= 0.3 * k;
       if (this.emoteT > 1.1) this.emoteT = -1;
+    }
+
+    // dancing: eases in and out of it
+    this.danceK = damp(this.danceK || 0, this.dancing ? 1 : 0, 6, dt);
+    const dk = this.danceK > 0.01 ? this.danceK : 0;
+    const beat = t * 7;
+    this.torso.rotation.z = Math.sin(beat / 2) * 0.22 * dk;
+    this.body.rotation.y = Math.sin(t * 1.6) * 0.7 * dk;
+    if (dk) {
+      this.body.position.y += Math.abs(Math.sin(beat)) * 0.14 * dk;
+      this.armR.rotation.x = lerp(this.armR.rotation.x, -2.7 + Math.sin(beat) * 0.45, dk);
+      if (this.swingT < 0) this.armL.rotation.x = lerp(this.armL.rotation.x, -2.7 - Math.sin(beat) * 0.45, dk);
+      this.legL.rotation.x += Math.max(0, Math.sin(beat)) * 0.5 * dk;
+      this.legR.rotation.x += Math.max(0, -Math.sin(beat)) * 0.5 * dk;
+      this.head.rotation.z = Math.sin(beat) * 0.15 * dk;
+    } else {
+      this.head.rotation.z = 0;
     }
 
     this.stars.visible = s.stunned;

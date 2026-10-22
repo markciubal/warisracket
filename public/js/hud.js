@@ -146,7 +146,7 @@ export class Hud {
     this.lastEra = key;
     $('era-panel').classList.remove('doom', 'hurry');
     $('era-panel').classList.add('peace');
-    $('era-name').textContent = '🌾 PLOUGH AGE 🌾';
+    $('era-name').textContent = '🌾 PEACE TIME 🌾';
     $('era-next').textContent = line;
     $('era-fill').style.width = `${Math.min(1, Math.max(0, 1 - left / (game.eraLen || 1))) * 100}%`;
     $('era-dots').innerHTML = `<b class="food">${game.food} FOOD</b>`;
@@ -200,13 +200,14 @@ export class Hud {
 
   // The duel ring's weapon rack: the padded club and every weapon of every age. current: the
   // name of what I'm holding.
-  rack(current) {
+  // kept: the one I've taken to keep (DUEL_WEAPONS key), if any: it can go back on the rack
+  rack(current, kept = null) {
     const AGE = { tool: 'PADDED', primitive: 'STONE AGE', sword: 'SHINY ROCK AGE', future: 'ZAP AGE' };
     $('rack-items').innerHTML = DUEL_WEAPONS.map(type => {
       const w = duelWeapon(type);
       return `<button class="rack-item${w.name === current ? ' on' : ''}" data-type="${type}">`
         + `<b>${esc(w.name.toUpperCase())}</b><small>${AGE[w.pool]} · BONK ${w.dmg}</small></button>`;
-    }).join('');
+    }).join('') + (kept ? '<button class="rack-item stop" data-type=""><b>✋ HAND IT BACK</b><small>THE HOE AGAIN OUT OF THE RING</small></button>' : '');
   }
 
   // The range shed's rack: every age's ranged weapon, and the ones you only get here. current: the

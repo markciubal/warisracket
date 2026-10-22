@@ -113,15 +113,16 @@ export const DOTIME = {
   armorLife: 60,
 };
 
-export const MODES = { dotime: 'DO TIME', plough: 'PLOUGHSHARES', classic: 'FOREVER STONE', coop: 'TRIBE VS BOTS' };
+export const MODES = { dotime: 'DO TIME', plough: 'PEACE MODE', classic: 'FOREVER STONE', coop: 'TRIBE VS BOTS' };
 
-// Ploughshares: the ages go by as in Do Time, but bots only ever fight back. If a whole age passes
-// with nobody hurting anybody, swords turn into ploughshares: weapons become hoes, nobody can die,
-// and the tribe farms (plant, harvest into a shared food store) and builds with the food. The
-// planet grows and a town opens up (SHOPS). When the farming time runs out everyone votes to keep
-// going; otherwise the round ends with a harvest festival and a new Stone Age.
+// Peace mode (the 'plough' mode: swords into ploughshares): no war at all. Every round starts in
+// peace: weapons are hoes, nobody can die, and the tribe farms (plant, harvest into a shared food
+// store) and builds with the food. The planet grows and the whole town opens up straight away
+// (SHOPS: doctor, ranges, duel ring, tailor, haunted hollow, fishing pond, hot spring, bonfire).
+// When the farming time runs out everyone votes to keep going; otherwise the round ends with a
+// harvest festival and a fresh peace on a new planet.
 export const PEACE = {
-  seconds: 120,       // farming before each vote (PEACE_SECONDS / --peace-seconds to change)
+  seconds: 180,       // peace before each vote (PEACE_SECONDS / --peace-seconds to change)
   voteSeconds: 15,
   grudge: 25,         // seconds a bot fights back against whoever hurt it
   plantCd: 0.4,       // seconds between plantings
@@ -136,6 +137,7 @@ export const PEACE = {
   growStep: 10,
   maxR: 80,
   growSeconds: 12,
+  startGrow: 5,       // ...but at the start of a round it's quick, so the town is open in seconds
   // Shells are the money: everyone gets a few when peace breaks out, and earns more picking crops
   // (one a crop), hitting targets and winning duels.
   startShells: 3,
@@ -173,17 +175,44 @@ export const STRANGER = {
 //   haunt:  a spooky hollow where monsters (BEASTS with monster: true) roam and never leave. Your
 //           hoe is a torch in there; each one slain pays `reward` shells, and another comes
 //           `respawn` seconds later, up to `monsters` at once.
+//   pond:   fishing. The water (r) is solid; stand on the bank (zone) and E casts. A fish bites
+//           some time in `wait` seconds later: E within `window` seconds reels it in (FISH), too
+//           soon scares it off, too late and it gets away.
+//   spring: a hot spring to soak in: `heal` life every `every` seconds while you stand in it.
+//   bonfire: a dance circle round a big fire (r is the fire). E dances (moving stops); each
+//           dancer earns a shell every `every` seconds alone, quicker the more dance together
+//           (divided by the dancers, up to `crowd` of them).
 export const SHOPS = {
-  doctor: { name: 'DOCTOR',       r: 1.7, zone: 3.6, fee: 1 },
-  range:  { name: 'TARGET RANGE', r: 1.0, zone: 3.2, targets: 3, downrange: 9, spread: 2.6, targetR: 0.75, targetH: 1.35, payGap: 1 },
-  duel:   { name: 'DUEL RING',    r: 0,   zone: 5.5, win: 3 },
-  tailor: { name: 'TAILOR',       r: 1.7, zone: 3.6 },
-  haunt:  { name: 'HAUNTED HOLLOW', r: 0, zone: 7, monsters: 3, respawn: 10, reward: 2 },
+  doctor:  { name: 'DOCTOR',       r: 1.7, zone: 3.6, fee: 1 },
+  range:   { name: 'TARGET RANGE', r: 1.0, zone: 3.2, targets: 3, downrange: 9, spread: 2.6, targetR: 0.75, targetH: 1.35, payGap: 1 },
+  duel:    { name: 'DUEL RING',    r: 0,   zone: 5.5, win: 3 },
+  tailor:  { name: 'TAILOR',       r: 1.7, zone: 3.6 },
+  haunt:   { name: 'HAUNTED HOLLOW', r: 0, zone: 7, monsters: 3, respawn: 10, reward: 2 },
+  pond:    { name: 'FISHING POND', r: 2.3, zone: 4.2, wait: [2.5, 7], window: 1.1 },
+  spring:  { name: 'HOT SPRING',   r: 0,   zone: 3.0, heal: 3, every: 1 },
+  bonfire: { name: 'BONFIRE',      r: 0.9, zone: 4.6, every: 8, crowd: 5 },
 };
-// [kind, seconds after the planet has finished growing]
-export const SHOP_OPENINGS = [['doctor', 2], ['range', 7], ['duel', 13], ['tailor', 19], ['haunt', 26], ['range', 45], ['range', 80]];
+// Shops whose zone is ground you walk on (a ring, a hollow, a bank, a pool, a dance circle):
+// nothing gets planted or built on it.
+export const AREA_SHOPS = new Set(['duel', 'haunt', 'pond', 'spring', 'bonfire']);
+// [kind, seconds after the planet has finished growing]: the whole town, all at once
+export const SHOP_OPENINGS = [['doctor', 0], ['range', 0.5], ['duel', 1], ['tailor', 1.5], ['haunt', 2], ['pond', 2.5], ['spring', 3], ['bonfire', 3.5], ['range', 6], ['pond', 9]];
 // ...and after each later growth spurt, on the new ground
-export const EXPANSION_OPENINGS = [['haunt', 3], ['doctor', 9]];
+export const EXPANSION_OPENINGS = [['haunt', 3], ['doctor', 9], ['bonfire', 14], ['spring', 20]];
+// What bites at the pond. w: how often (out of all of them). shells: what it's worth. food: what
+// it adds to the tribe's store.
+export const FISH = {
+  minnow: { name: 'MINNOW',      w: 44, shells: 1,  food: 1 },
+  trout:  { name: 'TROUT',       w: 30, shells: 2,  food: 2 },
+  pike:   { name: 'BIG PIKE',    w: 16, shells: 3,  food: 4 },
+  golden: { name: 'GOLDEN FISH', w: 6,  shells: 10, food: 0 },
+  boot:   { name: 'OLD BOOT',    w: 4,  shells: 0,  food: 0 },
+};
+export function pickFish() {
+  let r = Math.random() * Object.values(FISH).reduce((n, f) => n + f.w, 0);
+  for (const [k, f] of Object.entries(FISH)) if ((r -= f.w) < 0) return k;
+  return 'minnow';
+}
 // slot: where it goes. cost: shells. Bought ones are yours (wear any of them again for free) until
 // you leave the rock.
 export const CLOTHES = {
@@ -383,6 +412,62 @@ export const MAMMON = {
   harvest: 'NOBODY BUYS SPEARS ANY MORE...',
   shop: 'FINALLY. SOME BUSINESS.',
   free: ['FREE FOOD?! WHO PAYS FOR THAT?', 'CHARITY IS BAD FOR BUSINESS.', 'GIVING THINGS AWAY? DISGUSTING.'],
+  // E at his podium (within reach of it): he talks business, every line once before any comes
+  // round again. {profit}: his profit so far. {age}: the age it is.
+  reach: 5.5,
+  talk: [
+    'WAR IS JUST PEACE WITH BETTER MARGINS.',
+    'ME NOT START WARS. ME JUST MONETIZE THEM.',
+    'A SPEAR IN EVERY HAND. TWO, WITH FINANCING.',
+    'ME SELL TO BOTH TRIBES. THAT CALLED DIVERSIFYING.',
+    'HEALTHY ECONOMY NEEDS HEALTHY SUPPLY OF ENEMIES.',
+    'WIN OR LOSE, ME WIN.',
+    'THIS NOT WAR. THIS MARKET CORRECTION.',
+    'FIVE-YEAR PLAN: WAR, WAR, WAR, WAR, BIGGER WAR.',
+    'ME CALL IT DEFENSE. SOUNDS NICER. SAME PRICE.',
+    'COLLATERAL DAMAGE? ME LOVE COLLATERAL.',
+    'NOTHING PERSONAL. JUST SPEARS.',
+    'WEALTH TRICKLE DOWN. MOSTLY AS SPEARS.',
+    'PROFIT SO FAR: {profit} SHINY ROCKS. DISAPPOINTING. BONK HARDER.',
+    '{age}? GREAT AGE. NEXT AGE EVEN GREATER. FOR ME.',
+    'ME GIVE ONE SHINY ROCK TO PEACE. TAX WRITE-OFF.',
+    'ADVICE: BUY LOW, SELL SPEARS. THAT WILL BE ONE SHINY ROCK.',
+    'ME NOT GREEDY. ME JUST WANT ALL OF IT.',
+    'WHY FIGHT ME? ME SELL YOU THE THING YOU FIGHT ME WITH.',
+    'BEST WAR NEVER ENDS. LIKE A SUBSCRIPTION.',
+    'OTHER TRIBE HAS BIGGER SPEAR. WHAT LUCK! ME HAVE BIGGER-ER SPEAR.',
+    'BLOOD IS RED. LEDGER IS BLACK. BEAUTIFUL.',
+    'DEAD CAVEMEN BUY NO SPEARS. SO PLEASE, DIE SLOWLY.',
+    'ME NOT INVENT WHEEL. ME INVENT WHEEL TAX.',
+    'SHAREHOLDERS ASK: WHY ONLY ONE WAR? GOOD QUESTION.',
+    'VOLCANO GO BOOM? ME SELL HELMETS.',
+    'THOUGHTS AND PRAYERS. AND AN INVOICE.',
+    'ME NOT SEE CAVEMEN. ME SEE CUSTOMERS.',
+    'BRAVE LITTLE CAVEMAN! HAVE COUPON FOR NEXT SPEAR.',
+    'ONE BONK IS TRAGEDY. MILLION BONKS IS QUARTERLY REPORT.',
+    'ME LOVE PEACE. PEACE IS WHEN WE RESTOCK.',
+  ],
+  // in a Ploughshares peace, while he wastes away
+  talkPeace: [
+    'PLOUGHS?! WHO PROFITS FROM PLOUGHS?!',
+    'CABBAGE NOT GO BOOM. CABBAGE BAD INVESTMENT.',
+    'ME SELL YOU SPEAR SHAPED LIKE HOE. NOBODY WILL KNOW.',
+    'EVERYBODY FED AND HAPPY. DISGUSTING.',
+    'ME WASTING AWAY. PLEASE. ONE SMALL WAR. TINY ONE.',
+    'NEIGHBOR LOOKING AT YOUR TURNIPS. JUST SAYING.',
+    'PEACE IS JUST WAR WITH NO CUSTOMERS.',
+    'VOTE FOR WAR. ME ALREADY PRINTED THE SIGNS.',
+    'YOU GROW FOOD. FOOD GET EATEN. WHERE IS THE GROWTH?',
+    'TARGET PRACTICE, GOOD. KEEP PRACTICING. FOR NO REASON.',
+  ],
+  // the end of the world, for the few seconds he has left
+  talkDoom: [
+    'BUNKER HAS ROOM FOR ONE. GUESS WHO.',
+    'ME SELL SEATS ON THE ARK. NO REFUNDS.',
+    'FINAL SALE! EVERYTHING MUST GO!',
+    'MONEY CANNOT BURN. RIGHT? RIGHT?!',
+    'ME SHORTED THE PLANET.',
+  ],
 };
 
 // ---------------------------------------------------------------- melee weapons

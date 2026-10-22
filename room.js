@@ -22,8 +22,8 @@ export function send(client, msg) {
   if (client.ws.readyState === 1) client.ws.send(JSON.stringify(msg));
 }
 
-// Starting rules (mode, bot brains, bot fill) from config vars, flags or a client, with anything
-// missing or nonsense taken from `base`.
+// Starting rules (mode, bot brains, bot fill, public or private) from config vars, flags or a
+// client, with anything missing or nonsense taken from `base`.
 export function cleanRules(r, base) {
   const src = r && typeof r === 'object' ? r : {};
   const mode = String(src.mode ?? '').toLowerCase();
@@ -31,6 +31,8 @@ export function cleanRules(r, base) {
     mode: C.MODES[mode] ? mode : base.mode,
     botLevel: intIn(Number(src.botLevel), 1, C.BOT_LEVELS.length, base.botLevel),
     bots: intIn(Number(src.bots), 0, C.MAX_BOTS, base.bots),
+    // 1: public (in the open rocks list, anyone can join). 0: private (the code or link only)
+    open: src.open == null ? (base.open ? 1 : 0) : (src.open ? 1 : 0),
   };
 }
 
@@ -93,6 +95,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     mammonDead: false,          // the finale got the Businessman too (until the next round)
     botLevel: rules.botLevel,
     bots: rules.bots,
+    open: rules.open ? 1 : 0,   // public: in the open rocks list
     chief: 0,
     nextArmorAt: now() + randIn(DOTIME.armorEvery),
     calm: true,                 // Ploughshares: nobody has hurt anybody yet this age
@@ -222,6 +225,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       mmDead: game.mammonDead ? 1 : 0,
       botLevel: game.botLevel,
       bots: game.bots,
+      open: game.open,
       chief: game.chief,
       calm: game.calm ? 1 : 0,
       food: game.food,
@@ -236,7 +240,8 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
 
   const publicPlayer = pl => ({
     id: pl.id, name: pl.name, look: pl.look, bot: pl.bot, p: rnd(pl.p, 4), f: rnd(pl.f, 4), h: pl.h,
-    hp: pl.hp, alive: pl.alive, wpn: pl.weapon, armor: pl.armor, k: pl.kills, d: pl.deaths, zone: pl.zone, practice: pl.practice || null,
+    hp: pl.hp, alive: pl.alive, wpn: pl.weapon, armor: pl.armor, k: pl.kills, d: pl.deaths, zone: pl.zone, practice: pl.practice || null, carry: pl.carry || null,
+    dancing: pl.dancing ? 1 : 0, fish: pl.fish ? { shop: pl.fish.shop, bit: pl.fish.bit ? 1 : 0 } : null,
     buffs: Object.fromEntries(Object.entries(pl.buffs || {}).map(([k, until]) => [k, Math.max(0, Math.round((until - now()) * 10) / 10)]).filter(([, left]) => left > 0)),
   });
 
@@ -297,6 +302,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
         me.client = client;
         client.pid = me.id;
         send(client, { t: 'you', id: me.id, sq: me.sq, ammo: me.ammo });
+        sendMe(me);   // (joining a peace already going: the shells it starts you with)
         balanceBots();
         updateChief();
         log(`join  "${me.name}" (${humanCount()}/${MAX_PLAYERS} humans, ${clients.size} sockets)`);
@@ -366,6 +372,12 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       case 'practice':
         if (pl) practice(pl, m.w ? String(m.w) : null);
         break;
+      case 'fish':
+        if (pl) fishing(pl, t);
+        break;
+      case 'dance':
+        if (pl) setDance(pl, m.on);
+        break;
       case 'duelwpn':
         if (pl) pickDuelWeapon(pl, String(m.type ?? ''));
         break;
@@ -405,7 +417,11 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       shells: peaceful() ? C.PEACE.startShells : 0, wardrobe: [],   // ...money, and clothes bought
       zone: 0, duels: 0,                     // ...the shop they're at (id), and bouts won
       duelPick: 'practice',                  // ...what they take off the duel ring's rack
+      carry: null,                           // ...and kept, to take anywhere in the peace (null: the hoe out of the ring)
       practice: null,                        // ...the practice weapon from a range shed, if any
+      fish: null,                            // ...a line in a pond: { shop, biteAt, bit }
+      dancing: false, danceAt: null, danceAcc: 0,   // ...round a bonfire (from where), and the shell coming
+      soakAt: 0,                             // ...next bit of life back in a hot spring
       hungerAt: 0, strangerId: 0,            // ...next hunger tick, and the stranger coming with food
     };
     players.set(pl.id, pl);
@@ -1187,9 +1203,9 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   function startPeace(t) {
     Object.assign(game, {
       phase: 'peace', peaceEnd: t + PEACE_SECONDS, voteUntil: 0, food: 0,
-      skyRockAt: t + C.PEACE.growSeconds + randIn(C.PEACE.skyRockEvery), openings: [],
+      skyRockAt: t + C.PEACE.startGrow + randIn(C.PEACE.skyRockEvery), openings: [],
     });
-    grow(t, C.PEACE.grownR, C.SHOP_OPENINGS);
+    grow(t, C.PEACE.grownR, C.SHOP_OPENINGS, C.PEACE.startGrow);
     votes.clear();
     armorDrops.clear();
     loot.clear();
@@ -1197,7 +1213,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     swings.length = 0;
     for (const b of [...beasts.values()]) beastGone(b, 'round');
     for (const pl of players.values()) {
-      Object.assign(pl, { harvests: 0, built: 0, streak: 0, reward: null, charging: false, grudge: null, zone: 0, duels: 0, practice: null });
+      Object.assign(pl, { harvests: 0, built: 0, streak: 0, reward: null, charging: false, grudge: null, zone: 0, duels: 0, practice: null, carry: null, ...TOWN_IDLE });
       pl.hungerAt = t + C.PEACE.hungerEvery;
       pl.shells = Math.min(C.PEACE.maxShells, pl.shells + C.PEACE.startShells);
       sendMe(pl);
@@ -1207,8 +1223,10 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       broadcast({ t: 'wpn', id: pl.id, wpn: pl.weapon, era: 1 });
     }
     broadcast({ t: 'peace', ...gameInfo(t) });
-    log('swords into ploughshares');
+    log('peace');
   }
+  // (what nobody is doing at the start of a peace, or a round: fishing, dancing, soaking)
+  const TOWN_IDLE = { fish: null, dancing: false, danceAt: null, danceAcc: 0, soakAt: 0 };
 
   function stepPeace(t) {
     stepTown(t);
@@ -1240,6 +1258,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   // A seed goes in the ground just in front of you, if there's room for it.
   function tryPlant(pl, t) {
     if (!peaceful() || !pl.alive || t - (pl.lastPlant || 0) < C.PEACE.plantCd) return false;
+    if (pl.carry) { nope(pl, 'hands'); return false; }   // (a weapon in hand, not the hoe)
     if (crops.size >= C.PEACE.cropMax) { nope(pl, 'full'); return false; }
     const u = M.moveOnSphere(pl.p, pl.f, pl.f, C.PEACE.plantReach)[0];
     let room = isClear(u, 0.4) && buildsClear(u, 0.4) && !townAt(u, 0.4);
@@ -1292,7 +1311,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   function townAt(u, margin) {
     for (const s of shops) {
       const def = C.SHOPS[s.kind];
-      if (M.arcDist(u, s.u) < (s.kind === 'duel' || s.kind === 'haunt' ? def.zone : def.r) + margin) return true;
+      if (M.arcDist(u, s.u) < (C.AREA_SHOPS.has(s.kind) ? def.zone : def.r) + margin) return true;
       if (s.kind === 'range' && M.arcDist(u, s.lane) < def.downrange / 2 + 1 + margin) return true;
     }
     return false;
@@ -1303,7 +1322,8 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   // targets downrange.
   function shopSpot(kind, u, f) {
     const def = C.SHOPS[kind];
-    const free = (p, m) => isClear(p, m) && buildsClear(p, m) && !townAt(p, m) && p[1] < 0.6 && M.arcDist(p, C.MAMMON.at) > 8;
+    // (and its circle well clear of the Businessman's podium, where E talks to him)
+    const free = (p, m) => isClear(p, m) && buildsClear(p, m) && !townAt(p, m) && p[1] < 0.6 && M.arcDist(p, C.MAMMON.at) > 8 + m;
     if (kind !== 'range') return free(u, def.zone + 2) ? { u, f, at: u } : null;
     const { at, lane, targets } = shopLayout(kind, u, f);
     if (!free(u, def.zone + 1.5) || !free(lane, def.downrange / 2 + 1) || targets.some(p => !free(p, 2))) return null;
@@ -1338,18 +1358,18 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     log(`${def.name} open`);
   }
 
-  // A growth spurt: the planet swells to radius `to` over growSeconds, and once it's done the
+  // A growth spurt: the planet swells to radius `to` over `len` seconds, and once it's done the
   // shops in `openings` ([kind, seconds after]) open on the new ground.
-  function grow(t, to, openings) {
-    Object.assign(game, { growFrom: game.radius, growTo: Math.min(C.PEACE.maxR, to), growStart: t });
-    for (const [kind, after] of openings) game.openings.push({ kind, at: t + C.PEACE.growSeconds + after });
+  function grow(t, to, openings, len = C.PEACE.growSeconds) {
+    Object.assign(game, { growFrom: game.radius, growTo: Math.min(C.PEACE.maxR, to), growStart: t, growLen: len });
+    for (const [kind, after] of openings) game.openings.push({ kind, at: t + len + after });
     game.openings.sort((a, b) => a.at - b.at);
   }
 
   function stepTown(t) {
     // the planet grows, smoothly
     if (game.radius !== game.growTo) {
-      const k = M.clamp((t - game.growStart) / C.PEACE.growSeconds, 0, 1);
+      const k = M.clamp((t - game.growStart) / (game.growLen || C.PEACE.growSeconds), 0, 1);
       game.radius = game.growFrom + (game.growTo - game.growFrom) * k * k * (3 - 2 * k);
       C.setPlanetRadius(game.radius);
       // a shop keeps its size: its parts are so far from its middle in the world, not in angle
@@ -1366,7 +1386,12 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       if (!pl.alive) continue;
       enterZone(pl, zoneAt(pl.p));
       stepHunger(pl, t);
+      stepFishing(pl, t);
+      stepSpring(pl, t);
+      // a dancer who wanders off the spot has stopped dancing
+      if (pl.dancing && M.arcDist(pl.p, pl.danceAt) > 1.2) setDance(pl, false);
     }
+    stepBonfires();
     if (t >= game.skyRockAt) {
       game.skyRockAt = t + randIn(C.PEACE.skyRockEvery);
       skyRock();
@@ -1374,22 +1399,26 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   }
 
   // Walking into (or out of) a shop. The duel ring hands you a weapon off its rack (the practice
-  // club, or whatever you picked last time) and takes it back when you leave; the range hands you
-  // your age's ranged weapon, loaded.
+  // club, or whatever you picked last time) and takes it back when you leave, unless you picked it
+  // to keep; the range hands you your age's ranged weapon, loaded.
   function enterZone(pl, s) {
     const id = s ? s.id : 0;
     if (pl.zone === id) return;
     const was = shopById(pl.zone);
     pl.zone = id;
     // the duel ring hands you a weapon off its rack, a haunted hollow a torch (and both take them
-    // back when you leave)
+    // back when you leave). A weapon you kept off the rack stays in your hand wherever you go.
     const armed = k => k === 'duel' || k === 'haunt';
     if (armed(s?.kind) || armed(was?.kind)) {
       // (bots grab whatever's on the rack)
       if (pl.bot && s?.kind === 'duel') pl.duelPick = C.DUEL_WEAPONS[Math.floor(Math.random() * C.DUEL_WEAPONS.length)];
-      pl.weapon = s?.kind === 'duel' ? C.duelWeapon(pl.duelPick) : s?.kind === 'haunt' ? C.makeTorch() : C.makeTool();
-      broadcast({ t: 'wpn', id: pl.id, wpn: pl.weapon, era: 1 });
+      pl.weapon = pl.carry ? C.duelWeapon(pl.carry)
+        : s?.kind === 'duel' ? C.duelWeapon(pl.duelPick) : s?.kind === 'haunt' ? C.makeTorch() : C.makeTool();
+      broadcast({ t: 'wpn', id: pl.id, wpn: pl.weapon, era: 1, carry: pl.carry });
     }
+    // off the bank: the line comes in. Out of the circle: the dance is over.
+    if (pl.fish && pl.fish.shop !== id) endFishing(pl, 'off');
+    if (pl.dancing && s?.kind !== 'bonfire') setDance(pl, false);
     // bots at a range on purpose take something off the rack while they're there
     if (pl.bot && (s?.kind === 'range' || was?.kind === 'range')) {
       const pick = s?.kind === 'range' && pl.ai.errand?.shop === s ? C.PRACTICE_WEAPONS[Math.floor(Math.random() * C.PRACTICE_WEAPONS.length)] : null;
@@ -1570,8 +1599,9 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     broadcast({ t: 'fb', id: fb.id, pos: rnd(pos, 4), vel: rnd(vel, 4), land: fb.land, sky: 1 });
   }
 
-  // Bots in peace: off to the doctor when hurt (if they can pay), a new hat when they can afford
-  // one, and otherwise farming, with the odd errand to the duel ring or the range.
+  // Bots in peace: off to the doctor when hurt (if they can pay; else a soak in a hot spring), a
+  // new hat when they can afford one, and otherwise farming, with the odd errand to the duel ring,
+  // the range, a pond or a bonfire.
   function botPeaceGoal(b, t) {
     const ai = b.ai;
     const nearest = kind => {
@@ -1580,36 +1610,141 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       return best;
     };
     const doctor = nearest('doctor');
-    // hurt: drop whatever else (but a duellist sees the bout through, to the last HP)
+    // hurt: drop whatever else (but a duellist sees the bout through, to the last HP, and a soak
+    // goes on until they're well)
     const duelling = ai.errand?.shop.kind === 'duel' && b.zone === ai.errand.shop.id;
-    if (duelling ? b.hp <= 1 : b.hp < 60) ai.errand = null;
+    const soaking = ai.errand?.shop.kind === 'spring';
+    if (soaking ? b.hp >= 95 : duelling ? b.hp <= 1 : b.hp < 60) ai.errand = null;
     if (!ai.errand && doctor && b.hp < 60 && b.shells >= C.SHOPS.doctor.fee) return { u: doctor.at, shop: doctor, use: 1 };
+    const spring = !ai.errand && b.hp < 60 ? nearest('spring') : null;
+    if (spring) ai.errand = { shop: spring, until: t + 60 };
     if (ai.errand && (t > ai.errand.until || !shops.includes(ai.errand.shop))) ai.errand = null;
     if (!ai.errand && b.hp >= 60 && Math.random() < 0.1) {
       const tailor = nearest('tailor');
       const want = tailor ? Object.keys(C.CLOTHES).filter(k => !b.wardrobe.includes(k) && C.CLOTHES[k].cost <= b.shells) : [];
       if (want.length && Math.random() < 0.5) return { u: tailor.at, shop: tailor, buy: want[Math.floor(Math.random() * want.length)] };
       // a ring with somebody already in it draws a crowd: no fun duelling the air
-      const busy = shops.filter(s => s.kind === 'duel' && [...players.values()].some(p => p !== b && p.zone === s.id));
-      const fun = busy.length && Math.random() < 0.7 ? busy : shops.filter(s => s.kind === 'duel' || s.kind === 'range');
-      if (fun.length) ai.errand = { shop: fun[Math.floor(Math.random() * fun.length)], until: t + rand(15, 35) };
+      // (and so does a fire with dancers round it)
+      const busy = shops.filter(s => (s.kind === 'duel' || s.kind === 'bonfire') && [...players.values()].some(p => p !== b && p.zone === s.id));
+      const fun = busy.length && Math.random() < 0.7 ? busy : shops.filter(s => s.kind in BOT_FUN);
+      // (one of the nearest few, the planet's big now; fishing and dancing the likeliest. 45 s to
+      // get there; the stay starts once there)
+      const near = fun.sort((x, y) => M.arcDist(b.p, x.at) - M.arcDist(b.p, y.at)).slice(0, 4);
+      let r = Math.random() * near.reduce((n, s) => n + BOT_FUN[s.kind], 0);
+      const pick = near.find(s => (r -= BOT_FUN[s.kind]) < 0) || near[0];
+      if (pick) ai.errand = { shop: pick, until: t + 45, stay: rand(15, 35) };
     }
     if (ai.errand) {
       const s = ai.errand.shop;
       if (b.zone !== s.id) return { u: s.at, shop: s };
+      if (ai.errand.stay) { ai.errand.until = t + ai.errand.stay; ai.errand.stay = 0; }
       // in the ring with nobody to fight: hang about the middle until somebody comes
       return s.kind === 'duel' && M.arcDist(b.p, s.u) > 2.5 ? { u: s.u } : null;
     }
     return botFarmGoal(b);
   }
+  const BOT_FUN = { duel: 1, range: 1, pond: 2, bonfire: 2 };   // (how likely, among the nearest)
+  const BOT_STAY = new Set(['pond', 'bonfire', 'spring']);   // (stand there and do it)
 
-  // The weapon rack in the duel ring: any weapon of any age, or the padded club. Kept for the next
-  // time you step in.
+  // A bot at a pond, a bonfire or a hot spring on purpose: fish (reeling in after a while, so
+  // sometimes too late), dance, or just soak.
+  function botStay(b, s, t) {
+    const ai = b.ai;
+    if (s.kind === 'bonfire' && !b.dancing) setDance(b, true);
+    if (s.kind !== 'pond') return;
+    if (!b.fish) {
+      ai.reelAt = 0;
+      if (t >= (ai.castAt || 0)) fishing(b, t);
+    } else if (b.fish.bit) {
+      ai.reelAt ||= t + rand(0.25, 1.6);
+      if (t >= ai.reelAt) {
+        fishing(b, t);
+        ai.castAt = t + rand(1, 3);
+      }
+    }
+  }
+
+  // The weapon rack in the duel ring: any weapon of any age, or the padded club. Yours to keep: it
+  // goes with you out of the ring, anywhere in the peace, until you hand it back (type '') here or
+  // the peace ends. (Hands full: no planting while you've got it.)
   function pickDuelWeapon(pl, type) {
-    if (!pl.alive || !inRing(pl) || !C.DUEL_WEAPONS.includes(type)) return;
-    pl.duelPick = type;
-    pl.weapon = C.duelWeapon(type);
-    broadcast({ t: 'wpn', id: pl.id, wpn: pl.weapon });
+    if (!pl.alive || !inRing(pl) || (type && !C.DUEL_WEAPONS.includes(type))) return;
+    if (!type && !pl.carry) return;
+    pl.carry = type || null;
+    pl.duelPick = type || 'practice';
+    pl.weapon = C.duelWeapon(pl.duelPick);
+    broadcast({ t: 'wpn', id: pl.id, wpn: pl.weapon, carry: pl.carry, back: type ? 0 : 1 });
+  }
+
+  // ------------------------------------------------------------------ peace: pond, spring, bonfire
+  const atShop = (pl, kind) => peaceful() && shopById(pl.zone)?.kind === kind;
+
+  // E on a pond's bank casts. E again once a fish bites reels it in (shells for the catcher, food
+  // for the tribe); too soon and it swims off, too late (stepFishing) and it gets away.
+  function fishing(pl, t) {
+    if (!pl.alive || !atShop(pl, 'pond')) return;
+    const f = pl.fish;
+    if (!f) {
+      pl.fish = { shop: pl.zone, biteAt: t + randIn(C.SHOPS.pond.wait), bit: false };
+      broadcast({ t: 'fish', id: pl.id, s: 'cast', shop: pl.zone });
+    } else if (!f.bit) {
+      endFishing(pl, 'soon');
+    } else {
+      const kind = C.pickFish(), fish = C.FISH[kind];
+      pl.fish = null;
+      payShells(pl, fish.shells);
+      game.food += fish.food;
+      broadcast({ t: 'fish', id: pl.id, s: 'got', kind, food: game.food });
+    }
+  }
+
+  function endFishing(pl, why) {
+    pl.fish = null;
+    broadcast({ t: 'fish', id: pl.id, s: why });
+  }
+
+  function stepFishing(pl, t) {
+    const f = pl.fish;
+    if (!f) return;
+    if (!f.bit && t >= f.biteAt) {
+      f.bit = true;
+      broadcast({ t: 'fish', id: pl.id, s: 'bite' });
+    } else if (f.bit && t > f.biteAt + C.SHOPS.pond.window + 0.3) {   // (+ a little for the lag)
+      endFishing(pl, 'lost');
+    }
+  }
+
+  // Standing in a hot spring: life back, a little at a time.
+  function stepSpring(pl, t) {
+    if (!atShop(pl, 'spring') || pl.hp >= PLAYER.maxHp || t < pl.soakAt) return;
+    pl.soakAt = t + C.SHOPS.spring.every;
+    heal(pl, C.SHOPS.spring.heal);
+  }
+
+  // E at a bonfire: dance (or stop). Only in its circle, and only on the spot you started.
+  function setDance(pl, on) {
+    on = !!on && pl.alive && atShop(pl, 'bonfire');
+    if (pl.dancing === on) return;
+    pl.dancing = on;
+    pl.danceAt = on ? pl.p.slice() : null;
+    broadcast({ t: 'dance', id: pl.id, on: on ? 1 : 0 });
+  }
+
+  // Everyone dancing round a fire earns shells, quicker the more of them there are.
+  function stepBonfires() {
+    const def = C.SHOPS.bonfire;
+    for (const s of shops) {
+      if (s.kind !== 'bonfire') continue;
+      const dancers = [...players.values()].filter(p => p.dancing && p.zone === s.id);
+      const rate = Math.min(dancers.length, def.crowd) / def.every;   // shells a second, each
+      for (const p of dancers) {
+        p.danceAcc += rate * DT;
+        if (p.danceAcc < 1) continue;
+        p.danceAcc -= 1;
+        payShells(p, 1);
+        broadcast({ t: 'dance', id: p.id, on: 1, paid: 1, n: dancers.length });
+      }
+    }
   }
 
   // ------------------------------------------------------------------ Ploughshares: hunger
@@ -1722,7 +1857,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   function openVote(t) {
     game.voteUntil = t + C.PEACE.voteSeconds;
     votes.clear();
-    broadcast({ t: 'vote', open: 1, ...gameInfo(t) });
+    broadcast({ t: 'vote', start: 1, ...gameInfo(t) });   // (start, not open: the game info's open is the rock being public)
   }
 
   // More yes than no keeps the farming going; anything else ends the round with the harvest.
@@ -1908,12 +2043,15 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       pl.zone = 0;
       pl.strangerId = 0;
       pl.practice = null;   // (the practice weapons go back with the town)
+      pl.carry = null;      // (and so do the duel ring's)
       if (pl.ai) pl.ai.throwAt = 0;
       // (in co-op every human gathers round the camp; "near a friend" would find friends who
       // haven't moved yet from where the last round left them)
+      Object.assign(pl, TOWN_IDLE);
       spawnPlayer(pl, true, coop() && !pl.bot ? spawnNear(game.camp) : null);
     }
     balanceBots();   // leaving co-op brings the fill-in bots back
+    if (plough()) startPeace(t);   // peace mode: no war at all
   }
 
   function applyRules(m, by) {
@@ -1926,10 +2064,12 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     if (level !== game.botLevel) { game.botLevel = level; changed.push('botLevel'); }
     const bots = intIn(m.bots, 0, C.MAX_BOTS, game.bots);
     if (bots !== game.bots) { game.bots = bots; changed.push('bots'); balanceBots(); }
+    const open = m.open == null ? game.open : (m.open ? 1 : 0);
+    if (open !== game.open) { game.open = open; changed.push('open'); }
     if (!changed.length) return;
     if (changed.includes('mode')) restartRound(now());
     broadcastGame({ by: by ? by.name : '', changed });
-    log(`rules ${changed.join(', ')} -> ${game.mode}, bot brains ${botLevelText()}, ${game.bots} bots${by ? ` (by "${by.name}")` : ''}`);
+    log(`rules ${changed.join(', ')} -> ${game.mode}, bot brains ${botLevelText()}, ${game.bots} bots, ${game.open ? 'public' : 'private'}${by ? ` (by "${by.name}")` : ''}`);
   }
 
   // ------------------------------------------------------------------ lag compensation
@@ -2014,7 +2154,9 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   // late, so their window opens earlier (never before the swing itself).
   function startSwing(pl, t, lag = 0) {
     const cd = pl.weapon.cd * (buffed(pl, 'quick', t) ? C.BUFF.quick : 1);
-    if (!pl.alive || !(fighting() || inRing(pl) || inHaunt(pl)) || t < pl.stunUntil || t - pl.lastSwing < cd * 0.85) return false;
+    // (in peace: in the ring, in a hollow, or with a weapon kept off the rack, which out of the ring
+    // only swings at the air: meleeHit spares cavemen there)
+    if (!pl.alive || !(fighting() || inRing(pl) || inHaunt(pl) || (peaceful() && pl.carry)) || t < pl.stunUntil || t - pl.lastSwing < cd * 0.85) return false;
     pl.lastSwing = t;
     const windup = pl.weapon.windup;
     const at = t + windup;
@@ -2591,6 +2733,9 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       const s = ai.errand.shop;
       face = M.towardDir(b.p, s.lane);
       botRange(b, s, t);
+    } else if (peaceful() && ai.errand?.shop.id === b.zone && BOT_STAY.has(ai.errand.shop.kind)) {
+      face = M.towardDir(b.p, ai.errand.shop.u);
+      botStay(b, ai.errand.shop, t);
     } else {
       ai.wander = M.clamp(ai.wander + rand(-1, 1) * DT * 3, -0.8, 0.8);
       b.f = M.tangent(b.p, M.rotateAxis(b.f, b.p, ai.wander * DT));
@@ -2724,13 +2869,24 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     };
   }
 
+  // A line in the open rocks list (server.js lists the public rocks for anyone picking one).
+  function listing() {
+    const humans = humanCount();
+    const chief = players.get(game.chief);
+    return {
+      code, mode: game.mode, era: game.era, phase: game.phase, wave: game.wave,
+      humans, bots: players.size - humans, chief: chief && !chief.bot ? chief.name : '',
+    };
+  }
+
   balanceBots();
+  if (plough()) startPeace(now());   // peace mode: peace from the very start
   // the rules it has now, to bring back if the rock closes and its code is opened again
-  const currentRules = () => ({ mode: game.mode, botLevel: game.botLevel, bots: game.bots });
+  const currentRules = () => ({ mode: game.mode, botLevel: game.botLevel, bots: game.bots, open: game.open });
 
   // Every rock on the server shares the one R (shared/constants.js), so each puts its own planet's
   // size back before it does anything.
   const sized = fn => (...args) => { C.setPlanetRadius(game.radius); return fn(...args); };
 
-  return { code, clients, attach: sized(attach), detach: sized(detach), handleMessage: sized(handleMessage), tick: sized(tick), stats, rules: currentRules };
+  return { code, clients, attach: sized(attach), detach: sized(detach), handleMessage: sized(handleMessage), tick: sized(tick), stats, listing, rules: currentRules };
 }

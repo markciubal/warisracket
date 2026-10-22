@@ -137,6 +137,10 @@ export class Sound {
       case 'throw':
         this.noise({ dur: 0.25, vol: 0.4 * v, f0: 400, f1: 2200, q: 2 });
         break;
+      case 'splash':
+        this.noise({ dur: 0.4, vol: 0.45 * v, f0: 2400, f1: 300, q: 1 });
+        this.noise({ dur: 0.25, vol: 0.2 * v, f0: 900, f1: 1800, q: 3 });
+        break;
       case 'whiff':
         this.noise({ dur: 0.16, vol: 0.32 * v, f0: 300, f1: 1400, q: 1.5 });
         break;

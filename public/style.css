@@ -27,6 +27,11 @@ html, body {
 
 #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 .hidden { display: none !important; }
+/* No double-tap zoom anywhere (taps still scroll and click). touch-action stops at the nearest
+   scrolling box, so it goes on everything, not just the body; the touch controls (#touch, .tbtn)
+   say none for themselves. */
+html, body, body * { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }   /* (and no grey flash on each tap) */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
 /* chunky carved-stone panel */
 .stone {
@@ -146,15 +151,54 @@ button:disabled { filter: grayscale(0.8) brightness(0.8); cursor: wait; }
 
 #online { margin-top: 6px; font-size: 12px; color: #2b241d; min-height: 15px; }
 
-/* rocks (lobbies): make one, join one by code, share yours */
-#room-new { width: 100%; font-size: 19px; padding: 7px; }
+/* rocks (lobbies): jump onto a public one, make one, join one by code, share yours */
+#room-quick { width: 100%; font-size: 21px; padding: 7px; }
+#rocks-head { margin-top: 12px; }
+/* the open rocks list: one row per public rock, busiest first; it scrolls past a few */
+#rock-list { display: flex; flex-direction: column; gap: 5px; max-height: 172px; overflow-y: auto; padding: 2px 4px 6px 2px; text-align: left; }
+.rock-row {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 10px;
+  width: 100%; padding: 5px 10px 4px; font-size: 13px; text-align: left;
+  background: linear-gradient(#e9dcbc, #c9b48c);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4), 0 3px 0 #4a2408;
+}
+.rock-row b { font-weight: 400; font-size: 17px; letter-spacing: 0.15em; color: #6b3a12; }
+.rock-row span { min-width: 0; font-size: 11px; line-height: 1.25; color: #3a2d20; }
+.rock-row i { font-style: normal; font-size: 14px; white-space: nowrap; }
+.rock-row:disabled { cursor: not-allowed; }
+.rock-none { font-size: 12px; color: #3a2d20; padding: 2px 0 4px; text-align: center; }
+.room-make { margin-top: 8px; gap: 8px; align-items: stretch; }
+#room-new { flex: 1; min-width: 0; font-size: 16px; padding: 6px; }
+#room-vis { flex-wrap: nowrap; }
+#room-vis button { font-size: 12px; padding: 3px 8px; }
+#room-vis-desc { margin-top: 6px; text-align: center; }
 .room-join { margin-top: 8px; }
 #room-code { width: 0; text-transform: uppercase; letter-spacing: 0.3em; }
 #room-code::placeholder { letter-spacing: 0.1em; color: #8a7a62; }
 #room-go { white-space: nowrap; }
 #room-note.err { color: #7a1408; }
-.room-code-row { flex-wrap: wrap; gap: 10px; }
-#room-show { font-size: 26px; font-weight: 400; letter-spacing: 0.18em; color: #f7d58b; text-shadow: 0 3px 0 #6b3a12; user-select: text; -webkit-user-select: text; }
+/* the rock's code, big on a dark plate, so friends can read it off your screen */
+#room-card { margin-top: 4px; padding: 8px 10px 10px; border: 3px dashed rgba(74, 36, 8, 0.55); border-radius: 14px; background: rgba(255, 220, 160, 0.12); text-align: center; }
+#room-card-label { margin-top: 0; }
+#room-show {
+  display: inline-block; margin: 2px 0 8px; padding: 4px 8px 0 20px;   /* (letter-spacing adds space after the last letter: less padding on the right) */
+  font-size: 46px; font-weight: 400; line-height: 1.1; letter-spacing: 0.3em; color: #ffe08a;
+  background: linear-gradient(#3a2a1c, #241811); border: 3px solid #4a2408; border-radius: 12px;
+  text-shadow: 0 3px 0 #6b3a12, 0 0 14px rgba(255, 200, 80, 0.35); box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.5);
+  user-select: text; -webkit-user-select: text;
+}
+.room-code-row { flex-wrap: wrap; gap: 8px; justify-content: center; }
+/* in the game: which rock this is, under the radar */
+#rock-chip { padding: 3px 9px 1px; font-size: 13px; letter-spacing: 0.12em; color: #ffe08a; background: rgba(20, 12, 6, 0.6); border: 2px solid rgba(255, 211, 77, 0.45); border-radius: 9px; text-shadow: 0 1px 0 #000; }
+/* JOIN MY ROCK: the code, its link and a QR code to scan */
+#qr { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 16px; background: radial-gradient(ellipse at center, rgba(20, 12, 30, 0.45), rgba(10, 6, 18, 0.8)); }
+#qr .tablet { width: min(380px, 100%); text-align: center; }
+#qr-code { width: min(240px, 60vw, 46vh); aspect-ratio: 1; margin: 6px auto 8px; padding: 6px; background: #fff; border: 4px solid #4a2408; border-radius: 12px; display: grid; place-items: center; font-size: 13px; color: #2b241d; }
+#qr-code svg { width: 100%; height: 100%; display: block; }
+#qr-rock { display: block; font-size: 40px; font-weight: 400; letter-spacing: 0.3em; padding-left: 0.3em; color: #ffe08a; text-shadow: 0 3px 0 #6b3a12; user-select: text; -webkit-user-select: text; }
+#qr-link { font-size: 13px; color: #2b241d; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.qr-buttons { margin-top: 10px; gap: 8px; }
+.qr-buttons button { flex: 1; }
 
 .swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .swatch {
@@ -671,7 +715,7 @@ body:not(.peace) #purse { display: none; }
 .rack-item.only { background: linear-gradient(#9fd86a, #5f9a32); }
 .rack-item.stop { background: linear-gradient(#e8dcc0, #b9a888); }
 /* while you've got a practice weapon: take it back to the shed to stop */
-#practice-note { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); padding: 4px 12px 2px; font-size: 13px; color: #ffe9a8; background: rgba(20, 12, 6, 0.62); border: 2px solid rgba(255, 211, 77, 0.5); border-radius: 10px; text-shadow: 0 1px 0 #000; white-space: nowrap; pointer-events: none; }
+#practice-note { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); padding: 4px 12px 2px; font-size: 13px; color: #ffe9a8; background: rgba(20, 12, 6, 0.62); border: 2px solid rgba(255, 211, 77, 0.5); border-radius: 10px; text-shadow: 0 1px 0 #000; white-space: pre; text-align: center; pointer-events: none; }   /* (one line each: a practice weapon, a kept duel weapon) */
 body.touch #practice-note { top: calc(84px + var(--st)); bottom: auto; font-size: 11px; }
 /* the range shed's own ammo: stones, tomatoes, rockets */
 #spear-icons.pebbles .spear-icon::after { background: #8d8a83; }
@@ -702,6 +746,8 @@ body.touch #practice-note { top: calc(84px + var(--st)); bottom: auto; font-size
 #chat-form button { font-size: 13px; padding: 3px 12px; }
 #chat-hint { width: 100%; font-size: 11px; color: #fff3d6; text-shadow: 0 1px 0 #000; }
 #chat-hint.bad { color: #ff8a6a; }
+/* how to say a long word in short ones: grey, slanted, under the hint */
+#chat-eg { width: 100%; font-size: 11px; font-style: italic; color: #bdb4a6; text-shadow: 0 1px 0 #000; }
 #chat-form.no { animation: chatNo 0.08s 4 alternate; }
 @keyframes chatNo { to { transform: translateX(5px); } }
 #chat-tip { font-size: 11px; color: rgba(255, 243, 214, 0.7); text-shadow: 0 1px 0 #000; }
@@ -834,6 +880,8 @@ body.touch #beast-key { display: none; }
 
 /* the Businessman talks in gold */
 .floater.emote.mammon { background: linear-gradient(#ffe07a, #e8b931); border-color: #3a2a08; color: #2a1d06; font-size: 14px; }
+/* talking business (E at his podium): longer, so it wraps */
+.floater.emote.mammon.talk { white-space: normal; width: max-content; max-width: 260px; text-align: center; }
 #re-profit { margin: 6px 0 0; font-size: 12px; color: #4a3204; }
 #re-profit:empty { display: none; }
 
@@ -1076,9 +1124,12 @@ body.touch #re-winner { font-size: 17px; margin: 2px 0 6px; }
   .swatch { width: 34px; height: 34px; }
   .swatch.small { width: 26px; height: 26px; }
   #play { margin-top: 8px; font-size: 20px; padding: 6px; }
-  #room-new { font-size: 17px; padding: 6px; }
+  #room-quick { font-size: 18px; padding: 6px; }
+  #room-new { font-size: 15px; padding: 5px; }
+  #rock-list { max-height: 120px; }
   .room-join { margin-top: 6px; }
-  #room-show { font-size: 22px; }
+  #room-show { font-size: 32px; margin-bottom: 6px; }
+  #qr-rock { font-size: 28px; }
 }
 @media (max-height: 500px) and (min-width: 600px) {
   #lobby > .lobby-tablet { width: min(800px, 100%); }
