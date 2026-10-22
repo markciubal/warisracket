@@ -1,5 +1,5 @@
 {
-  "name": "Spear Sphere",
+  "name": "War is Racket",
   "description": "Multiplayer caveman spear-throwing on a tiny planet. Ooga booga.",
   "keywords": ["game", "multiplayer", "websocket", "threejs"],
   "buildpacks": [{ "url": "heroku/nodejs" }],

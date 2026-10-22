@@ -162,7 +162,7 @@ export class TouchControls {
   constructor(input, tilt, actions) {
     this.input = input;
     this.tilt = tilt;
-    this.actions = actions;            // { council(), settings(), recenter(), quit(button) }
+    this.actions = actions;            // { council(), settings(), recenter(), quit(button), chat() }
     this.root = $('touch');
     this.stickEl = $('stick');
     this.knob = $('stick-knob');
@@ -192,6 +192,9 @@ export class TouchControls {
     // asks once ("SURE?"), quits on the second tap; the menu stays open in between
     this.bind('t-quit', () => { swallowNextClick(); actions.quit($('t-quit')); });
     this.bind('t-tilt', () => actions.recenter());
+    // (talk: the box opens on the press; the click after it is what lets a phone put the keyboard up)
+    this.bind('t-chat', () => actions.chat());
+    $('t-chat').addEventListener('click', () => actions.chat());
     // one pop-up at a time: grunts and the ☰ menu close each other
     this.bind('t-grunt', () => {
       this.setTribe(false);
@@ -322,7 +325,9 @@ export class TouchControls {
     const L = this.last;
     const set = (key, val, fn) => { if (L[key] !== val) { L[key] = val; fn(val); } };
     set('grab', s.grab, v => $('t-grab').classList.toggle('hidden', !v));
+    set('grabLabel', s.grabLabel || 'GRAB', v => { $('t-grab').firstElementChild.textContent = v; });
     set('chief', s.chief, v => $('t-council').classList.toggle('hidden', !v));
+    set('chat', !!s.chat, v => $('t-chat').classList.toggle('hidden', !v));
     set('throwLabel', s.throwLabel, v => { $('t-throw-label').textContent = v; });
     set('ammo', s.ammo, v => { $('t-ammo').textContent = v; $('t-throw').classList.toggle('empty', v === 0); });
     set('verb', s.verb, v => { $('t-bonk').firstElementChild.textContent = v; });

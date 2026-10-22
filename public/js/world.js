@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { R, VOLCANO, TIER_COLORS, MEAT } from '/shared/constants.js';
-import { seededRandom, fbm, noise3, mat, lambert, mergeChildren, shadows, standOn, placeOnSphere, v3 } from './util.js';
+import { seededRandom, fbm, noise3, mat, lambert, mergeChildren, shadows, standOn, placeOnSphere, lift, v3 } from './util.js';
 import { barkTexture, hideTexture, softDotTexture } from './textures.js';
 import { buildWeapon, taperedTube } from './weapons.js';
 import { Businessman } from './mammon.js';
@@ -134,8 +134,9 @@ export class World {
     this.time = 0;
 
     this.staticRoots = [];
-    this.cullables = [];
+    this.cullables = [];   // top: how high it reaches above the ground
     this.fineDecor = [];
+    this.decor = [];       // every scattered instanced mesh, to lift when the planet grows
     this.buildPlanet();
     for (const o of this.obstacles) {
       const build = { rock: this.buildRock, tree: this.buildTree, hut: this.buildHut, skeleton: this.buildSkeleton, campfire: this.buildCampfire, volcano: this.buildVolcano, mammon: this.buildMammon }[o.type];
@@ -184,16 +185,17 @@ export class World {
       for (let k = 0; k < 3; k++) colors.set([c.r, c.g, c.b], (i + k) * 3);
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const planet = new THREE.Mesh(geo, lambert({ vertexColors: true, flatShading: true }));
+    const planet = this.planet = new THREE.Mesh(geo, lambert({ vertexColors: true, flatShading: true }));
     planet.receiveShadow = true;
     this.group.add(planet);
+    this.builtR = R;   // the planet is scaled from this size when it grows (regrow)
   }
 
   place(obj, o, h = 0) {
     standOn(obj, o.uv, o.yaw, h);
     this.group.add(obj);
     this.staticRoots.push(obj);
-    this.cullables.push({ obj, u: o.uv, top: R + o.h + 0.5, spread: o.r / R });
+    this.cullables.push({ obj, u: o.uv, top: o.h + 0.5, spread: o.r / R });
     return obj;
   }
 
@@ -217,7 +219,7 @@ export class World {
   // Hide anything the planet itself would block from view. visibleFrom(ux, uy, uz, top, spread)
   // comes from horizonTest() for the current camera.
   cull(visibleFrom) {
-    for (const c of this.cullables) c.obj.visible = visibleFrom(c.u.x, c.u.y, c.u.z, c.top, c.spread);
+    for (const c of this.cullables) c.obj.visible = visibleFrom(c.u.x, c.u.y, c.u.z, R + c.top, c.spread);
   }
 
   // Graphics LOW drops the small scattered stuff (grass, pebbles, bones).
@@ -484,7 +486,7 @@ export class World {
     this.mammon.root.position.y = 1.3;
     anchor.add(this.mammon.root);
     this.group.add(anchor);
-    this.cullables.push({ obj: anchor, u: o.uv, top: R + 9, spread: 0.1 });
+    this.cullables.push({ obj: anchor, u: o.uv, top: 9, spread: 0.1 });
   }
 
   // a roast was eaten: a raw one is on the spit, done in `left` seconds
@@ -569,6 +571,7 @@ export class World {
     });
     mesh.receiveShadow = true;
     this.group.add(mesh);
+    this.decor.push(mesh);
     return mesh;
   }
 
@@ -649,7 +652,7 @@ export class World {
     const u = v3(pk.u);
     standOn(g, u, 0);
     this.group.add(g);
-    this.cullables.push({ obj: g, u, top: R + 7.5, spread: 0.05 });   // the beam reaches up high
+    this.cullables.push({ obj: g, u, top: 7.5, spread: 0.05 });   // the beam reaches up high
     this.pickups.set(pk.id, { id: pk.id, group: g, holder, ringMat, beamMat, u, wpn: null, mesh: null });
     this.setPickupWeapon(pk.id, pk.wpn);
   }
@@ -701,7 +704,7 @@ export class World {
       mergeChildren(g);          // body, head and crest; the wings flap on their own pivots
       shadows(g, false, false);  // they're up high and tiny; shadows aren't worth the draw calls
       this.group.add(g);
-      this.pteros.push({ g, wings, ...orbit(R + 11 + Math.random() * 5, 0.07, 0.13) });
+      this.pteros.push({ g, wings, ...orbit(11 + Math.random() * 5, 0.07, 0.13) });
     }
 
     const cloudMat = lambert({ color: '#ffffff', emissive: '#fff4e8', emissiveIntensity: 0.55, flatShading: true });
@@ -716,11 +719,32 @@ export class World {
       }
       mergeChildren(g);
       this.group.add(g);
-      this.clouds.push({ g, ...orbit(R + 17 + Math.random() * 6, 0.01, 0.025) });
+      this.clouds.push({ g, ...orbit(17 + Math.random() * 6, 0.01, 0.025) });
     }
   }
 
   erupt() { this.eruptT = 4.5; }
+
+  // The planet grew (or shrank) by dR, to R: scale the ground and lift everything standing on it.
+  regrow(dR) {
+    this.planet.scale.setScalar(R / this.builtR);
+    if (this.ash) this.ash.scale.setScalar((R + 0.05) / (this.ashR + 0.05));
+    for (const obj of this.group.children) if (obj !== this.fireLight) lift(obj, dR);
+    const m = new THREE.Matrix4();
+    for (const mesh of this.decor) {
+      for (let i = 0; i < mesh.count; i++) {
+        mesh.getMatrixAt(i, m);
+        const e = m.elements, k = 1 + dR / Math.hypot(e[12], e[13], e[14]);
+        e[12] *= k; e[13] *= k; e[14] *= k;
+        mesh.setMatrixAt(i, m);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.boundingSphere = null;   // (recomputed for culling)
+    }
+    this.group.updateMatrixWorld(true);
+    for (const fire of this.fires) fire.lightPos = fire.group.localToWorld(new THREE.Vector3(0, 1.1, 0));
+    this.volcanoTop?.setLength(R + 9.2);
+  }
 
   // 0 = lush, 1 = ruined by the end of the world: a crust (ash, mud or ice, coloured by
   // `look.crust` and `look.glow`) grows over the whole planet.
@@ -733,6 +757,7 @@ export class World {
       );
       this.ash.receiveShadow = true;
       this.ash.renderOrder = 1;
+      this.ashR = R;
       this.group.add(this.ash);
     }
     if (look !== this.ashLook) {
@@ -754,7 +779,7 @@ export class World {
       const ang = o.phase + t * o.speed;
       p.copy(o.start).applyAxisAngle(o.axis, ang);
       f.crossVectors(o.axis, p).normalize();
-      placeOnSphere(o.g, [p.x, p.y, p.z], [f.x, f.y, f.z], o.h - R);
+      placeOnSphere(o.g, [p.x, p.y, p.z], [f.x, f.y, f.z], o.h);
       if (bank) o.g.rotateZ(bank);
     };
     for (const pt of this.pteros) {

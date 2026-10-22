@@ -1,7 +1,8 @@
-// Spear Sphere game server: static files + the WebSocket front door. Every rock (lobby) is its
+// War is Racket game server: static files + the WebSocket front door. Every rock (lobby) is its
 // own planet, simulated by room.js under a short code; this file makes rocks, puts each socket
 // on the one it asks for, ticks them all on one clock and closes each when its last socket leaves.
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,6 +19,8 @@ const MAX_PLAYERS = Math.max(1, Number(process.env.MAX_PLAYERS) || 12);   // hum
 const MAX_ROOMS = Math.max(1, Number(process.env.MAX_ROOMS) || 20);       // rocks at once
 const MAX_CONNECTIONS = Math.max(MAX_PLAYERS, Number(process.env.MAX_CONNECTIONS) || 100);
 const ERA_SECONDS = Math.max(10, Number(arg('era-seconds') ?? process.env.ERA_SECONDS) || C.DOTIME.eraSeconds);
+// Ploughshares: farming time before each vote to keep going
+const PEACE_SECONDS = Math.max(20, Number(arg('peace-seconds') ?? process.env.PEACE_SECONDS) || C.PEACE.seconds);
 // what every new rock starts with, until its chief changes it
 const START_RULES = cleanRules(
   { mode: arg('mode') ?? process.env.MODE, botLevel: arg('bot-level') ?? process.env.BOT_LEVEL, bots: arg('bots') ?? process.env.BOTS },
@@ -38,6 +41,7 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
 };
 // [url prefix, directory, Cache-Control]. three.js is versioned by package.json, so browsers may keep it.
 const ROUTES = [
@@ -45,8 +49,43 @@ const ROUTES = [
   ['/three/', path.join(ROOT, 'node_modules', 'three'), 'public, max-age=604800'],
   ['/', path.join(ROOT, 'public'), 'no-cache'],
 ];
+// single files outside those folders: the game itself, for playing offline in the browser (see
+// public/js/offline-worker.js)
+const FILES = { '/room.js': path.join(ROOT, 'room.js') };
 // a rock's share link (/KPTX) is the page itself; the client reads the code from the address
 const ROOM_PATH = new RegExp(`^/[A-Za-z]{${C.ROOM_CODE.len}}/?$`);
+
+// ------------------------------------------------------------------ the app, offline
+// The service worker (public/sw.js) keeps a copy of everything the game needs, so it opens and
+// plays with no connection (installed as an app or not). It goes out with the list of files and a
+// version that changes whenever any of them does, so browsers pick up each new deploy.
+const THREE_FILES = ['/three/build/three.module.js', '/three/build/three.core.js', '/three/examples/jsm/utils/BufferGeometryUtils.js'];
+const fileFor = url => FILES[url] || (() => {
+  for (const [prefix, dir] of ROUTES) if (url.startsWith(prefix)) return path.join(dir, url.slice(prefix.length));
+  return null;
+})();
+function precacheList() {
+  const walk = (dir, base) => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
+    (e.isDirectory() ? walk(path.join(dir, e.name), `${base}${e.name}/`) : [`${base}${e.name}`]));
+  const pub = walk(path.join(ROOT, 'public'), '/').filter(u => u !== '/sw.js');
+  const shared = walk(path.join(ROOT, 'shared'), '/shared/').filter(u => u.endsWith('.js'));
+  return ['/', ...pub, ...shared, '/room.js', ...THREE_FILES];
+}
+let swCache = { sig: '', version: '' };
+function serveServiceWorker(res) {
+  const files = precacheList();
+  // the version: a hash of every file's contents, worked out again only when one has changed
+  const stats = files.map(u => (u === '/' ? null : fs.statSync(fileFor(u))));
+  const sig = stats.map(st => (st ? `${st.size}:${st.mtimeMs}` : '')).join(',');
+  if (sig !== swCache.sig) {
+    const hash = crypto.createHash('sha1');
+    for (const u of files) if (u !== '/') hash.update(u).update(fs.readFileSync(fileFor(u)));
+    swCache = { sig, version: hash.digest('hex').slice(0, 12) };
+  }
+  const src = fs.readFileSync(path.join(ROOT, 'public', 'sw.js'), 'utf8');
+  res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(`const VERSION = '${swCache.version}';\nconst PRECACHE = ${JSON.stringify(files)};\n${src}`);
+}
 
 // Files are cached in memory (gzipped once) and revalidated by mtime, so edits still show up locally.
 const fileCache = new Map();
@@ -80,6 +119,18 @@ function serveStatic(req, res) {
       ok: true, rooms: rooms.size, maxRooms: MAX_ROOMS, humans, bots, connections: sockets.size,
       uptime: Math.round((Date.now() - startedAt) / 1000), games,
     }));
+    return;
+  }
+  if (url === '/sw.js') {
+    try { serveServiceWorker(res); } catch (err) { console.error('sw.js:', err.message); res.writeHead(500); res.end(); }
+    return;
+  }
+  if (FILES[url]) {
+    loadFile(FILES[url], (err, f) => {
+      if (err) { res.writeHead(404); res.end('Ugg. No find.'); return; }
+      res.writeHead(200, { 'Content-Type': f.type, 'Cache-Control': 'no-cache', ETag: f.etag });
+      res.end(f.data);
+    });
     return;
   }
   if (ROOM_PATH.test(url)) {
@@ -127,10 +178,28 @@ function freshCode() {
 }
 
 function openRoom(code, rules) {
-  const room = createRoom(code, { rules, maxPlayers: MAX_PLAYERS, eraSeconds: ERA_SECONDS });
+  const room = createRoom(code, { rules, maxPlayers: MAX_PLAYERS, eraSeconds: ERA_SECONDS, peaceSeconds: PEACE_SECONDS });
   rooms.set(code, room);
   console.log(`[${code}] open  (${rooms.size}/${MAX_ROOMS} rocks) ${C.MODES[rules.mode]}, ${rules.bots} bots, brains ${rules.botLevel}/10`);
   return room;
+}
+
+// A closed rock's rules, kept a while so opening its code again (a reload, a friend arriving
+// after everyone left) brings back the mode and bots it had rather than the defaults.
+const closedRules = new Map();   // code -> { rules, at }
+const KEEP_RULES_MS = 6 * 3600 * 1000;
+function rememberRules(room) {
+  closedRules.delete(room.code);
+  closedRules.set(room.code, { rules: room.rules(), at: Date.now() });
+  // oldest first: drop the stale ones, and never keep more than a few hundred
+  for (const [code, r] of closedRules) {
+    if (closedRules.size <= 500 && Date.now() - r.at < KEEP_RULES_MS) break;
+    closedRules.delete(code);
+  }
+}
+function rulesFor(code) {
+  const r = closedRules.get(code);
+  return r && Date.now() - r.at < KEEP_RULES_MS ? r.rules : null;
 }
 
 // rebalance: see room.detach
@@ -140,9 +209,10 @@ function leaveRoom(client, rebalance = true) {
   client.room = null;
   room.detach(client, rebalance);
   // nobody left playing or watching: it goes. The code keeps working; whoever uses it next
-  // gets a fresh planet under it.
+  // gets a fresh planet under it, with the rules it had.
   if (!room.clients.size) {
     rooms.delete(room.code);
+    rememberRules(room);
     console.log(`[${room.code}] closed (${rooms.size}/${MAX_ROOMS} rocks)`);
   }
 }
@@ -165,7 +235,9 @@ function pickRoom(client, m) {
   leaveRoom(client);
   if (!room) {
     if (rooms.size >= MAX_ROOMS) { send(client, { t: 'noroom', code, full: 1 }); return; }
-    room = openRoom(code || freshCode(), m.make ? cleanRules(m.rules, START_RULES) : START_RULES);
+    // reopening a code: the rules it brings (a reconnect), else the ones it had when it closed
+    const back = m.make && !m.rules ? rulesFor(code) : null;
+    room = openRoom(code || freshCode(), m.make ? cleanRules(m.rules || back, START_RULES) : START_RULES);
   }
   client.room = room;
   send(client, { t: 'room', code: room.code });
@@ -265,7 +337,7 @@ setInterval(() => {
 }, 10000).unref();
 
 server.listen(PORT, () => {
-  console.log(`\n  OOGA BOOGA! Spear Sphere running.\n`);
+  console.log(`\n  OOGA BOOGA! War is Racket running.\n`);
   console.log(`  Local:   http://localhost:${PORT}`);
   for (const nets of Object.values(os.networkInterfaces())) {
     for (const n of nets || []) if (n.family === 'IPv4' && !n.internal) console.log(`  Network: http://${n.address}:${PORT}`);

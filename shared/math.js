@@ -92,6 +92,21 @@ export function stepProjectile(pos, vel, dt) {
   pos[0] += vel[0] * dt; pos[1] += vel[1] * dt; pos[2] += vel[2] * dt;
 }
 
+// Where the step from a to b goes in through the front of a disk (center c, facing unit normal n,
+// radius r), from in front of it to behind it; null if it doesn't.
+export function throughDisk(a, b, c, n, r) {
+  const da = dot(sub(a, c), n), db = dot(sub(b, c), n);
+  if (da < 0 || db > 0 || da === db) return null;
+  const p = madd(a, sub(b, a), da / (da - db));
+  return len(sub(p, c)) <= r ? p : null;
+}
+
+// The face of a target at a range: standing at u, turned to the firing line at `at`.
+export function targetFace(u, at, height) {
+  const n = towardDir(u, at);
+  return { c: madd(scale(u, R + height), n, 0.07), n };
+}
+
 // The obstacle a projectile at world `pos` is inside, if any. Obstacles taper toward the top.
 export function obstacleAt(pos, obstacles) {
   const r = len(pos);
@@ -101,7 +116,7 @@ export function obstacleAt(pos, obstacles) {
   for (const o of obstacles) {
     if (hgt > o.h) continue;
     // cheap reject before the acos: farther than the obstacle's full radius can't be inside it
-    o.cosR ??= Math.cos(o.r / R);
+    if (o.cosAt !== R) { o.cosR = Math.cos(o.r / R); o.cosAt = R; }   // R changes when the planet grows
     const d = ux * o.u[0] + uy * o.u[1] + uz * o.u[2];
     if (d < o.cosR) continue;
     const eff = o.r * (1 - (o.taper * hgt) / o.h);

@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { SKINS, HAIRS, PLAYER, RANGED } from '/shared/constants.js';
 import { mat, lambert, mergeChildren, shadows, damp, placeOnSphere } from './util.js';
 import { peltTexture } from './textures.js';
-import { buildWeapon, buildSpear, buildBow, buildQuiver, buildArmorParts, buildHeaddress, buildFirearm } from './weapons.js';
+import { buildWeapon, buildSpear, buildBow, buildQuiver, buildArmorParts, buildHeaddress, buildFirearm, buildSlingshot, buildProjectile } from './weapons.js';
 
-const FIREARMS = ['musket', 'gun', 'laser'];
-const RECOIL = { musket: [0.45, 0.35], gun: [0.08, 0.1], laser: [0.06, 0.12] };   // [kick radians, seconds]
+const FIREARMS = ['musket', 'gun', 'laser', 'bazooka', 'crossbow'];
+const THROWN = new Set(['spear', 'tomato']);   // overarm, from the hand; everything else is held out
+const RECOIL = { musket: [0.45, 0.35], gun: [0.08, 0.1], laser: [0.06, 0.12], bazooka: [0.55, 0.5], crossbow: [0.12, 0.25] };   // [kick radians, seconds]
 
 const capsule = (r, len, material) => new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 10), material);
 const sphere = (r, material, w = 12, h = 10) => new THREE.Mesh(new THREE.SphereGeometry(r, w, h), material);
@@ -25,15 +26,70 @@ function jaggedSkirt(material) {
 }
 
 const tagCanvasFont = () => '28px "Luckiest Guy", Impact, sans-serif';
+
+// Hats and capes from the tailor (CLOTHES). Hats sit on the head group: the skull's top is ~0.47.
+function hatPart(g, geo, color, y, opts) {
+  const m = new THREE.Mesh(geo, mat(color, opts));
+  m.position.y = y;
+  g.add(m);
+  return m;
+}
+const HATS = {
+  straw() {
+    const g = new THREE.Group();
+    hatPart(g, new THREE.CylinderGeometry(0.46, 0.48, 0.03, 16), '#e2c477', 0.43, { flatShading: true });
+    hatPart(g, new THREE.CylinderGeometry(0.19, 0.23, 0.2, 12), '#d9b45a', 0.53, { flatShading: true });
+    hatPart(g, new THREE.CylinderGeometry(0.235, 0.235, 0.05, 12), '#c8312a', 0.46);
+    return g;
+  },
+  flowers() {
+    const g = new THREE.Group();
+    hatPart(g, new THREE.TorusGeometry(0.25, 0.035, 5, 16), '#4f8f2f', 0.43).rotation.x = Math.PI / 2;
+    ['#ff5a8a', '#ffd23d', '#ffffff', '#c47cff', '#ff9a3d', '#ff5a5a', '#8fd3ff'].forEach((c, i) => {
+      const a = (i / 7) * Math.PI * 2;
+      hatPart(g, new THREE.IcosahedronGeometry(0.06, 0), c, 0.45, { flatShading: true }).position.set(Math.cos(a) * 0.25, 0.45, Math.sin(a) * 0.25);
+    });
+    return g;
+  },
+  tophat() {
+    const g = new THREE.Group();
+    hatPart(g, new THREE.CylinderGeometry(0.34, 0.34, 0.03, 16), '#1d1b22', 0.44);
+    hatPart(g, new THREE.CylinderGeometry(0.2, 0.19, 0.42, 14), '#1d1b22', 0.66);
+    hatPart(g, new THREE.CylinderGeometry(0.205, 0.2, 0.07, 14), '#a8201a', 0.49);
+    return g;
+  },
+  crown() {
+    const g = new THREE.Group();
+    const gold = { metalness: 0.8, roughness: 0.3 };
+    hatPart(g, new THREE.CylinderGeometry(0.25, 0.24, 0.13, 14, 1, true), '#e8b931', 0.48, { ...gold, side: THREE.DoubleSide });
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      hatPart(g, new THREE.ConeGeometry(0.05, 0.14, 4), '#e8b931', 0.6, gold).position.set(Math.cos(a) * 0.24, 0.6, Math.sin(a) * 0.24);
+      if (i % 2 === 0) hatPart(g, new THREE.OctahedronGeometry(0.035, 0), '#d6304a', 0.48).position.set(Math.cos(a) * 0.255, 0.48, Math.sin(a) * 0.255);
+    }
+    return g;
+  },
+};
+// (not for sale: what the kind strangers of the peace wear, with a 'cloak')
+HATS.hood = () => {
+  const g = new THREE.Group();
+  const hood = hatPart(g, new THREE.SphereGeometry(0.36, 14, 9, Math.PI / 2 + 0.95, Math.PI * 2 - 1.9, 0, Math.PI * 0.64), '#6b4a2e', 0.18, { side: THREE.DoubleSide, flatShading: true });
+  hood.scale.set(1, 1.12, 1.05);
+  return g;
+};
+const HAT_HEIGHT = { straw: 0.14, flowers: 0.02, tophat: 0.42, crown: 0.14, hood: 0.14 };
+const CAPES = { redcape: '#c8312a', bluecape: '#2f6fd1', goldcape: '#e8b931', cloak: '#6b4a2e' };
 const allTags = new Set();
 export function redrawAllTags() { for (const c of allTags) c.drawTag(); }
 
 export class Caveman {
-  constructor({ name, look, isLocal = false, bot = false }) {
+  // lifeBar: false for a name tag without the life bar (the strangers of the peace)
+  constructor({ name, look, isLocal = false, bot = false, lifeBar = true }) {
     this.name = name;
     this.look = look;
     this.isLocal = isLocal;
     this.bot = bot;
+    this.lifeBar = lifeBar;
     this.hp = PLAYER.maxHp;
     this.time = Math.random() * 10;
     this.phase = 0;
@@ -49,7 +105,10 @@ export class Caveman {
     this.ranged = 'spear';
     this.armor = null;
     this.armorParts = null;
+    this.hatMesh = null;
+    this.capeMesh = null;
     this.build();
+    this.setOutfit(this.look);
   }
 
   build() {
@@ -239,7 +298,11 @@ export class Caveman {
     this.handSpear.position.z = 0.95;
     this.spearHolder.add(this.handSpear);
     // bows and guns share the right hand; only the current age's one is shown
-    this.bows = { bow: buildBow('bow'), longbow: buildBow('longbow') };
+    this.handTomato = buildProjectile('tomato');
+    this.handTomato.position.z = 0.16;
+    this.handTomato.visible = false;
+    this.spearHolder.add(this.handTomato);
+    this.bows = { bow: buildBow('bow'), longbow: buildBow('longbow'), slingshot: buildSlingshot() };
     for (const k of FIREARMS) this.bows[k] = buildFirearm(k);
     for (const b of Object.values(this.bows)) { b.visible = false; this.spearHolder.add(b); }
 
@@ -291,11 +354,13 @@ export class Caveman {
     const label = this.name.toUpperCase();
     g.strokeText(label, 128, 34, 248);
     g.fillText(label, 128, 34, 248);
-    const frac = Math.max(0, this.hp) / PLAYER.maxHp;
-    g.fillStyle = 'rgba(20,12,6,0.85)';
-    g.fillRect(38, 48, 180, 18);
-    g.fillStyle = frac > 0.5 ? '#7fd34f' : frac > 0.25 ? '#ffc23d' : '#ff4b2e';
-    g.fillRect(41, 51, 174 * frac, 12);
+    if (this.lifeBar) {
+      const frac = Math.max(0, this.hp) / PLAYER.maxHp;
+      g.fillStyle = 'rgba(20,12,6,0.85)';
+      g.fillRect(38, 48, 180, 18);
+      g.fillStyle = frac > 0.5 ? '#7fd34f' : frac > 0.25 ? '#ffc23d' : '#ff4b2e';
+      g.fillRect(41, 51, 174 * frac, 12);
+    }
     if (this.armor) {
       g.fillStyle = 'rgba(20,12,6,0.85)';
       g.fillRect(38, 67, 180, 10);
@@ -319,9 +384,10 @@ export class Caveman {
     this.weaponHolder.add(this.weaponMesh);
   }
 
-  // 'spear' carries spears in hand and on the back; bows carry a quiver.
+  // 'spear' carries spears in hand and on the back; bows carry a quiver. null: nothing at all
+  // (Ploughshares, in peace).
   setRanged(kind) {
-    this.ranged = RANGED[kind] ? kind : 'spear';
+    this.ranged = kind === null ? null : RANGED[kind] ? kind : 'spear';
     for (const [k, b] of Object.entries(this.bows)) b.visible = k === this.ranged;
     this.quiver.visible = this.ranged === 'bow' || this.ranged === 'longbow';
     this.setAmmo(this.ammo);
@@ -339,6 +405,7 @@ export class Caveman {
     this.ammo = n;
     const spear = this.ranged === 'spear';
     this.handSpear.visible = spear && n > 0 && this.throwT < 0;
+    this.handTomato.visible = this.ranged === 'tomato' && n > 0 && this.throwT < 0;
     this.backSpears.forEach((s, i) => { s.visible = spear && n - 1 > i; });
     this.quiver.userData.arrows.forEach((a, i) => { a.visible = this.quiver.visible && i < n; });
   }
@@ -357,8 +424,45 @@ export class Caveman {
       this.head.add(this.armorParts.head);
     }
     if (this.hairMesh) this.hairMesh.visible = !armor;
-    this.headdress.position.y = armor ? 0.1 : 0;
+    if (this.hatMesh) this.hatMesh.visible = !armor;   // a helmet goes on instead
+    this.placeHeaddress();
     this.drawTag();
+  }
+
+  // The chief's feathers sit on top of whatever's on the head.
+  placeHeaddress() {
+    this.headdress.position.y = this.armor ? 0.1 : this.hatMesh ? HAT_HEIGHT[this.look.hat] || 0 : 0;
+  }
+
+  // Clothes from the tailor (look.hat, look.cape: CLOTHES keys, or null).
+  setOutfit(look) {
+    for (const k of ['hatMesh', 'capeMesh']) {
+      if (!this[k]) continue;
+      this[k].removeFromParent();
+      this[k].traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+      this[k] = null;
+    }
+    this.look.hat = look.hat || null;
+    this.look.cape = look.cape || null;
+    if (HATS[this.look.hat]) {
+      this.hatMesh = HATS[this.look.hat]();
+      this.hatMesh.visible = !this.armor;
+      this.head.add(shadows(this.hatMesh, true, false));
+    }
+    if (CAPES[this.look.cape]) {
+      // a half-cylinder of cloth hanging off the shoulders, flaring out at the bottom
+      const g = new THREE.Group();
+      const cloth = mat(CAPES[this.look.cape], { side: THREE.DoubleSide });
+      const cape = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.52, 1.0, 12, 1, true, Math.PI * 0.62, Math.PI * 0.76), cloth);
+      cape.position.y = 0.22;
+      const collar = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.05, 5, 14), cloth);
+      collar.position.y = 0.74;
+      collar.rotation.x = Math.PI / 2;
+      g.add(cape, collar);
+      this.capeMesh = shadows(g, true, false);
+      this.torso.add(this.capeMesh);
+    }
+    this.placeHeaddress();
   }
 
   setArmorDur(dur) {
@@ -379,7 +483,7 @@ export class Caveman {
   place(p, f, h) { placeOnSphere(this.root, p, f, h); }
 
   playSwing(windup) { this.swingT = 0; this.swingWind = windup; }
-  playThrow() { this.throwT = 0; this.handSpear.visible = false; }
+  playThrow() { this.throwT = 0; this.handSpear.visible = this.handTomato.visible = false; }
 
   // Right-handed cavemen throw with the right hand and club with the left; left-handed ones are
   // the mirror image (the whole body, so every pose and swing mirrors with it). The name tag is
@@ -453,7 +557,7 @@ export class Caveman {
     this.head.rotation.x = -this.torso.rotation.x * 0.6;
 
     // right arm: spear overhead, or bow / gun held out front
-    const bow = this.ranged !== 'spear';
+    const bow = !THROWN.has(this.ranged);
     const firearm = FIREARMS.includes(this.ranged);
     let rBeta = -0.45 - sw * 0.5;
     let spearPhi = bow ? 0 : -1.3;
@@ -474,7 +578,7 @@ export class Caveman {
         spearPhi = -0.2;
         if (this.throwT > 0.45) {
           this.throwT = -1;
-          this.handSpear.visible = this.ammo > 0;
+          this.setAmmo(this.ammo);
         }
       }
     } else if (s.charging) {

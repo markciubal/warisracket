@@ -84,6 +84,25 @@ function hilt(g, grip, guard) {
 }
 
 const BUILDERS = {
+  // Ploughshares: the hoe everyone holds once peace breaks out
+  hoe(g) {
+    g.add(cyl(0.035, 0.04, 1.5, WOOD, 0.75, 6));
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.05, 0.16), metal('#9aa0a6'));
+    head.position.set(0.12, 1.47, 0.02);
+    head.rotation.z = -0.35;
+    g.add(head);
+    g.add(ball(0.05, DARK_WOOD, 0, 1.47, 0));
+  },
+  // fire on a stick (a haunted hollow's): a pitch-wrapped head, and flames that light themselves
+  torch(g) {
+    g.add(cyl(0.04, 0.05, 1.1, WOOD, 0.55, 6));
+    g.add(cyl(0.085, 0.07, 0.22, '#3a2a1a', 1.15, 7));
+    for (const [color, r, h] of [['#ff5a14', 0.16, 0.5], ['#ff9a1f', 0.12, 0.42], ['#ffe066', 0.07, 0.3]]) {
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }));
+      flame.position.y = 1.26 + h / 2;
+      g.add(flame);
+    }
+  },
   bigbone(g) { bone(g, 1.2, 0.07, 0.13); },
   femur(g) { bone(g, 1.55, 0.11, 0.2, '#e8dcbc'); },
   club(g) {
@@ -345,10 +364,23 @@ const PROJ_PARTS = {
 };
 
 PROJ_PARTS.ball = () => [[new THREE.SphereGeometry(0.07, 8, 6), '#2b2b2e', o => { o.position.z = -0.07; }]];
+// the range shed's own: a slingshot stone, a tomato, a rocket
+PROJ_PARTS.pebble = () => [[new THREE.DodecahedronGeometry(0.08, 0), '#8d8a83', o => { o.position.z = -0.08; }]];
+PROJ_PARTS.tomato = () => [
+  [new THREE.SphereGeometry(0.13, 10, 8), '#d8382c', o => { o.position.z = -0.13; o.scale.y = 0.85; }],
+  [new THREE.ConeGeometry(0.06, 0.07, 5), '#3f8f2f', o => { o.position.set(0, 0.12, -0.13); }],
+];
+PROJ_PARTS.rocket = () => [
+  [new THREE.ConeGeometry(0.075, 0.22, 8), '#c8402a', alongZ(-0.11)],
+  [new THREE.CylinderGeometry(0.075, 0.075, 0.55, 8), '#5f7040', alongZ(-0.495)],
+  [new THREE.BoxGeometry(0.32, 0.025, 0.16), '#3d4a2a', o => { o.position.z = -0.7; }],
+  [new THREE.BoxGeometry(0.025, 0.32, 0.16), '#3d4a2a', o => { o.position.z = -0.7; }],
+];
 
 let tracerGeo, tracerMat;
 
-// Projectile with its tip at the origin, pointing along +Z: 'spear' | 'arrow' | 'ball' | 'bullet'.
+// Projectile with its tip at the origin, pointing along +Z: 'spear' | 'arrow' | 'ball' | 'bullet',
+// or (the range shed's) 'pebble' | 'tomato' | 'rocket'.
 // Geometry is shared: never dispose it.
 export function buildProjectile(kind = 'spear') {
   if (kind === 'bullet') {
@@ -391,6 +423,36 @@ export function buildFirearm(kind) {
     for (const z of [0.15, 0.55, 0.85]) tube(0.04, 0.04, brass, z, 0.02);
     box(0.03, 0.06, 0.06, iron, 0, 0.08, -0.05);
     muzzleZ = 1.0;
+  } else if (kind === 'bazooka') {
+    // a fat green tube, a grip and a sight, and the next rocket's nose peeking out the front
+    const olive = mat('#5f7040'), dark = mat('#3d4a2a');
+    tube(0.12, 1.25, olive, 0.18);
+    tube(0.135, 0.12, dark, 0.78);
+    tube(0.135, 0.1, dark, -0.42);
+    box(0.06, 0.2, 0.09, dark, 0, -0.17, 0.05);
+    box(0.06, 0.16, 0.08, dark, 0, -0.15, 0.4);
+    box(0.05, 0.1, 0.16, dark, -0.13, 0.12, 0.25);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.2, 8).rotateX(Math.PI / 2), mat('#c8402a'));
+    nose.position.set(0, 0.03, 0.82);
+    g.add(nose);
+    muzzleZ = 0.85;
+  } else if (kind === 'crossbow') {
+    // a wooden stock with a bow across its nose, and a bolt sitting ready
+    const wood = mat('#7a4b25'), dark = mat('#4e301a');
+    box(0.08, 0.09, 0.85, wood, 0, 0, 0.12);
+    box(0.06, 0.2, 0.1, dark, 0, -0.13, -0.1).rotation.x = 0.3;
+    for (const s of [-1, 1]) {
+      const limb = box(0.42, 0.04, 0.05, dark, s * 0.2, 0.03, 0.5);
+      limb.rotation.y = s * 0.35;
+    }
+    const string = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.66, 3).rotateZ(Math.PI / 2), mat('#efe6d0'));
+    string.position.set(0, 0.03, 0.34);
+    g.add(string);
+    const bolt = buildProjectile('arrow');
+    bolt.scale.setScalar(0.6);
+    bolt.position.set(0, 0.07, 0.6);
+    g.add(bolt);
+    muzzleZ = 0.6;
   } else if (kind === 'gun') {
     const black = mat('#24262a', { roughness: 0.5 }), dark = mat('#3b3f45');
     box(0.09, 0.15, 0.6, black, 0, 0.0, 0.1);
@@ -446,6 +508,32 @@ export function buildBow(kind = 'bow') {
   arrow.visible = false;
   g.add(arrow);
   g.userData.arrow = arrow;
+  return shadows(g, true, false);
+}
+
+// A slingshot held at the handle (origin): a forked stick up ±Y, the band pulled back toward -Z,
+// a stone in it (group.userData.arrow) while it's drawn. Held like a bow.
+export function buildSlingshot() {
+  const g = new THREE.Group();
+  const wood = '#8a5a2b';
+  taperedTube(g, [new THREE.Vector3(0, -0.22, 0), new THREE.Vector3(0, 0.06, 0)], 0.035, 0.03, wood);
+  for (const s of [1, -1]) {
+    taperedTube(g, [new THREE.Vector3(0, 0.05, 0), new THREE.Vector3(0, 0.16, s * 0.06), new THREE.Vector3(0, 0.26, s * 0.1)], 0.03, 0.022, wood);
+  }
+  g.add(cyl(0.04, 0.04, 0.1, LEATHER, -0.1, 6));
+  for (const s of [1, -1]) {
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.2, 3), mat('#b0412e'));
+    band.position.set(0, 0.25, s * 0.06 - 0.06);
+    band.rotation.x = Math.PI / 2 - s * 0.5;
+    g.add(band);
+  }
+  mergeChildren(g);
+  const stone = buildProjectile('pebble');
+  stone.position.set(0, 0.25, -0.14);
+  stone.visible = false;
+  g.add(stone);
+  g.userData.arrow = stone;
+  g.rotation.x = -0.25;
   return shadows(g, true, false);
 }
 

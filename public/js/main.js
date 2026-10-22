@@ -10,11 +10,16 @@ import { Input, BUTTON, setLefty, buttonName } from './input.js';
 import { isTouch, TiltAim, TouchControls, TILT_LEVELS, buzz, setBuzz } from './touch.js';
 import { Settings, buildSettingsPanel } from './settings.js';
 import { Beast } from './beasts.js';
+import { Farm } from './farm.js';
+import { Town, SHOP_LOOK } from './town.js';
+import { CHAT, checkChat } from '/shared/chat.js';
+import { OfflineSocket, OFFLINE_ROOM } from './offline.js';
 import { buildProjectile, buildArmorDisplay, buildWeapon } from './weapons.js';
 import { peltSwatchURL, softDotTexture } from './textures.js';
-import { v3, mat, noise3, standOn, horizonTest } from './util.js';
+import { v3, mat, noise3, standOn, horizonTest, lift } from './util.js';
+import { R } from '/shared/constants.js';   // live: the planet grows in a Ploughshares peace (setRadius)
 
-const { R, PLAYER, PROJECTILE, VOLCANO } = C;
+const { PLAYER, PROJECTILE, VOLCANO } = C;
 const INTERP = 0.12;          // render remote things this far behind the server clock (s)
 const PHYS = 1 / 60;          // projectile step, matches the server
 const clock = () => performance.now() / 1000;
@@ -73,12 +78,15 @@ scene.add(sun, sun.target);
 
 const sky = new Sky(scene);
 const fx = new Effects(scene, camera);
+const farm = new Farm(scene);   // Ploughshares: the crops and buildings of a peace
+const town = new Town(scene);   // ...and the shops that open up in it
 const sound = new Sound();
 const hud = new Hud();
 const input = new Input(canvas, isTouch);
 const tilt = new TiltAim();
-const touch = isTouch ? new TouchControls(input, tilt, { council: () => toggleCouncil(), settings: () => toggleSettings(true), recenter: recenterTilt, quit: btn => askQuit(btn) }) : null;
-const projTemplates = Object.fromEntries(['spear', 'arrow', 'ball', 'bullet'].map(k => [k, buildProjectile(k)]));
+const touch = isTouch ? new TouchControls(input, tilt, { council: () => toggleCouncil(), settings: () => toggleSettings(true), recenter: recenterTilt, quit: btn => askQuit(btn), chat: () => openChat() }) : null;
+const projTemplates = Object.fromEntries(['spear', 'arrow', 'ball', 'bullet', 'pebble', 'tomato', 'rocket'].map(k => [k, buildProjectile(k)]));
+const NO_STICK = new Set(['ball', 'bullet', 'pebble', 'tomato', 'rocket']);   // gone where they land
 
 // Render resolution, adjusted on the fly (see adaptResolution).
 const res = { scale: 1, min: 0.7, max: 1.5, frames: 0, time: 0 };
@@ -111,6 +119,10 @@ function applySetting(k, v) {
     case 'fov': camera.fov = v; camera.updateProjectionMatrix(); break;
     case 'flashes': hud.flashScale = v / 100; break;
     case 'dmgNumbers': fx.numbers = v; break;
+    case 'chat':
+      document.body.classList.toggle('no-chat', !v);
+      if (!v) closeChat();
+      break;
     case 'fps': $('fps').classList.toggle('hidden', !v); break;
     case 'ping': $('ping').classList.toggle('hidden', !v); break;
     case 'tilt':
@@ -165,6 +177,8 @@ const state = {
   ws: null,
   connected: false,
   room: '',            // code of the rock (lobby) we're on, '' while still picking one
+  offline: false,      // playing on our own rock in the browser (offline.js), not the server
+  everConnected: false,   // reached the server at least once since the page opened
   asking: false,       // asked the server for a rock, no answer yet
   worldReady: false,
   joined: false,
@@ -190,12 +204,15 @@ const state = {
   pingT: 0,
   // planet rules + Do Time clock, as last told by the server
   game: { mode: 'dotime', era: 0, phase: 'play', eraLeft: 0, eraLen: 45, endLeft: 0, eraSeconds: 45, botLevel: C.BOT_LEVEL_DEFAULT, bots: 4, chief: 0, disaster: null, mmDead: 0,
-    wave: 0, waveSize: 0, waveLevel: 0 },   // co-op
+    wave: 0, waveSize: 0, waveLevel: 0,   // co-op
+    calm: 1, food: 0, vote: 0, yes: 0, no: 0,     // Ploughshares: peace holding this age, food store, the vote,
+    radius: C.PLANET_R },                         // ...and how big the planet has grown
   gameAt: 0,
   armorDrops: new Map(),
   loot: new Map(),     // weapons and ammo pouches dropped by slain cavemen
   beasts: new Map(),   // killstreak beasts on the planet
   shrooms: new Map(),  // magic mushrooms on the ground
+  strangers: new Map(),   // Ploughshares: kind strangers bringing food to the hungry
   mammonSaid: 0,       // when the Businessman last spoke (he doesn't get to talk all the time)
   dyingBeasts: [],     // slain ones keeling over before they're removed
   standings: null,
@@ -203,6 +220,18 @@ const state = {
   doomLook: 'fire',    // LOOKS key: how the ruined planet looks, kept while it heals
   doom: 0,             // how ruined the planet looks right now (0..1)
   doomTarget: 0,
+  // Ploughshares, in peace
+  buildKind: 0,        // BUILD_ORDER index: what the throw button builds
+  lastPlant: 0,
+  myVote: null,        // 'yes' | 'no' once I've voted
+  harvestFest: false,  // the round ended in a harvest festival, not a fight
+  peaceFrom: 0,        // when peace broke out, and how fat the Businessman was then (he wastes away)
+  peaceFat: 0,
+  // ...the town: my money, the clothes I've bought, and the shop I'm at (id, 0 = none)
+  shells: 0,
+  wardrobe: [],
+  zone: 0,
+  practice: null,      // ...the practice weapon I took from a range shed (RANGED key), if any
 };
 
 const me = {
@@ -222,8 +251,16 @@ const myPlayer = () => state.players.get(state.myId);
 const teamOf = p => (state.game.mode !== 'coop' ? null : p.bot ? 'foe' : 'ally');
 const isAlly = p => teamOf(p) === 'ally';
 const playerName = pl => (pl ? pl.name : 'SOMEONE');
-const rangedKey = () => C.ERAS[state.game.era].ranged;
+const eraRanged = () => C.ERAS[state.game.era].ranged;
+// mine: the age's, or (in peace) a practice weapon from a range shed
+const rangedKey = () => state.practice || eraRanged();
 const rangedDef = () => C.RANGED[rangedKey()];
+// Ploughshares, once peace breaks out: farming, not fighting, and nobody carries a ranged weapon
+// except a practice one from a range shed
+const peaceNow = () => state.game.phase === 'peace';
+const heldRanged = pl => pl?.practice || (peaceNow() ? null : eraRanged());
+const myShop = () => (peaceNow() && town.shops.get(state.zone)) || null;
+const timedMode = mode => mode === 'dotime' || mode === 'plough';   // the ages go by on a clock
 const fightingNow = () => state.game.phase === 'play';
 const humansOnPlanet = () => [...state.players.values()].filter(p => !p.bot);
 
@@ -238,7 +275,15 @@ function setGame(info) {
   const prev = { ...state.game };
   for (const k of Object.keys(state.game)) if (info[k] !== undefined) state.game[k] = info[k];
   state.gameAt = clock();
-  if (prev.era !== state.game.era) for (const pl of state.players.values()) pl.model.setRanged(rangedKey());
+  setRadius(state.game.radius);
+  if (prev.era !== state.game.era || (prev.phase === 'peace') !== peaceNow()) for (const pl of state.players.values()) pl.model.setRanged(heldRanged(pl));
+  if (prev.phase !== 'peace' && peaceNow()) {
+    // the Businessman wastes away from here on
+    state.peaceFrom = clock();
+    state.peaceFat = state.world?.mammon?.fat ?? 0.3;
+  }
+  document.body.classList.toggle('peace', peaceNow());
+  if (prev.phase === 'peace' && !peaceNow()) closeChat();   // peace over: no more talking
   if (prev.mode !== state.game.mode) for (const pl of state.players.values()) pl.model.setTeam(teamOf(pl));
   if (prev.chief !== state.game.chief) {
     for (const pl of state.players.values()) pl.model.setChief(pl.id === state.game.chief);
@@ -254,10 +299,17 @@ const OFF_ROCK = new Set(['room', 'noroom', 'world', 'restart', 'pong']);
 
 // Same host and port as the page, so it works locally, on a LAN and behind Heroku's HTTPS router.
 function connect() {
+  if (state.offline) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = state.ws = new WebSocket(`${proto}://${location.host}`);
+  hookUp(new WebSocket(`${proto}://${location.host}`));
+}
+
+// The connection, to the server or (offline) to the rock in a worker: the same messages both ways.
+function hookUp(ws) {
+  state.ws = ws;
   ws.onopen = () => {
     state.connected = true;
+    if (!state.offline) state.everConnected = true;
     refreshRoomPick();
     requestRoom();
     send({ t: 'ping', ts: clock() });
@@ -273,12 +325,46 @@ function connect() {
     state.ws = null;
     Object.assign(state, { connected: false, asking: false });
     refreshRoomPick();
+    if (state.offline) return;
     state.retries++;
+    // never reached the server since the page opened (no signal, or the server's down): play
+    // offline instead, rather than waiting on a connection that isn't coming
+    if (!state.everConnected && state.retries >= 2 && !state.joined) {
+      startOffline('NO CAVE SERVER, SO THIS IS YOUR OWN ROCK: JUST YOU AND THE BOTS.');
+      return;
+    }
     netBanner(state.restarting ? 'CAVE SERVER MOVING. BACK SOON...' : 'LOST CAVE SIGNAL. RECONNECTING...');
     // keep retrying forever, but after about a minute also offer a manual reload
     if (state.retries >= 14) $('disconnected').classList.remove('hidden');
     setTimeout(connect, Math.min(5000, 400 * 2 ** state.retries));
   };
+}
+
+// Offline: our own rock in a worker (the game the server runs, running here), you and the bots.
+// why: a note for the lobby (we switched on our own because there's no server).
+function startOffline(why = '') {
+  if (state.offline) return;
+  const old = state.ws;
+  Object.assign(state, { offline: true, ws: null, connected: false, asking: false, retries: 0 });
+  old?.close();   // (its onclose sees it's not ours any more)
+  if (state.world) clearWorld();
+  netBanner(null);
+  $('disconnected').classList.add('hidden');
+  setRoom(OFFLINE_ROOM);
+  $('room-mode').textContent = why || 'OFFLINE: YOUR OWN ROCK, JUST YOU AND THE BOTS.';
+  hookUp(new OfflineSocket());
+}
+
+// Off our own rock and back to the server's (to pick a rock there).
+function goOnline() {
+  const old = state.ws;
+  Object.assign(state, { offline: false, ws: null, connected: false, asking: false, retries: 0 });
+  old?.close();
+  if (state.world) clearWorld();
+  setRoom('');
+  roomNote('');
+  $('room-mode').textContent = '';
+  connect();
 }
 
 function send(msg) {
@@ -318,12 +404,15 @@ function backOnline() {
 // shows ours (/KPTX), so it's the link to share and a reload lands back on it.
 function setRoom(code) {
   state.room = code;
-  history.replaceState(null, '', `/${code}${location.search}`);
+  // (our own rock offline has no link: the address stays as it was)
+  if (!state.offline) history.replaceState(null, '', `/${code}${location.search}`);
+  $('room-copy').classList.toggle('hidden', state.offline);
+  $('room-leave').textContent = state.offline ? 'GO ONLINE' : 'OTHER ROCK';
   $('room-pick').classList.toggle('hidden', !!code);
   $('room-in').classList.toggle('hidden', !code);
   $('room-show').textContent = code;
   $('room-show').title = code ? `${location.host}/${code}` : '';
-  $('score-room').textContent = code ? `ROCK CODE ${code}` : '';
+  $('score-room').textContent = state.offline ? 'OFFLINE: YOU AND THE BOTS' : code ? `ROCK CODE ${code}` : '';
   if (!state.worldReady) {
     $('play').disabled = true;
     $('play').textContent = 'CONNECTING...';
@@ -347,8 +436,9 @@ function askRoom(msg) {
   refreshRoomPick();
 }
 
-// Off this rock, back to picking one.
+// Off this rock, back to picking one (offline: back online to pick one there).
 function leaveRoom() {
+  if (state.offline) { goOnline(); return; }
   const code = state.room;
   send({ t: 'room', leave: 1 });
   if (state.world) clearWorld();
@@ -360,6 +450,37 @@ function refreshRoomPick() {
   const ready = state.connected && !state.asking;
   $('room-new').disabled = $('room-go').disabled = !ready;
   $('room-new').textContent = state.connected ? 'MAKE NEW ROCK' : 'CONNECTING...';
+}
+
+// ---- the app: Chrome, Edge and Android offer to install it (GET THE APP); an iPhone or iPad
+// adds it to the home screen from Safari's share menu, so there the button says how. Installed,
+// or not, it opens and plays with no connection (sw.js keeps a copy; offline, you play the bots).
+let installPrompt = null;
+const installed = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone === true;
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function refreshInstall() {
+  $('get-app').classList.toggle('hidden', installed() || !(installPrompt || isIOS));
+}
+addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();   // (our own button, not the browser's mini bar)
+  installPrompt = e;
+  refreshInstall();
+});
+addEventListener('appinstalled', () => {
+  installPrompt = null;
+  refreshInstall();
+  $('app-hint').classList.add('hidden');
+});
+async function getApp() {
+  if (installPrompt) {
+    installPrompt.prompt();
+    await installPrompt.userChoice.catch(() => {});
+    installPrompt = null;
+    refreshInstall();
+  } else {
+    $('app-hint').textContent = 'ON IPHONE OR IPAD: TAP SHARE (THE SQUARE WITH THE ARROW), THEN ADD TO HOME SCREEN.';
+    $('app-hint').classList.toggle('hidden');
+  }
 }
 
 const ROOM_HELP = 'EACH ROCK IS ITS OWN GAME. SHARE ITS CODE SO FRIENDS JOIN YOURS.';
@@ -376,7 +497,7 @@ function shareRoom() {
   const btn = $('room-copy');
   const manual = () => prompt('Copy this link for your friends:', url);
   if (isTouch && navigator.share) {
-    navigator.share({ title: 'Spear Sphere', text: `Come bonk on rock ${state.room}!`, url }).catch(() => {});
+    navigator.share({ title: 'War is Racket', text: `Come bonk on rock ${state.room}!`, url }).catch(() => {});
   } else if (navigator.clipboard) {
     navigator.clipboard.writeText(url).then(() => {
       btn.textContent = 'COPIED!';
@@ -385,6 +506,23 @@ function shareRoom() {
   } else {
     manual();
   }
+}
+
+// The planet grows when peace breaks out in Ploughshares (and shrinks back for the next round):
+// the ground and everything standing on it move with it. Players, beasts and boulders are placed
+// from R every frame anyway.
+function setRadius(r) {
+  if (!(r > 0) || r === R) return;
+  const dR = r - R;
+  C.setPlanetRadius(r);
+  if (!state.world) return;   // (a new World is built at the new size)
+  state.world.regrow(dR);
+  farm.lift(dR);
+  town.relayout();
+  fx.lift(dR);
+  for (const m of [...state.armorDrops.values(), ...state.loot.values(), ...state.shrooms.values()]) lift(m.group, dR);
+  // (spears stuck in a target ride on the town)
+  for (const s of state.spears.values()) if (s.stuck && !s.inTarget) setStuck(s, M.scale(s.pos, 1 + dR / M.len(s.pos)), s.dir);
 }
 
 // Drop everything from the previous connection; a restarted server rolls a brand-new planet.
@@ -404,7 +542,10 @@ function clearWorld() {
   clearLoot();
   clearBeasts();
   clearDoom();
-  Object.assign(state, { myId: 0, worldReady: false, clockOffset: null, standings: null, doom: 0, doomTarget: 0 });
+  farm.clear();
+  town.clear();
+  clearStrangers();
+  Object.assign(state, { myId: 0, worldReady: false, clockOffset: null, standings: null, doom: 0, doomTarget: 0, zone: 0, practice: null });
   Object.assign(me, { alive: false, charging: false, armor: null, reward: null, beastId: 0 });
   hud.death(false);
   hud.roundEnd(null);
@@ -450,9 +591,12 @@ function quitGame() {
   showLobby();
   toggleSettings(false);
   toggleCouncil(false, false);
+  closePanels();
+  closeChat();
   for (const id of ['lock-quit', 'settings-quit', 't-quit']) disarmQuit($(id));
   // our caveman goes when the server's pleave for him arrives
   state.myId = 0;
+  state.zone = 0;
   Object.assign(me, { alive: false, charging: false, armor: null, reward: null, beastId: 0, buffs: {} });
 }
 
@@ -474,6 +618,12 @@ const handlers = {
     for (const b of m.beasts || []) addBeast(b, false);
     for (const f of m.fires || []) state.world.setMeat(f.id, f.left);
     for (const s of m.shrooms || []) addShroom(s);
+    farm.clear();
+    for (const c of m.crops || []) farm.addCrop(c);
+    for (const b of m.builds || []) farm.addBuild(b);
+    town.clear();
+    for (const sh of m.shops || []) town.add(sh);
+    for (const st of m.strangers || []) addStranger(st);
     if (m.doom) startDoom(m.doom);
     // Build every shader the scene needs now (in the background where the GPU allows it)
     // instead of stalling a frame the first time each thing comes into view.
@@ -529,7 +679,8 @@ const handlers = {
     mammonSay(pick(C.MAMMON.newAge), { force: true });
     // a new age's weapon lands in front of you (the server drops it); yours is still yours
     const gift = era.regear && state.myId && me.alive;
-    hud.center(`${era.name}!`, gift ? `NEW WEAPON AT YOUR FEET · ${isTouch ? 'GRAB' : 'E'} TO TAKE IT` : era.sub, 2.5);
+    const sub = gift ? `NEW WEAPON AT YOUR FEET · ${isTouch ? 'GRAB' : 'E'} TO TAKE IT` : m.mode === 'plough' ? 'NOBODY HURT THIS AGE = PEACE' : era.sub;
+    hud.center(`${era.name}!`, sub, 2.5);
     hud.flash(0.6, 'era');
     sound.play('era');
     const shout = { bow: 'bendy stick!', sword: 'shiny rock!', musket: 'boom stick!', gun: 'bang bang!', laser: 'zap zap!' }[era.id];
@@ -543,10 +694,16 @@ const handlers = {
   roundend(m) {
     setGame(m);
     state.standings = m.standings;
+    state.harvestFest = !!m.harvest;
     me.charging = false;
     if (!state.game.mmDead) {
       state.roundProfit = mammonGrowth().profit;
-      mammonSay(C.MAMMON.end, { force: true });
+      mammonSay(m.harvest ? C.MAMMON.harvest : C.MAMMON.end, { force: true });
+    }
+    if (m.harvest) {
+      sound.play('era');
+      sound.speak('harvest feast!', { pitch: 0.3 });
+      return;
     }
     if (m.mode === 'coop') {
       sound.play('die');
@@ -584,6 +741,214 @@ const handlers = {
     mm.die();
   },
 
+  // ---- Ploughshares
+  // A whole age and nobody hurt anybody: swords into ploughshares.
+  peace(m) {
+    setGame(m);
+    me.charging = false;
+    state.myVote = null;
+    for (const pl of state.players.values()) { pl.practice = null; pl.model.setRanged(null); }
+    state.practice = null;
+    // (the server cleared every spear and arrow on the planet)
+    for (const s of [...state.spears.values(), ...state.pending.values()]) dropSpear(s);
+    state.spears.clear();
+    state.pending.clear();
+    hud.center('SWORDS INTO PLOUGHSHARES!', FARM_HOW(), 4);
+    hud.flash(0.6, 'era');
+    sound.play('era');
+    sound.speak('peace! peace!', { pitch: 0.3 });
+    mammonSay(C.MAMMON.peace, { force: true });
+    if (state.joined && settings.get('chat')) hud.chatLine('', `THE TRIBE CAN TALK NOW. ONE SOUND AT A TIME.${isTouch ? '' : ' ENTER TO TALK.'}`, { note: true });
+  },
+
+  // somebody hurt somebody: no peace this age
+  peacebreak(m) {
+    setGame(m);
+    const by = state.players.get(m.by);
+    if (state.joined) hud.feed(`<span class="streak">PEACE BROKEN</span> BY ${by ? `<span class="${m.by === state.myId ? 'me' : ''}">${esc(by.name)}</span>` : 'SOMEBODY'}`);
+  },
+
+  crop(m) {
+    farm.addCrop(m);
+    const pl = state.players.get(m.by);
+    if (pl && pl.id !== state.myId) pl.model.playSwing(0.1);
+    if (m.by === state.myId) sound.play('thunk');
+  },
+
+  // picked (or trampled by a new build, n = 0)
+  harvest(m) {
+    state.game.food = m.food;
+    const at = farm.removeCrop(m.id);
+    if (!at || !m.n) return;
+    const up = at.clone().normalize();
+    fx.burst(at.clone().addScaledVector(up, 0.4), { count: 10, color: '#e8c45a', speed: 3, size: 0.08, life: 0.7, up });
+    if (m.by === state.myId) {
+      sound.play('pickup');
+      fx.float(at.clone().addScaledVector(up, 1.2), `+${m.n} FOOD`, 'heal', { life: 1 });
+    }
+  },
+
+  build(m) {
+    state.game.food = m.food;
+    farm.addBuild(m);
+    const u = v3(m.u).normalize();
+    fx.dust(u.clone().multiplyScalar(R), u, 10);
+    sound.play('stomp', distTo(m.u));
+  },
+
+  // ---- the town
+  // a shop opens (the first one: the Businessman perks up)
+  shop(m) {
+    town.add(m);
+    const u = v3(m.u).normalize();
+    fx.dust(u.clone().multiplyScalar(R), u, 14);
+    if (!state.joined) return;
+    const def = C.SHOPS[m.kind], look = SHOP_LOOK[m.kind];
+    sound.play('stomp', distTo(m.u));
+    hud.feed(`<span style="color:${look.color}">${look.icon} ${def.name} OPEN</span>${m.first ? ' · THE TOWN IS GROWING' : ''}`);
+    if (m.first) mammonSay(C.MAMMON.shop, { force: true });
+  },
+
+  // somebody walked into (or out of) a shop
+  zone(m) {
+    const pl = state.players.get(m.id);
+    if (!pl) return;
+    const was = pl.zone;
+    pl.zone = m.z;
+    if (m.id !== state.myId) return;
+    state.zone = m.z;
+    closePanels();   // walked away from the counter
+    if (!m.z) return;
+    const kind = town.shops.get(m.z)?.kind;
+    const key = isTouch ? 'TAP' : mouseWord(kind === 'range' ? 'ranged' : 'melee');
+    const hello = {
+      doctor: ['DOCTOR', me.hp < PLAYER.maxHp ? `${isTouch ? 'USE' : 'E'} · ALL BETTER FOR 1 🐚` : 'COME BACK WHEN HURT'],
+      range: ['TARGET RANGE', state.practice ? `${isTouch ? 'WEAPONS' : 'E'} · SWAP IT OR HAND IT BACK` : `${isTouch ? 'WEAPONS' : 'E'} · PICK A PRACTICE WEAPON`],
+      duel: ['DUEL RING', `${isTouch ? 'WEAPON' : 'E'} PICKS A WEAPON · KNOCK THEM TO 1 HP FOR ${C.SHOPS.duel.win} 🐚`],
+      tailor: ['TAILOR', `${isTouch ? 'USE' : 'E'} · HATS AND CAPES`],
+      haunt: ['HAUNTED HOLLOW!', `YOUR HOE IS A TORCH IN HERE · MONSTERS PAY ${C.SHOPS.haunt.reward} 🐚`],
+    }[kind];
+    if (hello) hud.center(hello[0], hello[1], 1.8);
+  },
+
+  // someone took a practice weapon from a range shed (or handed it back: w null)
+  practice(m) {
+    const pl = state.players.get(m.id);
+    if (!pl) return;
+    pl.practice = m.w || null;
+    pl.model.setRanged(heldRanged(pl));
+    if (m.id !== state.myId) return;
+    state.practice = pl.practice;
+    Object.assign(me, { charging: false, charge: 0, regen: 0 });
+    sound.play('pickup');
+    if (pl.practice) hud.center(`${C.RANGED[pl.practice].name.toUpperCase()}!`, 'TAKE IT ANYWHERE · BACK TO THE SHED TO STOP', 2.4);
+    else hud.center('HANDED IT BACK', '', 1.4);
+  },
+
+  // a hit at the range: the target shakes, and straw flies
+  target(m) {
+    if (!town.shake(m.shop, m.i) || !m.pos) return;
+    const at = v3(m.pos), up = at.clone().normalize();
+    fx.burst(at, { count: 14, color: '#e8c45a', speed: 4, size: 0.08, life: 0.7, up });
+    sound.play('thunk', distTo(up.toArray()));
+    if (m.by === state.myId) fx.float(at.clone().addScaledVector(up, 0.9), m.paid ? pick(['BULLSEYE!', 'THWACK!', 'GOOD SHOT!']) : 'THWACK!', 'ooga', { life: 0.9 });
+    if (C.RANGED[m.w]?.splat) splatTarget(m.shop, m.i, at);
+  },
+
+  doctor(m) {
+    const pl = state.players.get(m.id);
+    if (!pl) return;
+    const up = v3(pl.rp);
+    fx.burst(up.clone().multiplyScalar(R + pl.rh + 1.2), { count: 18, color: '#9dff8a', speed: 2.5, size: 0.09, life: 1, up, emissive: true, grav: -0.2 });
+    if (m.id === state.myId) {
+      hud.center('ALL BETTER!', 'THE DOCTOR TAKES 1 🐚', 1.6);
+      sound.speak('all better!', { pitch: 0.35 });
+    }
+  },
+
+  // a bout in the ring is won (down to 1 HP)
+  duel(m) {
+    const a = state.players.get(m.a), v = state.players.get(m.v);
+    if (!state.joined) return;
+    hud.feed(`<span class="${m.a === state.myId ? 'me' : ''}">${esc(playerName(a))}</span> WINS THE DUEL WITH <span class="${m.v === state.myId ? 'me' : ''}">${esc(playerName(v))}</span>`);
+    if (m.a === state.myId) {
+      hud.center('YOU WIN THE BOUT!', `+${m.n} 🐚`, 2);
+      sound.play('kill');
+    } else if (m.v === state.myId) {
+      hud.center('YOU YIELD!', 'SEE THE DOCTOR · 1 🐚', 2.2);
+    }
+  },
+
+  // new clothes (or clothes off)
+  look(m) {
+    const pl = state.players.get(m.id);
+    if (!pl) return;
+    pl.look = m.look;
+    pl.model.setOutfit(m.look);
+    const up = v3(pl.rp);
+    fx.burst(up.clone().multiplyScalar(R + pl.rh + 1.8), { count: 14, color: '#ffe066', speed: 3, size: 0.08, life: 0.7, up, emissive: true });
+    if (m.id === state.myId) {
+      sound.play('pickup');
+      if (state.joinMsg) Object.assign(state.joinMsg.look, { hat: m.look.hat, cape: m.look.cape });
+      refreshTailor();
+    }
+  },
+
+  // ---- peace chat
+  chat(m) {
+    const pl = state.players.get(m.id);
+    if (!pl || !settings.get('chat')) return;
+    hud.chatLine(pl.name, m.text, { mine: m.id === state.myId });
+    fx.float(v3(pl.rp).multiplyScalar(R + pl.rh), m.text, 'emote chat', { life: CHAT.bubble, rise: 0.3, follow: pl.model.root, offset: 2.9 });
+    const d = distTo(pl.rp);
+    if (state.joined && d < 25) sound.speak(m.text.toLowerCase(), { pitch: 0.1 + (pl.id % 5) * 0.08, dist: d });
+  },
+
+  // ---- hunger: a stranger is on the way with food
+  stranger(m) {
+    addStranger(m);
+    if (m.for === state.myId && state.joined) hud.feed('<span class="streak">A STRANGER</span> IS COMING WITH FOOD');
+  },
+
+  // ...the food changes hands, a kind word, and the stranger goes on their way
+  fed(m) {
+    const st = state.strangers.get(m.id), pl = state.players.get(m.v);
+    const line = C.STRANGER.lines[m.line] || C.STRANGER.lines[0];
+    if (st) {
+      st.model.playSwing(0.15);
+      setTimeout(() => { if (st.model.weaponMesh) st.model.weaponMesh.visible = false; }, 200);
+      fx.float(v3(st.rp).multiplyScalar(R + 2.6), line, 'emote', { life: 2.4, rise: 0.4, follow: st.model.root, offset: 2.9 });
+    }
+    if (pl) {
+      const up = v3(pl.rp);
+      fx.burst(up.clone().multiplyScalar(R + pl.rh + 1.3), { count: 14, color: '#c0703a', speed: 2.5, size: 0.08, life: 0.8, up });
+    }
+    if (m.v === state.myId) {
+      hud.center('A STRANGER SHARES FOOD', `+${C.STRANGER.food} LIFE`, 2.4);
+      sound.speak(line.toLowerCase(), { pitch: 0.45 });
+    }
+    if (state.joined) mammonSay(pick(C.MAMMON.free));
+  },
+
+  strangergone(m) { removeStranger(m.id); },
+
+  // the vote to keep farming: opens, then keep going (yes) or the round ends (no)
+  vote(m) {
+    setGame(m);
+    if (m.open) state.myVote = null;
+    if (!state.joined) return;
+    if (m.open) sound.play('era');   // the vote panel itself asks the question
+    else if (m.result === 'yes') hud.center(m.grow ? 'THE WORLD GROWS!' : 'MORE FARMING!', m.grow ? 'MORE FARMING, AND NEW PLACES TO FIND' : `${m.yes} YES · ${m.no} NO`, 2.8);
+    else if (m.result === 'no') hud.feed(`<span class="streak">FARMING DONE</span> · ${m.yes} YES · ${m.no} NO`);
+  },
+
+  // the server turned down a planting or a build
+  nope(m) {
+    const text = { spot: 'NO ROOM HERE', food: `NEED ${m.need} FOOD`, full: 'TOO MANY CROPS', healthy: 'YOU ARE FINE!', shells: `NEED ${m.need} 🐚` }[m.why] || 'NO';
+    if (m.why === 'chat') { hud.chatLine('', `NOT SAID. TOO LONG: ${(m.long || []).join(', ')}`, { note: true }); return; }
+    fx.float(v3(me.p).multiplyScalar(R + me.h + 2.3), text, 'ooga', { life: 0.9 });
+  },
+
   // fresh Stone Age: scores, projectiles and armor reset (respawn events follow)
   round(m) {
     setGame(m);
@@ -599,11 +964,19 @@ const handlers = {
     for (const id of [...state.armorDrops.keys()]) removeArmorDrop(id);
     clearLoot();
     clearBeasts();
+    farm.clear();       // the fields, buildings and town of the last peace go with the old world
+    town.clear();
+    clearStrangers();
+    state.zone = 0;
+    state.practice = null;   // (the practice weapons went back with the town)
+    for (const pl of state.players.values()) Object.assign(pl, { zone: 0, practice: null });
+    closePanels();
+    state.harvestFest = false;
     me.reward = null;   // streak rewards don't carry over into a new round
     for (const f of state.world?.fires || []) f.readyAt = 0;
     for (const pk of m.pickups) state.world?.setPickupWeapon(pk.id, pk.wpn);
     if (state.joined) {
-      hud.center({ dotime: 'NEW STONE AGE!', classic: 'FOREVER STONE!', coop: 'TRIBE VS BOTS!' }[m.mode], '', 2);
+      hud.center({ dotime: 'NEW STONE AGE!', plough: 'NEW STONE AGE!', classic: 'FOREVER STONE!', coop: 'TRIBE VS BOTS!' }[m.mode], '', 2);
       setTimeout(() => mammonSay(C.MAMMON.start, { force: true }), 3500);
     }
   },
@@ -691,6 +1064,10 @@ const handlers = {
       fx.float(v3(b.rp).multiplyScalar(R + C.BEASTS[b.kind].height + 0.5), 'ROOOAAARR!', 'ooga', { life: 1.4 });
     } else if (m.a === 'tusk' || m.a === 'trample') sound.play(m.a === 'tusk' ? 'trumpet' : 'stomp', d);
     else if (m.a === 'chomp') sound.play('chomp', d);
+    else if (m.a === 'swipe' && b.kind === 'ghost') {
+      sound.play('wind', d);
+      fx.float(v3(b.rp).multiplyScalar(R + C.BEASTS.ghost.height + 0.3), 'BOO!', 'ooga', { life: 0.9 });
+    } else if (m.a === 'swipe') sound.play('clang', d);
     else sound.play(b.kind === 'dog' && m.a === 'pounce' ? 'bark' : 'snarl', d);
   },
 
@@ -714,8 +1091,13 @@ const handlers = {
     const b = state.beasts.get(m.id);
     if (!b) return;
     const owner = state.players.get(b.owner);
-    const name = `${esc(playerName(owner))}'S ${b.name.toUpperCase()}`;
-    if (m.reason === 'slain') {
+    const name = b.monster ? `A ${b.name.toUpperCase()}` : `${esc(playerName(owner))}'S ${b.name.toUpperCase()}`;
+    if (m.reason === 'slain' && b.monster) {
+      const by = state.players.get(m.by);
+      if (state.joined && by) hud.feed(`<span class="${m.by === state.myId ? 'me' : ''}">${esc(by.name)}</span> SLAY ${name}`);
+      sound.play('shatter', distTo(b.rp));
+      if (m.by === state.myId) hud.center(`YOU SLAY THE ${b.name.toUpperCase()}!`, `+${C.SHOPS.haunt.reward} 🐚`, 1.6);
+    } else if (m.reason === 'slain') {
       const by = state.players.get(m.by);
       if (state.joined) hud.feed(by ? `<span class="${m.by === state.myId ? 'me' : ''}">${esc(by.name)}</span> SLAY ${name}!` : `${name} GO SLEEP`);
       sound.play('die', distTo(b.rp));
@@ -804,6 +1186,7 @@ const handlers = {
     if (!pl) return;
     pl.model.isLocal = true;
     if (pl.model.tag) pl.model.tag.visible = false;
+    state.practice = pl.practice;
     Object.assign(me, { p: pl.rp, f: pl.rf, h: 0, vh: 0, alive: true, hp: PLAYER.maxHp, ammo: m.ammo, wpn: pl.wpn, armor: null });
     hud.setWeapon(pl.wpn);
     hud.setHp(me.hp);
@@ -812,7 +1195,9 @@ const handlers = {
       // first time on: the mode, and how to play
       const how = isTouch ? 'LEFT THUMB RUN · DRAG RIGHT SIDE TO AIM'
         : `WASD RUN · ${mouseWord('melee')} CLICK BONK · HOLD ${mouseWord('ranged')} CLICK THROW`;
-      hud.center({ dotime: 'MOST BONKS WINS!', classic: 'BONK EVERYBODY!', coop: 'BEAT THE BOT WAVES!' }[state.game.mode] || 'OOGA!', how, 4);
+      if (peaceNow()) hud.center('PEACE TIME!', FARM_HOW(), 4);
+      else if (state.game.mode === 'plough') hud.center('KEEP THE PEACE!', 'NOBODY HURT FOR A WHOLE AGE = SWORDS INTO PLOUGHSHARES', 4);
+      else hud.center({ dotime: 'MOST BONKS WINS!', classic: 'BONK EVERYBODY!', coop: 'BEAT THE BOT WAVES!' }[state.game.mode] || 'OOGA!', how, 4);
     }
   },
 
@@ -837,6 +1222,7 @@ const handlers = {
     const sample = t - clock();
     if (state.clockOffset === null || sample > state.clockOffset) state.clockOffset = sample;
     else state.clockOffset += (sample - state.clockOffset) * 0.01;
+    if (m.r) setRadius(m.r);
     // row: [id, px, py, pz, fx, fy, fz, h, hp, flags]
     for (const row of m.p) {
       const pl = state.players.get(row[0]);
@@ -855,6 +1241,13 @@ const handlers = {
       b.snaps.push({ t, p: [row[1], row[2], row[3]], f: [row[4], row[5], row[6]] });
       if (b.snaps.length > 30) b.snaps.shift();
     }
+    // strangers: [id, px, py, pz, fx, fy, fz]
+    for (const row of m.st || []) {
+      const st = state.strangers.get(row[0]);
+      if (!st) continue;
+      st.snaps.push({ t, p: [row[1], row[2], row[3]], f: [row[4], row[5], row[6]] });
+      if (st.snaps.length > 30) st.snaps.shift();
+    }
     // beasts: [id, px, py, pz, fx, fy, fz, h, hp, moving]
     for (const row of m.bs || []) {
       const b = state.beasts.get(row[0]);
@@ -868,6 +1261,15 @@ const handlers = {
   me(m) {
     if (m.ammo > me.ammo) me.regen = 0;
     me.ammo = m.ammo;
+    if (m.shells === undefined) return;
+    const gain = m.shells - state.shells;
+    state.shells = m.shells;
+    state.wardrobe = m.wardrobe || [];
+    if (gain && state.joined && me.alive) {
+      fx.float(v3(me.p).multiplyScalar(R + me.h + 2.6), `${gain > 0 ? '+' : ''}${gain} 🐚`, gain > 0 ? 'heal' : 'ooga', { life: 1.1 });
+      if (gain > 0) sound.play('coins');
+    }
+    if (panelOpen('tailor')) refreshTailor();
   },
 
   spear(m) {
@@ -890,7 +1292,8 @@ const handlers = {
   stuck(m) {
     let s = state.spears.get(m.id);
     if (!s) s = addSpear(m.id, 0, m.pos, [0, 0, 0]);
-    setStuck(s, m.pos, m.dir);
+    setStuck(s, m.pos, m.dir, m.tg);
+    if (m.tg) return;   // (the target's own hit shows the straw flying)
     const u = v3(m.pos).normalize();
     const d = distTo(u.toArray());
     sound.play('thunk', d);
@@ -903,7 +1306,22 @@ const handlers = {
 
   spgone(m) {
     removeSpear(m.id);
-    if (m.imp && m.pos) {
+    if (m.boom && m.pos) {
+      // a rocket going off
+      const pos = v3(m.pos), up = pos.clone().normalize();
+      const d = distTo(up.toArray());
+      fx.explosion(pos, up);
+      fx.decal(up, { radius: 1.7, color: '#1d1410', opacity: 0.5, life: 12 });
+      sound.play('boom', d);
+      fx.addShake(Math.max(0, 0.6 - d / 30));
+    }
+    if (m.splat && m.pos) {
+      const pos = v3(m.pos), up = pos.clone().normalize();
+      fx.burst(pos, { count: 16, color: '#d8382c', speed: 4, size: 0.09, life: 0.6, up });
+      if (pos.length() < R + 0.4) fx.decal(up, { radius: 0.5, color: '#b02a20', opacity: 0.7, life: 12 });
+      sound.play('munch', distTo(up.toArray()));
+    }
+    if (m.imp && !m.splat && m.pos) {
       const pos = v3(m.pos);
       const up = pos.clone().normalize();
       fx.burst(pos, { count: 5, color: '#a8875a', speed: 3, size: 0.07, life: 0.4, up });
@@ -999,6 +1417,8 @@ const handlers = {
     if (m.v === state.myId) {
       me.hp = m.hp;
       hud.setHp(m.hp);
+      // nobody dies in peace, but they can end up at 1 HP (the duel ring says its own thing)
+      if (peaceNow() && m.hp <= 1 && !m.a) hud.center('OUCH! 1 HP LEFT', 'SEE THE DOCTOR · 1 🐚', 2.2);
       if (me.armor && m.ad != null) me.armor.dur = m.ad;
       if (m.k !== 'bleed') {
         sound.play('hurt');
@@ -1182,7 +1602,7 @@ function addPlayer(p) {
   if (state.players.has(p.id)) return state.players.get(p.id);
   const model = new Caveman({ name: p.name, look: p.look, bot: p.bot });
   model.setWeapon(p.wpn);
-  model.setRanged(rangedKey());
+  model.setRanged(heldRanged(p));
   model.setArmor(p.armor);
   model.setChief(p.id === state.game.chief);
   model.setTeam(teamOf(p));
@@ -1193,7 +1613,7 @@ function addPlayer(p) {
   const pl = {
     id: p.id, name: p.name, look: p.look, bot: p.bot, wpn: p.wpn, armor: p.armor, hp: p.hp, alive: p.alive, k: p.k, d: p.d,
     buffs: Object.fromEntries(Object.entries(p.buffs || {}).map(([k, left]) => [k, clock() + left])),
-    model, snaps: [], rp: p.p, rf: p.f, rh: p.h, flags: 1 | (ammo << 5), ammo, speed: 0, streak: 0,
+    model, snaps: [], rp: p.p, rf: p.f, rh: p.h, flags: 1 | (ammo << 5), ammo, speed: 0, streak: 0, zone: p.zone || 0, practice: p.practice || null,
   };
   if (!p.alive) { model.die(); model.deadT = 10; }
   state.players.set(p.id, pl);
@@ -1264,23 +1684,38 @@ function addSpear(id, owner, pos, vel, stuck = null, kind = 'spear') {
   const mesh = (projTemplates[kind] || projTemplates.spear).clone();
   scene.add(mesh);
   const s = { id, owner, kind, mesh, pos: pos.slice(), vel: vel.slice(), stuck: false, dir: null, acc: 0, age: 0, trail: 0, tid: 0, inst: -1, hidden: false };
-  if (stuck) setStuck(s, stuck.pos, stuck.dir);
+  if (stuck) setStuck(s, stuck.pos, stuck.dir, stuck.tg);
   else orientSpear(s);
   if (id != null) state.spears.set(id, s);
   return s;
 }
 
 // The server says where it landed: hand it to the instanced pile (or keep a mesh if that's full).
-function setStuck(s, pos, dir) {
+// tg: [shop id, target index] when it's stuck in a target at a range
+function setStuck(s, pos, dir, tg = null) {
   s.stuck = true;
   s.pos = pos.slice();
   s.dir = dir.slice();
   if (s.inst >= 0) poolRemove(s);
+  if (tg && stickInTarget(s, tg)) return;
   if ((s.kind === 'spear' || s.kind === 'arrow') && poolAdd(s)) {
     s.mesh.removeFromParent();
     return;
   }
   orientSpear(s);
+}
+
+// Stuck in a target: it rides on the target from here on (and rocks with it when it's hit).
+function stickInTarget(s, tg) {
+  const target = town.target(tg[0], tg[1]);
+  if (!target) return false;
+  if (!s.mesh.parent) scene.add(s.mesh);
+  orientSpear(s);
+  s.mesh.updateMatrixWorld(true);
+  target.hinge.attach(s.mesh);   // keeping where it is in the world
+  s.inTarget = true;
+  s.hidden = false;
+  return true;
 }
 
 function dropSpear(s) {
@@ -1303,20 +1738,30 @@ function updateSpears(dt, t) {
     s.acc += dt;
     while (s.acc >= PHYS) {
       s.acc -= PHYS;
+      const prev = s.pos.slice();
       M.stepProjectile(s.pos, s.vel, PHYS);
       const ground = M.len(s.pos) <= R;
-      if (ground || M.obstacleAt(s.pos, obstacles)) {
+      // (at a range: through a target's face, where it sticks in the straw)
+      const inTarget = town.shops.size ? town.targetOnPath(prev, s.pos) : null;
+      if (ground || inTarget || M.obstacleAt(s.pos, obstacles)) {
         // predicted landing; the server's 'stuck' event has the final say
         s.stuck = true;
         s.dir = M.norm(s.vel);
-        if (ground) s.pos = M.scale(M.norm(s.pos), R - (s.kind === 'arrow' ? 0.18 : 0.3));
-        // musket balls and bullets don't stick around; the server's impact event shows the dirt
-        if (s.kind === 'ball' || s.kind === 'bullet') s.hidden = true;
+        const sink = s.kind === 'arrow' ? 0.18 : 0.3;
+        if (ground) s.pos = M.scale(M.norm(s.pos), R - sink);
+        if (inTarget) s.pos = M.madd(inTarget, s.dir, sink * 0.8);
+        // balls, bullets, stones, tomatoes and rockets don't stick around; the server's event shows the rest
+        if (NO_STICK.has(s.kind)) s.hidden = true;
         break;
       }
     }
     orientSpear(s);
-    if (s.kind !== 'bullet' && (s.trail -= dt) <= 0) {
+    if (s.kind === 'rocket' && !s.hidden && (s.trail -= dt) <= 0) {
+      // fire out the back, and a long trail of smoke
+      s.trail = 0.02;
+      fx.puff(s.mesh.position, { color: '#ff8a2a', size: 0.5, grow: 0.3, life: 0.18, alpha: 0.9, additive: true });
+      fx.puff(s.mesh.position, { color: '#bdb6aa', size: 0.45, grow: 2.4, life: 1.3, alpha: 0.45 });
+    } else if (s.kind !== 'bullet' && s.kind !== 'rocket' && (s.trail -= dt) <= 0) {
       s.trail = s.kind === 'spear' ? 0.035 : 0.025;
       const smoky = s.kind === 'ball';
       fx.puff(s.mesh.position, { color: smoky ? '#d8d2c8' : '#fff6e0', size: s.kind === 'spear' ? 0.25 : 0.14, grow: smoky ? 1.5 : 0.3, life: smoky ? 0.7 : 0.3, alpha: 0.35 });
@@ -1491,11 +1936,13 @@ function mammonGrowth() {
   const g = state.game;
   let kills = 0;
   for (const p of state.players.values()) kills += p.k || 0;
-  const ages = g.mode === 'classic' ? 0 : g.era + (g.mode === 'dotime' && g.phase === 'play' ? Math.min(1, 1 - clockLeft() / (g.eraLen || g.eraSeconds || 45)) : 0);
+  const ages = g.mode === 'classic' ? 0 : g.era + (timedMode(g.mode) && g.phase === 'play' ? Math.min(1, 1 - clockLeft() / (g.eraLen || g.eraSeconds || 45)) : 0);
   const fat = g.mode === 'classic'
     ? Math.min(1, 0.05 + kills * 0.012)
     : Math.min(1, 0.05 + (ages / (C.ERAS.length - 1)) * 0.7 + Math.min(0.3, kills * 0.005));
   const profit = kills * C.MAMMON.profitPerBonk + Math.floor(ages) * C.MAMMON.profitPerAge;
+  // peace: no war, no profit, and he wastes away
+  if (g.phase === 'peace' || (g.phase === 'end' && state.harvestFest)) return { fat: Math.max(0.05, state.peaceFat - (clock() - state.peaceFrom) / 120), profit };
   return { fat, profit };
 }
 
@@ -1525,7 +1972,7 @@ function updateMammon(dt) {
   else if (!state.game.mmDead && mm.dead) mm.revive();    // a new world, a new Businessman
   // dressed for the age, geared up for the disaster, toasting a wiped-out tribe (co-op)
   const g = state.game;
-  mm.setLook({ era: C.ERAS[g.era]?.id, disaster: g.phase === 'doom' ? g.disaster : null, party: g.phase === 'end', skin: mySkin() });
+  mm.setLook({ era: C.ERAS[g.era]?.id, disaster: g.phase === 'doom' ? g.disaster : null, party: g.phase === 'end' && !state.harvestFest, skin: mySkin() });
   const { fat, profit } = mammonGrowth();
   mm.setFat(fat, profit);
   mm.update(dt, state.joined && state.myId ? v3(me.p).multiplyScalar(R + me.h + 1.6) : camera.position);
@@ -1539,7 +1986,7 @@ function beastTeam(b) {
   return owner && isAlly(owner) ? 'ally' : 'foe';
 }
 
-const BEAST_CALL = { dog: 'bark', mammoth: 'trumpet', trex: 'roar' };
+const BEAST_CALL = { dog: 'bark', mammoth: 'trumpet', trex: 'roar', ghost: 'wind', skeleton: 'clang' };
 
 function addBeast(m, fresh = true) {
   removeBeast(m.id, false);
@@ -1547,16 +1994,22 @@ function addBeast(m, fresh = true) {
   const def = C.BEASTS[m.kind];
   const b = {
     id: m.id, kind: m.kind, name: m.name || def.name, owner: m.owner, rp: m.p, rf: m.f, rh: m.h || 0, hp: m.hp, maxHp: m.maxHp,
-    until: clock() + (m.left ?? def.life), snaps: [], speed: 0,
+    until: clock() + (m.left ?? def.life), snaps: [], speed: 0, monster: !!m.monster,
   };
-  b.model = new Beast(m.kind, { label: `${owner ? owner.name : 'WILD'}'S ${b.name}`, team: beastTeam(b), look: m.look });
+  // (a haunted hollow's monsters are nobody's)
+  b.model = new Beast(m.kind, { label: b.monster ? b.name : `${owner ? owner.name : 'WILD'}'S ${b.name}`, team: beastTeam(b), look: m.look });
   b.model.setHp(m.hp);
   b.model.place(b.rp, b.rf, b.rh);
   if (!fresh) b.model.spawnT = 9;   // already out when we arrived: no rising out of the ground
   scene.add(b.model.root);
   state.beasts.set(b.id, b);
   if (m.owner === state.myId) { me.beastId = b.id; me.reward = null; }
-  if (fresh) {
+  if (fresh && b.monster) {
+    // a monster rises out of the hollow in a puff of gloom
+    const up = v3(b.rp);
+    for (let i = 0; i < 4; i++) fx.puff(up.clone().multiplyScalar(R + 0.4 + i * 0.4), { color: '#3a2a52', size: 1.2, grow: 2.5, life: 1.6, vel: up.clone().multiplyScalar(0.8), alpha: 0.6 });
+    sound.play('wind', distTo(b.rp));
+  } else if (fresh) {
     const up = v3(b.rp);
     fx.dust(up.clone().multiplyScalar(R), up, 14);
     fx.burst(up.clone().multiplyScalar(R + 0.5), { count: 24, color: '#8a6a45', speed: 7, size: 0.16, life: 1, up });
@@ -1583,6 +2036,64 @@ function clearBeasts() {
   for (const id of [...state.beasts.keys()]) removeBeast(id, false);
   for (const d of state.dyingBeasts) d.model.dispose();
   state.dyingBeasts.length = 0;
+}
+
+// A tomato on a target: a red splat on its face for a while (rocking with the target when it's hit).
+const SPLAT_GEO = new THREE.CircleGeometry(0.2, 9);
+function splatTarget(shop, i, at) {
+  const tg = town.target(shop, i);
+  if (!tg) return;
+  const splat = new THREE.Mesh(SPLAT_GEO, new THREE.MeshBasicMaterial({ color: '#b02a20', transparent: true, opacity: 0.9, depthWrite: false }));
+  splat.userData.shared = true;   // (shared geometry: the town mustn't dispose it)
+  tg.hinge.updateWorldMatrix(true, false);
+  const local = tg.hinge.worldToLocal(at.clone());
+  splat.position.set(local.x, local.y, 0.09);
+  splat.rotation.z = Math.random() * 6;
+  splat.scale.setScalar(0.8 + Math.random() * 0.7);
+  tg.hinge.add(splat);
+  setTimeout(() => { splat.removeFromParent(); splat.material.dispose(); }, 12000);
+}
+
+// ---- kind strangers (Ploughshares): hooded, with food in hand, walking up to the hungry
+function addStranger(m) {
+  if (state.strangers.has(m.id)) return;
+  const model = new Caveman({ name: 'STRANGER', look: m.look, bot: true, lifeBar: false });
+  model.setRanged(null);
+  model.setWeapon(C.weaponOfType('meatbone'));   // the food
+  if (m.leaving) model.weaponMesh.visible = false;
+  model.place(m.p, m.f, 0);
+  scene.add(model.root);
+  state.strangers.set(m.id, { id: m.id, model, snaps: [], rp: m.p, rf: m.f, speed: 0 });
+  const up = v3(m.p);
+  fx.dust(up.clone().multiplyScalar(R), up, 8);
+}
+
+function removeStranger(id) {
+  const st = state.strangers.get(id);
+  if (!st) return;
+  const up = v3(st.rp);
+  fx.puff(up.clone().multiplyScalar(R + 1), { color: '#d8c7a8', size: 1.2, grow: 2, life: 0.8, alpha: 0.6 });
+  st.model.dispose();
+  state.strangers.delete(id);
+}
+
+function clearStrangers() {
+  for (const st of state.strangers.values()) st.model.dispose();
+  state.strangers.clear();
+}
+
+function updateStrangers(dt, renderT) {
+  for (const st of state.strangers.values()) {
+    const s = sampleSnaps(st.snaps, renderT);
+    if (s) {
+      const moved = M.arcDist(st.rp, s.p);
+      st.speed += (moved / Math.max(dt, 1e-4) - st.speed) * Math.min(1, dt * 8);
+      st.rp = s.p;
+      st.rf = s.f;
+    }
+    st.model.place(st.rp, st.rf, 0);
+    st.model.update(dt, { speed: st.speed, air: false, charging: false, stunned: false });
+  }
 }
 
 function updateBeasts(dt, renderT) {
@@ -1643,6 +2154,11 @@ function beastCommand() {
 
 // the "Q" panel: what's waiting, or what's out and for how long
 function updateBeastHud(t) {
+  if (peaceNow()) {
+    $('beast-slot').classList.add('hidden');
+    touch?.setBeast(C.BUILDS[C.BUILD_ORDER[state.buildKind]].icon, 'NEXT');
+    return;
+  }
   const out = state.beasts.get(me.beastId);
   const kind = out ? out.kind : me.reward;
   $('beast-slot').classList.toggle('hidden', !kind || !state.joined);
@@ -1732,8 +2248,9 @@ function updateBoulders(dt, renderT) {
 }
 
 function addFireball(m) {
-  const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 1), new THREE.MeshBasicMaterial({ color: '#ffb347' }));
-  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.62, 0), new THREE.MeshBasicMaterial({ color: '#ff4d12', transparent: true, opacity: 0.55 }));
+  // lava from the volcano, or (in a Ploughshares peace) a rock out of the sky, burning up
+  const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(m.sky ? 0.7 : 0.5, m.sky ? 0 : 1), m.sky ? mat('#6f6258', { flatShading: true }) : new THREE.MeshBasicMaterial({ color: '#ffb347' }));
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(m.sky ? 0.85 : 0.62, 0), new THREE.MeshBasicMaterial({ color: '#ff4d12', transparent: true, opacity: m.sky ? 0.3 : 0.55 }));
   mesh.add(core);
   scene.add(mesh);
   const fb = { id: m.id, mesh, pos: m.pos.slice(), vel: m.vel.slice(), acc: 0, trail: 0, landed: false, rings: [] };
@@ -1742,6 +2259,10 @@ function addFireball(m) {
     fb.rings.push(fx.decal(u, { radius: VOLCANO.blast, inner: VOLCANO.blast - 0.3, color: '#ff3d1f', opacity: 0.9, pulse: true }));
     fb.rings.push(fx.decal(u, { radius: VOLCANO.blast, color: '#ff3d1f', opacity: 0.18 }));
     fb.landU = u.toArray();
+    if (m.sky && state.joined && M.arcDist(me.p, fb.landU) < 14) {
+      fx.float(u.clone().multiplyScalar(R + 2.5), 'LOOK UP!', 'ooga', { life: 1.4 });
+      sound.play('skyfall', M.arcDist(me.p, fb.landU));
+    }
   }
   state.fireballs.set(m.id, fb);
 }
@@ -1818,8 +2339,11 @@ const SHOUTS = {
   spear: ['HUAH!', 'OOGA!', 'HNNG!', 'YAH!', 'TAKE POINTY!'],
   arrow: ['TWANG!', 'FLY, POINTY!', 'PEW!', 'OOGA!'],
   ball: ['BOOM!', 'KA-BLAM!', 'SMOKE!', 'OOGA BOOM!'],
+  pebble: ['PING!', 'PEW!', 'TAKE ROCK!'],
+  tomato: ['SPLAT!', 'TOMATO!', 'CATCH!'],
+  rocket: ['KA-BOOM!', 'FIRE!', 'OOGA BOOM BOOM!'],
 };
-const SHOT_SOUND = { spear: 'throw', arrow: 'twang', ball: 'musket', bullet: 'gun', laser: 'laser' };
+const SHOT_SOUND = { spear: 'throw', arrow: 'twang', ball: 'musket', bullet: 'gun', laser: 'laser', pebble: 'twang', tomato: 'throw', rocket: 'musket' };
 
 // Flash, smoke and noise at the shooter for any kind of shot.
 function shotEffects(kind, pos, dir, dist) {
@@ -1833,6 +2357,10 @@ function shotEffects(kind, pos, dir, dist) {
     fx.puff(pos, { color: '#ffd27a', size: 0.45, grow: 0.4, life: 0.06, alpha: 1, additive: true });
   } else if (kind === 'laser') {
     fx.puff(pos, { color: '#7fe8ff', size: 0.5, grow: 0.5, life: 0.1, alpha: 1, additive: true });
+  } else if (kind === 'rocket') {
+    // a flash out the front, and the back-blast out the back
+    fx.puff(pos, { color: '#ffb347', size: 0.9, grow: 0.6, life: 0.12, alpha: 1, additive: true });
+    for (let i = 0; i < 4; i++) fx.puff(pos.clone().addScaledVector(dir, -0.8 - i * 0.4), { color: '#d8d2c8', size: 0.7 + i * 0.2, grow: 2.5, life: 1.6, vel: dir.clone().multiplyScalar(-2), alpha: 0.5 });
   }
 }
 
@@ -1943,9 +2471,161 @@ function nearestShroom(maxD) {
   return best;
 }
 
+// Ploughshares, in peace: the attack button plants, the throw button builds, Q picks what.
+const FARM_HOW = () => (isTouch ? 'PLANT · BUILD · NEXT PICKS WHAT TO BUILD'
+  : `${mouseWord('melee')} CLICK PLANT · ${mouseWord('ranged')} CLICK BUILD · Q PICKS WHAT`);
+
+function farmInput(t) {
+  // (in the duel ring the attack button bonks, and with a practice weapon the throw button throws: updateLocal)
+  const kind = myShop()?.kind;
+  if (kind !== 'duel' && kind !== 'haunt' && (input.pressed('KeyF') || input.mousePressed(BUTTON.melee)) && t - state.lastPlant > C.PEACE.plantCd) {
+    state.lastPlant = t;
+    sendState();
+    send({ t: 'plant' });
+    myPlayer()?.model.playSwing(0.1);
+  }
+  if (!state.practice && input.mousePressed(BUTTON.ranged)) {
+    sendState();
+    send({ t: 'build', kind: C.BUILD_ORDER[state.buildKind] });
+  }
+  if (input.pressed('KeyQ')) state.buildKind = (state.buildKind + 1) % C.BUILD_ORDER.length;
+}
+
+// E at a shop: the doctor patches you up (the server checks the money), the tailor and the duel
+// ring's weapon rack open up.
+function useShop(shop) {
+  if (shop.kind === 'doctor') { sendState(); send({ t: 'grab' }); }
+  else if (shop.kind === 'tailor') togglePanel('tailor', true);
+  else if (shop.kind === 'duel') togglePanel('rack', true);
+  else if (shop.kind === 'range') togglePanel('shed', true);
+}
+
+// What the prompt says at each shop.
+function shopPrompt(shop) {
+  const key = k => (isTouch ? '' : `<span class="key">${k}</span>`);
+  switch (shop.kind) {
+    case 'doctor': return me.hp < PLAYER.maxHp ? `${key('E')}DOCTOR · ALL BETTER FOR <span class="up">${C.SHOPS.doctor.fee} 🐚</span>` : 'DOCTOR · YOU ARE FINE';
+    case 'tailor': return `${key('E')}TAILOR · HATS AND CAPES`;
+    case 'range': return state.practice ? `${key('E')}RANGE SHED · SWAP IT OR HAND IT BACK`
+      : `${key('E')}RANGE SHED · PICK A PRACTICE WEAPON · <span class="up">1 🐚 A HIT</span>`;
+    case 'haunt': return `HAUNTED HOLLOW · ${isTouch ? 'BONK' : buttonName('melee')} THE MONSTERS · <span class="up">${C.SHOPS.haunt.reward} 🐚 EACH</span>`;
+    case 'duel': return `${key('E')}PICK A WEAPON · ${isTouch ? 'BONK' : buttonName('melee')} · DOWN TO 1 HP WINS <span class="up">${C.SHOPS.duel.win} 🐚</span>`;
+  }
+  return null;
+}
+
+// ---- the town's counters: the tailor's, and the duel ring's weapon rack. The mouse is free while
+// one is open.
+function refreshTailor() {
+  const pl = myPlayer();
+  if (pl) hud.tailor(state.shells, state.wardrobe, pl.look);
+}
+const PANELS = { tailor: refreshTailor, rack: () => hud.rack(me.wpn?.name), shed: () => hud.shed(state.practice) };
+const panelOpen = id => !$(id).classList.contains('hidden');
+const townPanelOpen = () => Object.keys(PANELS).some(panelOpen);
+// relock: back to the game with the mouse (not after Esc, or when the server closed it)
+function togglePanel(id, open = !panelOpen(id), relock = true) {
+  if (open === panelOpen(id)) return;
+  $(id).classList.toggle('hidden', !open);
+  if (open) {
+    PANELS[id]();
+    input.unlock();
+  } else if (relock && state.joined && (me.alive || isTouch)) {
+    input.lock();
+  }
+}
+function closePanels() {
+  for (const id of Object.keys(PANELS)) togglePanel(id, false, false);
+}
+for (const id of Object.keys(PANELS)) {
+  $(`${id}-close`).onclick = () => togglePanel(id, false);
+  $(`${id}-x`).onclick = () => togglePanel(id, false);
+}
+$('tailor-items').onclick = e => {
+  const b = e.target.closest('button[data-item]');
+  if (b?.dataset.item) send({ t: 'buy', item: b.dataset.item });
+};
+// the range shed: take one (or hand it back), and off you go
+$('shed-items').onclick = e => {
+  const b = e.target.closest('button[data-w]');
+  if (!b) return;
+  send({ t: 'practice', w: b.dataset.w || null });
+  togglePanel('shed', false);
+};
+// pick one, and straight back into the ring with it
+$('rack-items').onclick = e => {
+  const b = e.target.closest('button[data-type]');
+  if (!b) return;
+  send({ t: 'duelwpn', type: b.dataset.type });
+  togglePanel('rack', false);
+};
+
+// ---- peace chat: Enter (or 💬) opens the box, Enter says it, Esc (or an empty Enter) puts it away.
+// Words of more than one beat are pointed out as you type, and the line isn't sent until they're gone.
+const chatOpen = () => !$('chat-form').classList.contains('hidden');
+const canChat = () => state.joined && peaceNow() && me.alive && settings.get('chat')
+  && !townPanelOpen() && !settingsOpen() && $('council').classList.contains('hidden');
+let lastSaid = 0;
+
+function openChat() {
+  if (!canChat()) return;
+  if (!chatOpen()) {
+    input.keys.clear();   // whatever was held down stops (or the caveman walks off while you type)
+    $('chat-form').classList.remove('hidden');
+    $('chat-input').value = '';
+    chatHint();
+  }
+  document.body.classList.add('chatting');
+  $('chat-input').focus();
+}
+
+function closeChat() {
+  $('chat-form').classList.add('hidden');
+  document.body.classList.remove('chatting');
+  $('chat-input').blur();
+}
+
+function chatHint() {
+  const { long } = checkChat($('chat-input').value);
+  $('chat-hint').textContent = long.length ? `TOO LONG: ${long.join(', ')}` : 'ONE SOUND AT A TIME. ENTER TO SAY IT.';
+  $('chat-hint').classList.toggle('bad', long.length > 0);
+  return long;
+}
+
+$('chat-input').addEventListener('input', chatHint);
+$('chat-input').addEventListener('keydown', e => { if (e.code === 'Escape') closeChat(); });
+$('chat-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const raw = $('chat-input').value;
+  if (!checkChat(raw).text) { closeChat(); return; }
+  const form = $('chat-form');
+  if (chatHint().length || clock() - lastSaid < CHAT.gap) {
+    // not yet: a shake, and the hint says why
+    if (clock() - lastSaid < CHAT.gap && !checkChat(raw).long.length) $('chat-hint').textContent = 'SLOW DOWN.';
+    form.classList.remove('no');
+    void form.offsetWidth;
+    form.classList.add('no');
+    return;
+  }
+  lastSaid = clock();
+  send({ t: 'chat', text: raw });
+  closeChat();
+});
+
+function castVote(yes) {
+  if (!state.game.vote) return;
+  state.myVote = yes ? 'yes' : 'no';
+  send({ t: 'vote', yes });
+}
+$('vote-yes').onclick = () => castVote(true);
+$('vote-no').onclick = () => castVote(false);
+
 function updateLocal(dt, t) {
   const pl = myPlayer();
   if (!pl) return;
+  // the vote works paused or not
+  if (state.game.vote && input.pressed('KeyY')) castVote(true);
+  if (state.game.vote && input.pressed('KeyN')) castVote(false);
   const [mdx, rawDy] = input.consumeMouse();
   const sens = 0.0024 * settings.get('sens');
   const mdy = settings.get('invertY') ? -rawDy : rawDy;
@@ -1960,7 +2640,10 @@ function updateLocal(dt, t) {
     }
   }
   const canAct = me.alive && t >= me.stunUntil && input.locked;
-  const canFight = canAct && fightingNow();
+  // in peace: shooting only with a practice weapon (anywhere), bonking only in the duel ring
+  const shop = myShop();
+  const canShoot = canAct && (fightingNow() || (peaceNow() && !!state.practice));
+  const canBonk = canAct && (fightingNow() || shop?.kind === 'duel' || shop?.kind === 'haunt');
   const def = rangedDef();
   const prev = me.p;
 
@@ -1979,7 +2662,8 @@ function updateLocal(dt, t) {
     const dl = M.len(dir);
     const slowed = t < me.slowUntil;
     const zoom = buffOn(me, 'fast') ? C.BUFF.fast : 1;
-    const speed = PLAYER.speed * ((me.wpn?.speed || 1) + (me.armor?.speed || 0)) * (slowed ? 0.55 : 1) * zoom * (me.charging ? 0.6 : 1);
+    const limp = peaceNow() && me.hp < C.PEACE.limpHp ? C.PEACE.limp : 1;   // hurt in peace: off to the doctor
+    const speed = PLAYER.speed * ((me.wpn?.speed || 1) + (me.armor?.speed || 0)) * (slowed ? 0.55 : 1) * zoom * limp * (me.charging ? 0.6 : 1);
     // keys always give full speed; a thumbstick pushed halfway walks at half speed
     let disp = dl > 0 ? M.scale(dir, (speed * dt * Math.min(1, dl)) / dl) : [0, 0, 0];
     disp = M.madd(disp, me.kbv, dt);
@@ -1989,6 +2673,8 @@ function updateLocal(dt, t) {
     me.kbv = M.scale(M.tangent(me.p, me.kbv), M.len(me.kbv));
 
     [me.p, me.f] = M.collideObstacles(me.p, me.f, state.world.obstacles, PLAYER.radius);
+    if (farm.solids().length) [me.p, me.f] = M.collideObstacles(me.p, me.f, farm.solids(), PLAYER.radius);
+    if (town.solids().length) [me.p, me.f] = M.collideObstacles(me.p, me.f, town.solids(), PLAYER.radius);
     for (const b of state.boulders.values()) {
       if (me.h > b.r) continue;
       const hit = M.pushOut(me.p, me.f, b.rp, b.r + PLAYER.radius);
@@ -2011,31 +2697,35 @@ function updateLocal(dt, t) {
 
     if (def.auto) {
       // guns and lasers: hold the button, it keeps firing while there's ammo
-      me.charging = canFight && input.mouseDown(BUTTON.ranged) && me.ammo > 0;
+      me.charging = canShoot && input.mouseDown(BUTTON.ranged) && me.ammo > 0;
       if (me.charging && t - me.lastThrow > def.cooldown) fireRanged(t, 1);
     } else if (me.charging) {
       // spear / bow / musket: hold to charge (or steady the aim), release to let fly
-      if (!canFight || me.ammo <= 0) me.charging = false;
+      if (!canShoot || me.ammo <= 0) me.charging = false;
       else {
         me.charge = def.chargeTime ? Math.min(1, me.charge + dt / def.chargeTime) : 1;
         if (!input.mouseDown(BUTTON.ranged)) fireRanged(t, me.charge);
       }
-    } else if (canFight && input.mouseDown(BUTTON.ranged) && me.ammo > 0 && t - me.lastThrow > def.cooldown) {
+    } else if (canShoot && (input.mouseDown(BUTTON.ranged) || input.mousePressed(BUTTON.ranged)) && me.ammo > 0 && t - me.lastThrow > def.cooldown) {
+      // (a click that's down and up again between two frames still counts: it lets fly next frame)
       me.charging = true;
       me.charge = 0;
     }
-    if (canFight && input.mousePressed(BUTTON.ranged) && me.ammo === 0) {
+    if (canShoot && input.mousePressed(BUTTON.ranged) && me.ammo === 0) {
       const empty = { arrow: 'NO ARROW!', ball: 'RELOADING...', bullet: 'CLICK. NO BANG.', laser: 'NO ZAP JUICE!' }[def.proj] || 'NO SPEAR!';
       fx.float(v3(me.p).multiplyScalar(R + 2.3), empty, 'ooga', { life: 0.8 });
     }
 
-    if (canFight && (input.pressed('KeyF') || input.mousePressed(BUTTON.melee))) trySwing(t);
-    if (canAct && input.pressed('KeyQ')) beastCommand();
+    if (canBonk && (input.pressed('KeyF') || input.mousePressed(BUTTON.melee))) trySwing(t);
+    if (canAct && peaceNow()) farmInput(t);
+    else if (canAct && input.pressed('KeyQ')) beastCommand();
 
-    const grab = nearestGrab();
-    state.grabNear = !!grab;
+    const grab = peaceNow() ? null : nearestGrab();
+    // E (GRAB on a phone) also works the doctor, the tailor and the duel ring's rack
+    state.grabNear = !!grab || ['doctor', 'tailor', 'duel', 'range'].includes(shop?.kind);
     const shroom = nearestShroom(3.2);
-    if (grab?.meat) hud.prompt(`<span class="key">E</span>EAT ROAST MEAT <span class="up">+${C.MEAT.heal} LIFE</span>`);
+    if (shop) hud.prompt(shopPrompt(shop));
+    else if (grab?.meat) hud.prompt(`<span class="key">E</span>EAT ROAST MEAT <span class="up">+${C.MEAT.heal} LIFE</span>`);
     else if (grab?.armor) hud.armorPrompt(grab.armor, me.armor);
     else if (grab) hud.pickupPrompt(grab.pk, me.wpn);
     else if (shroom) {
@@ -2043,6 +2733,7 @@ function updateLocal(dt, t) {
       hud.prompt(`<span style="color:${d.color}">${d.name}</span><span class="cmp">${d.buff}: ${d.desc} FOR ${d.secs} SEC · WALK OVER IT TO EAT</span>`);
     } else hud.prompt(null);
     if (grab && canAct && input.pressed('KeyE')) send({ t: 'grab' });
+    if (shop && canAct && input.pressed('KeyE')) useShop(shop);
 
     for (let i = 0; i < C.EMOTES.length; i++) {
       if (input.pressed(`Digit${i + 1}`) && t - me.lastEmote > 1.2) { me.lastEmote = t; send({ t: 'emote', i }); }
@@ -2091,8 +2782,8 @@ const LOOKS = {
     hemiSky: color('#e4f2ff'), hemiGround: color('#a8c0d4'), sun: color('#d6e8ff'), fog: color('#c9dae8') },
 };
 
-const VOLCANO_TOP = new THREE.Vector3(0, R + VOLCANO.peak + 0.2, 0);
-const WATER_TOP = R + 2.6;    // deep enough to cover a caveman
+const volcanoTop = () => new THREE.Vector3(0, R + VOLCANO.peak + 0.2, 0);
+const waterTop = () => R + 2.6;    // deep enough to cover a caveman
 const BIG_FALL = 5;           // seconds the giant meteor is visible on the way in
 const geos = {};
 const geo = (key, make) => (geos[key] ||= make());
@@ -2262,6 +2953,7 @@ function updateBigRock(run, el, dt) {
 // with a curling wall at the front.
 function waterGeometry(theta) {
   const crest = Math.min(theta, 0.08);
+  const WATER_TOP = waterTop();
   const pts = [];
   for (let i = 0; i <= 40; i++) {
     const a = (i / 40) * (theta - crest);
@@ -2300,7 +2992,7 @@ function updateWater(run, el) {
   for (let i = 0; i < 3; i++) {
     const dir = toward.lengthSq() > 1e-4 ? toward.clone().normalize() : new THREE.Vector3().randomDirection().projectOnPlane(run.center).normalize();
     dir.applyAxisAngle(run.center, (Math.random() - 0.5) * 2.4);
-    const p = run.center.clone().multiplyScalar(Math.cos(theta)).addScaledVector(dir, Math.sin(theta)).multiplyScalar(WATER_TOP + 1);
+    const p = run.center.clone().multiplyScalar(Math.cos(theta)).addScaledVector(dir, Math.sin(theta)).multiplyScalar(waterTop() + 1);
     fx.puff(p, { color: '#f2fbff', size: 1.6, grow: 1.8, life: 0.9, alpha: 0.7 });
   }
 }
@@ -2345,7 +3037,7 @@ function finale(run) {
   fx.addShake(1.2);
   if (run.kind === 'meteor' || run.kind === 'volcano') {
     const u = run.center;
-    const ground = run.kind === 'volcano' ? VOLCANO_TOP.clone() : u.clone().multiplyScalar(R);
+    const ground = run.kind === 'volcano' ? volcanoTop() : u.clone().multiplyScalar(R);
     run.bigRock?.removeFromParent();
     run.bigRing?.remove();
     fx.explosion(ground, u, 6);
@@ -2504,7 +3196,7 @@ function updateCamera(dt, t) {
 }
 
 // ====================================================================== HUD
-const THROW_LABEL = { spear: 'THROW', arrow: 'SHOOT', ball: 'BOOM', bullet: 'BANG', laser: 'ZAP' };
+const THROW_LABEL = { spear: 'THROW', arrow: 'SHOOT', ball: 'BOOM', bullet: 'BANG', laser: 'ZAP', pebble: 'PING', tomato: 'SPLAT', rocket: 'FIRE' };
 const fpsMeter = { frames: 0, since: 0 };
 
 function updateHud(dt, t) {
@@ -2524,25 +3216,41 @@ function updateHud(dt, t) {
   const mine = myPlayer();
   updateBeastHud(t);
   const buffs = Object.entries(me.buffs).filter(([, until]) => until > t).map(([kind, until]) => ({ kind, left: Math.ceil(until - t) }));
-  hud.setStatus({ stun: t < me.stunUntil, slow: t < me.slowUntil, bleed: mine && mine.flags & 16, buffs });
+  hud.setStatus({ stun: t < me.stunUntil, slow: t < me.slowUntil, bleed: mine && mine.flags & 16, limp: peaceNow() && me.alive && me.hp < C.PEACE.limpHp,
+    hungry: peaceNow() && me.alive && me.hp < 70 && me.hp >= C.PEACE.limpHp, buffs });
   hud.eruptWarning(t < state.eruptUntil);
   hud.scoreboard(state.players.values(), state.myId, input.down('Tab'), state.game.chief);
   // weapon stats only while the scores are up (Tab, or ☰ on a phone)
   document.body.classList.toggle('details', input.down('Tab'));
   const roundOver = state.game.phase === 'end';
-  hud.roundEnd(roundOver ? state.standings : null, state.myId, left, state.game.disaster, coop ? state.game.wave : 0, state.roundProfit || 0, !!state.game.mmDead);
+  hud.roundEnd(roundOver ? state.standings : null, state.myId, left, state.game.disaster, coop ? state.game.wave : 0, state.roundProfit || 0, !!state.game.mmDead, state.harvestFest);
+  if (peaceNow()) hud.setBuild(C.BUILD_ORDER[state.buildKind], state.game.food);
+  hud.setShells(state.shells);
+  const shopKind = myShop()?.kind;
+  const practicing = peaceNow() && !!state.practice;
+  document.body.classList.toggle('practicing', practicing);   // the ammo box comes back
+  hud.practiceNote(!practicing ? null : shopKind === 'range'
+    ? `${isTouch ? 'WEAPONS' : 'E'} · SWAP THE ${C.RANGED[state.practice].name.toUpperCase()} OR HAND IT BACK`
+    : `PRACTICE: ${C.RANGED[state.practice].name.toUpperCase()} · GO BACK TO THE RANGE SHED TO STOP`);
+  hud.vote(state.game, state.myVote);
   const councilOpen = !$('council').classList.contains('hidden');
-  $('lock-hint').classList.toggle('hidden', input.locked || !me.alive || councilOpen || settingsOpen());
+  $('lock-hint').classList.toggle('hidden', input.locked || !me.alive || councilOpen || settingsOpen() || townPanelOpen());
   if ($('lock-hint').classList.contains('hidden')) disarmQuit($('lock-quit'));
   if (touch) {
     const def = rangedDef();
+    const peace = peaceNow();
+    // in peace: BONK plants and THROW builds (showing what it costs), except in the duel ring
+    // and at a range; GRAB works the doctor and the tailor
+    const building = peace && !state.practice;
     touch.update({
       grab: !!state.grabNear,
+      chat: canChat() || chatOpen(),
+      grabLabel: { doctor: 'HEAL', tailor: 'SHOP', duel: 'WEAPON', range: 'WEAPONS' }[shopKind] || 'GRAB',
       chief: state.game.chief === state.myId,
-      throwLabel: THROW_LABEL[def.proj] || 'THROW',
-      ammo: me.ammo,
+      throwLabel: building ? 'BUILD' : THROW_LABEL[def.proj] || 'THROW',
+      ammo: building ? C.BUILDS[C.BUILD_ORDER[state.buildKind]].cost : me.ammo,
       charge: me.charging && !def.auto ? me.charge : 0,
-      verb: 'BONK',   // one word that always means melee (weapon verbs like ZAP clash with the throw button)
+      verb: peace && shopKind !== 'duel' && shopKind !== 'haunt' ? 'PLANT' : 'BONK',   // one word that always means melee (weapon verbs like ZAP clash with the throw button)
       cooldown: me.wpn ? (t - me.lastSwing) / me.wpn.cd : 1,
     });
   }
@@ -2590,6 +3298,8 @@ function updateHud(dt, t) {
     for (const l of state.loot.values()) if (l.wpn) items.push({ p: l.u, color: C.TIER_COLORS[l.wpn.tier], kind: 'loot' });
     for (const s of state.shrooms.values()) items.push({ p: s.u, color: C.SHROOMS[s.kind].color, kind: 'shroom' });
     for (const b of state.beasts.values()) items.push({ p: b.rp, color: beastTeam(b) === 'foe' ? '#ff4b4b' : '#5ef08a', kind: 'beast' });
+    for (const sh of town.shops.values()) items.push({ p: sh.at, color: SHOP_LOOK[sh.kind].color, kind: 'shop' });
+    for (const st of state.strangers.values()) items.push({ p: st.rp, color: '#9dff8a', kind: 'player' });
     // co-op: friends green, bots red. Otherwise everyone's a target: humans red, bots orange.
     const dotColor = p => (coop ? (p.bot ? '#ff4b4b' : '#5ef08a') : p.bot ? '#ff9a3c' : '#ff4b4b');
     for (const p of state.players.values()) if (p.id !== state.myId && p.alive) items.push({ p: p.rp, color: dotColor(p), kind: 'player' });
@@ -2678,6 +3388,9 @@ function initLobby() {
   $('room-go').onclick = joinCode;
   $('room-new').onclick = () => askRoom({ t: 'room', create: 1 });
   $('room-leave').onclick = leaveRoom;
+  $('room-offline').onclick = () => startOffline();
+  $('get-app').onclick = getApp;
+  refreshInstall();
   $('room-copy').textContent = shareLabel();
   $('room-copy').onclick = shareRoom;
   roomNote('');
@@ -2787,6 +3500,7 @@ function refreshRules() {
     root.querySelector('[data-fill-desc]').textContent = coop ? 'NOT USED: WAVES DECIDE.' : '0 = HUMANS ONLY.';
     root.querySelector('[data-desc]').textContent = {
       dotime: `SIX AGES, ${g.eraSeconds} SEC EACH, THEN THE WORLD ENDS. MOST BONKS WINS.`,
+      plough: 'LIKE DO TIME, BUT BOTS ONLY FIGHT BACK. A WHOLE AGE WITH NOBODY HURT TURNS SWORDS INTO PLOUGHSHARES: FARM, BUILD, SHOP IN A NEW TOWN, VOTE TO KEEP GOING.',
       classic: 'SPEARS AND BONES FOREVER. NO CLOCK.',
       coop: 'ALL HUMANS VS WAVES OF BOTS.',
     }[g.mode];
@@ -2819,13 +3533,15 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyO') toggleSettings();
   if (!state.joined) return;
   if (e.code === 'KeyM') hud.center(settings.toggle('muted') ? 'QUIET CAVE' : 'LOUD CAVE', '', 1);
-  if (e.code === 'KeyN') hud.center(settings.toggle('music') ? 'DRUMS ON' : 'DRUMS OFF', '', 1);
+  if (e.code === 'KeyN' && !state.game.vote) hud.center(settings.toggle('music') ? 'DRUMS ON' : 'DRUMS OFF', '', 1);
   if (e.code === 'KeyG') {
     settings.set('gfx', GFX_ORDER[(GFX_ORDER.indexOf(gfxKey) + 1) % GFX_ORDER.length]);
     hud.center(`GRAPHICS: ${GFX[gfxKey].label}`, '', 1.2);
   }
   if (e.code === 'KeyC') toggleCouncil();
+  if ((e.code === 'Enter' || e.code === 'NumpadEnter') && canChat()) { e.preventDefault(); openChat(); }
   if (e.code === 'Escape' && !$('council').classList.contains('hidden')) toggleCouncil(false, false);
+  if (e.code === 'Escape' && townPanelOpen()) closePanels();
 });
 
 document.fonts?.ready.then(redrawAllTags);
@@ -2847,6 +3563,7 @@ function cullHidden(visible) {
   for (const l of state.loot.values()) l.group.visible = visible(l.u[0], l.u[1], l.u[2], R + 1.5, 0.03);
   for (const s of state.shrooms.values()) s.group.visible = visible(s.u[0], s.u[1], s.u[2], R + 1.5, 0.03);
   for (const b of state.beasts.values()) b.model.root.visible = visible(b.rp[0], b.rp[1], b.rp[2], R + b.rh + C.BEASTS[b.kind].height + 1.5, C.BEASTS[b.kind].radius / R);
+  for (const st of state.strangers.values()) st.model.root.visible = visible(st.rp[0], st.rp[1], st.rp[2], R + 2.9, 0.03);
   for (const fb of state.fireballs.values()) fb.mesh.visible = !fb.landed && seen(fb);
 }
 
@@ -2880,7 +3597,10 @@ function frame() {
     updateArmorDrops(dt);
     updateLoot(dt);
     updateBeasts(dt, renderT);
+    updateStrangers(dt, renderT);
     updateShrooms(dt);
+    farm.update();
+    town.update(camera.position);
     updateMammon(dt);
     updateDisaster(dt);
     updateDoom(dt);
@@ -2900,10 +3620,15 @@ function frame() {
 }
 
 // ?debug exposes internals for poking at the game from the console
-if (new URLSearchParams(location.search).has('debug')) window.__ss = { state, me, input, tilt, settings, fx, hud, sound, camera, scene, renderer, M, handlers };
+if (new URLSearchParams(location.search).has('debug')) window.__ss = { state, me, input, tilt, settings, fx, hud, sound, camera, scene, renderer, M, C, handlers, farm, town };
 
 initLobby();
 settings.onChange(applySetting);   // applies every saved setting now, then each change as it happens
 sound.autostart();                 // drums from the start (after the settings, so at the saved volumes)
-connect();
+// keep a copy of the game for playing offline (secure pages only: https, or localhost)
+if ('serviceWorker' in navigator && isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
+// no signal at all: straight onto our own rock; otherwise the server (which goes offline by itself
+// if it can't be reached)
+if (navigator.onLine === false) startOffline('NO SIGNAL, SO THIS IS YOUR OWN ROCK: JUST YOU AND THE BOTS.');
+else connect();
 frame();

@@ -1,11 +1,39 @@
 {
-  "name": "Spear Sphere",
-  "short_name": "Spear Sphere",
+  "name": "War is Racket",
+  "short_name": "War is Racket",
   "description": "Throw spear. Bonk friend. Ooga booga.",
   "start_url": "/",
   "display": "fullscreen",
   "orientation": "landscape",
   "background_color": "#140f1f",
   "theme_color": "#140f1f",
-  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "id": "/",
+  "scope": "/",
+  "display_override": [
+    "fullscreen",
+    "standalone"
+  ]
 }

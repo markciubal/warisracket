@@ -3,9 +3,12 @@
 // bots, and only ever talks to its own sockets. Clients own their own movement; the room owns
 // projectiles, hits, health, armor, hazards, the era clock and the bots.
 import * as C from './shared/constants.js';
+import { R } from './shared/constants.js';   // live: the planet grows in peace (see sized() below)
 import * as M from './shared/math.js';
+import { CHAT, BOT_CHAT, checkChat } from './shared/chat.js';
+import { shopLayout } from './shared/layout.js';
 
-const { R, PLAYER, PROJECTILE, BOULDER, VOLCANO, DOTIME, DISASTERS } = C;
+const { PLAYER, PROJECTILE, BOULDER, VOLCANO, DOTIME, DISASTERS } = C;
 const DT = 1 / C.TICK_HZ;
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -32,12 +35,15 @@ export function cleanRules(r, base) {
 }
 
 // rules: cleanRules() output. maxPlayers: human cap on this planet. eraSeconds: Do Time age length.
-export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
+// peaceSeconds: Ploughshares farming time before each vote.
+export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }) {
   const MAX_PLAYERS = maxPlayers;
   const ERA_SECONDS = eraSeconds;
+  const PEACE_SECONDS = peaceSeconds || C.PEACE.seconds;
   const log = (...args) => console.log(`[${code}]`, ...args);
 
   // ------------------------------------------------------------------ world
+  C.setPlanetRadius(C.PLANET_R);
   const world = generateWorld();
   const players = new Map();
   const clients = new Set();
@@ -54,6 +60,13 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   const pickups = [];
   const boulders = [];
   const volcano = { next: now() + VOLCANO.firstDelay, left: 0, nextShot: 0 };
+  // Ploughshares, once peace breaks out: what's planted, what's built, and the vote to keep going
+  const crops = new Map();        // { id, u, kind, ripeAt, by }
+  const builds = new Map();       // { id, u, f, kind, r, h, by }
+  const buildSolids = [];         // the builds again, as an array to bump into
+  const votes = new Map();        // human id -> keep farming?
+  const shops = [];               // the town that grows in a long peace: { id, kind, u, f, at, targets }
+  const strangers = new Map();    // ...and kind strangers bringing food to the hungry
   let nextId = 1;
 
   // Planet rules. The chief (longest-present human) can change mode and bots in-game.
@@ -61,7 +74,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     mode: rules.mode,
     era: 0,
     // 'play' | 'doom' (the finale) | 'end' (victory / "tribe wiped" screen between rounds)
-    // | 'break' (co-op: between waves)
+    // | 'break' (co-op: between waves) | 'peace' (Ploughshares: farming)
     phase: 'play',
     wave: 0,                    // co-op: current wave (0 = not started)
     waveSize: 0,                // co-op: bots this wave started with
@@ -82,11 +95,28 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     bots: rules.bots,
     chief: 0,
     nextArmorAt: now() + randIn(DOTIME.armorEvery),
+    calm: true,                 // Ploughshares: nobody has hurt anybody yet this age
+    food: 0,                    // ...the tribe's food store, once peace breaks out
+    peaceEnd: 0,                // ...when the farming time runs out and the vote opens
+    voteUntil: 0,               // ...while the vote is open
+    radius: C.PLANET_R,         // ...the planet grows in peace (R is this, whenever this rock runs),
+    growFrom: C.PLANET_R,       // ...from this to growTo, starting at growStart
+    growTo: C.PLANET_R,
+    growStart: 0,
+    openings: [],               // ...shops still to open: { kind, at }
+    skyRockAt: 0,
   };
 
   const eraDef = () => C.ERAS[game.era];
-  const rangedDef = () => C.RANGED[eraDef().ranged];
-  const newWeapon = () => C.makeWeapon(Math.random, eraDef().melee);
+  // what someone throws or shoots: the age's ranged weapon, or (in peace) a practice weapon from a
+  // range shed
+  const rangedKey = (pl = null) => pl?.practice || eraDef().ranged;
+  const rangedDef = (pl = null) => C.RANGED[rangedKey(pl)];
+  const plough = () => game.mode === 'plough';
+  const timed = () => game.mode === 'dotime' || plough();   // the ages go by on a clock
+  const peaceful = () => game.phase === 'peace';
+  // in peace everyone holds a hoe
+  const newWeapon = () => (peaceful() ? C.makeTool() : C.makeWeapon(Math.random, eraDef().melee));
   const eraLen = () => ERA_SECONDS;   // every age lasts the same
   // cavemen keep bonking right up until the world ends; only the victory screen is peaceful
   const fighting = () => game.phase === 'play' || game.phase === 'doom';
@@ -164,21 +194,25 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   }
 
   function sendMe(pl) {
-    if (pl.client) send(pl.client, { t: 'me', ammo: pl.ammo });
+    if (pl.client) send(pl.client, { t: 'me', ammo: pl.ammo, shells: pl.shells, wardrobe: pl.wardrobe });
   }
 
   function gameInfo(t = now()) {
     const left = until => (until === Infinity ? 0 : Math.max(0, Math.round((until - t) * 10) / 10));
-    const dotime = game.mode === 'dotime';
+    const dotime = timed();
+    let yes = 0, no = 0;
+    for (const [id, v] of votes) if (players.has(id)) v ? yes++ : no++;
     return {
       mode: game.mode,
       era: game.era,
       phase: game.phase,
       // seconds until the next age (or, during the finale, until everything is gone; in co-op, until the next wave)
       eraLeft: coop() ? (game.phase === 'break' ? left(game.breakUntil) : 0)
-        : !dotime ? 0 : game.phase === 'play' ? left(game.eraStart + eraLen()) : game.phase === 'doom' ? left(game.doomEnd) : 0,
+        : !dotime ? 0 : game.phase === 'play' ? left(game.eraStart + eraLen()) : game.phase === 'doom' ? left(game.doomEnd)
+        : peaceful() ? left(game.voteUntil || game.peaceEnd) : 0,
       eraLen: coop() ? (game.phase === 'break' ? (game.wave ? C.COOP.breakSeconds : C.COOP.firstBreak) : 0)
-        : game.phase === 'doom' ? DISASTERS[game.disaster].duration : eraLen(),
+        : game.phase === 'doom' ? DISASTERS[game.disaster].duration
+        : peaceful() ? (game.voteUntil ? C.PEACE.voteSeconds : PEACE_SECONDS) : eraLen(),
       wave: game.wave,
       waveSize: game.waveSize,
       waveLevel: game.waveLevel,
@@ -189,6 +223,12 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       botLevel: game.botLevel,
       bots: game.bots,
       chief: game.chief,
+      calm: game.calm ? 1 : 0,
+      food: game.food,
+      vote: game.voteUntil ? 1 : 0,
+      yes,
+      no,
+      radius: Math.round(game.radius * 1000) / 1000,
     };
   }
 
@@ -196,11 +236,11 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
 
   const publicPlayer = pl => ({
     id: pl.id, name: pl.name, look: pl.look, bot: pl.bot, p: rnd(pl.p, 4), f: rnd(pl.f, 4), h: pl.h,
-    hp: pl.hp, alive: pl.alive, wpn: pl.weapon, armor: pl.armor, k: pl.kills, d: pl.deaths,
+    hp: pl.hp, alive: pl.alive, wpn: pl.weapon, armor: pl.armor, k: pl.kills, d: pl.deaths, zone: pl.zone, practice: pl.practice || null,
     buffs: Object.fromEntries(Object.entries(pl.buffs || {}).map(([k, until]) => [k, Math.max(0, Math.round((until - now()) * 10) / 10)]).filter(([, left]) => left > 0)),
   });
 
-  const publicSpear = s => ({ id: s.id, owner: s.owner, w: s.w, pos: rnd(s.pos, 4), vel: rnd(s.vel, 4), stuck: s.stuck, dir: s.dir && rnd(s.dir, 4) });
+  const publicSpear = s => ({ id: s.id, owner: s.owner, w: s.w, pos: rnd(s.pos, 4), vel: rnd(s.vel, 4), stuck: s.stuck, dir: s.dir && rnd(s.dir, 4), tg: s.tg });
   const publicDrop = a => ({ id: a.id, u: rnd(a.u, 4), armor: a.armor });
   const publicLoot = l => ({ id: l.id, u: rnd(l.u, 4), wpn: l.wpn || null, ammo: l.ammo || 0, w: l.w || null });
 
@@ -214,13 +254,17 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       boulders: boulders.map(b => ({ id: b.id, p: b.p, f: b.f, r: b.r })),
       players: [...players.values()].map(publicPlayer),
       spears: [...spears.values()].map(publicSpear),
-      fireballs: [...fireballs.values()].map(fb => ({ id: fb.id, pos: fb.pos, vel: fb.vel, land: fb.land })),
+      fireballs: [...fireballs.values()].map(fb => ({ id: fb.id, pos: fb.pos, vel: fb.vel, land: fb.land, sky: fb.sky || 0 })),
       armorDrops: [...armorDrops.values()].map(publicDrop),
       loot: [...loot.values()].map(publicLoot),
       beasts: [...beasts.values()].map(publicBeast),
       fires: fires.map(publicFire),
       shrooms: [...shrooms.values()].map(publicShroom),
       doom: game.phase === 'doom' ? doomInfo() : null,
+      crops: [...crops.values()].map(publicCrop),
+      builds: [...builds.values()].map(publicBuild),
+      shops: shops.map(publicShop),
+      strangers: [...strangers.values()].map(publicStranger),
     });
   }
 
@@ -273,8 +317,8 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
         break;
       }
       case 'throw': {
-        const def = rangedDef();
-        if (!pl || !pl.alive || !fighting() || pl.ammo <= 0 || t < pl.stunUntil || t - pl.lastThrow < def.cooldown * 0.8) return;
+        const def = rangedDef(pl);
+        if (!pl || !pl.alive || !(fighting() || (peaceful() && pl.practice)) || pl.ammo <= 0 || t < pl.stunUntil || t - pl.lastThrow < def.cooldown * 0.8) return;
         if (!isVec(m.pos) || !isVec(m.vel) || M.len(m.vel) < 1e-6) return;
         const head = M.scale(pl.p, R + pl.h + 1.6);
         const pos = M.len(M.sub(m.pos, head)) > 3 ? head : m.pos;
@@ -295,6 +339,9 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       case 'emote':
         if (pl && Number.isInteger(m.i)) emote(pl, m.i, t);
         break;
+      case 'chat':
+        if (pl) say(pl, m.text, t);
+        break;
       case 'hand':
         // switched between right- and left-handed in the settings: everyone sees the hands swap
         if (pl && pl.look.lefty !== (m.lefty ? 1 : 0)) {
@@ -309,6 +356,28 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
         // The chief decides. With no humans on the planet, whoever is in the lobby may set it up.
         if (humanCount() > 0 && !(pl && pl.id === game.chief)) return;
         applyRules(m, pl);
+        break;
+      case 'plant':
+        if (pl) tryPlant(pl, t);
+        break;
+      case 'build':
+        if (pl) tryBuild(pl, m.kind, t);
+        break;
+      case 'practice':
+        if (pl) practice(pl, m.w ? String(m.w) : null);
+        break;
+      case 'duelwpn':
+        if (pl) pickDuelWeapon(pl, String(m.type ?? ''));
+        break;
+      case 'buy':
+        if (pl) buyClothes(pl, String(m.item ?? ''));
+        break;
+      case 'vote':
+        // only people vote, and only while it's open
+        if (pl && !pl.bot && game.voteUntil) {
+          votes.set(pl.id, !!m.yes);
+          broadcastGame();
+        }
         break;
       case 'quit':
         // back to the lobby: off the planet, but still watching this rock
@@ -331,6 +400,13 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       vel: [0, 0, 0], kbv: [0, 0, 0], lastStateAt: 0, client: null, ai: bot ? newBrain() : null, hist: [],
       streak: 0, reward: null, beastId: 0,   // killstreak: bonks in a row, beast waiting to be called, beast out
       buffs: {},                             // mushroom buffs: kind -> server time it wears off
+      harvests: 0, built: 0,                 // Ploughshares: food picked and things built this peace
+      grudge: null,                          // Ploughshares bots: { id, until } of whoever hurt them
+      shells: peaceful() ? C.PEACE.startShells : 0, wardrobe: [],   // ...money, and clothes bought
+      zone: 0, duels: 0,                     // ...the shop they're at (id), and bouts won
+      duelPick: 'practice',                  // ...what they take off the duel ring's rack
+      practice: null,                        // ...the practice weapon from a range shed, if any
+      hungerAt: 0, strangerId: 0,            // ...next hunger tick, and the stranger coming with food
     };
     players.set(pl.id, pl);
     spawnPlayer(pl, false);
@@ -343,7 +419,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     [pl.p, pl.f] = at || tribeSpawn(pl) || findSpawn();
     if (coop() && !pl.bot && !game.camp) game.camp = pl.p;   // the first one in picks the camp
     Object.assign(pl, {
-      h: 0, vh: 0, hp: PLAYER.maxHp, alive: true, ammo: rangedDef().ammo, regen: 0, charging: false, armor: null,
+      h: 0, vh: 0, hp: PLAYER.maxHp, alive: true, ammo: rangedDef(pl).ammo, regen: 0, charging: false, armor: null,
       stunUntil: 0, slowUntil: 0, bleedUntil: 0, kbv: [0, 0, 0], vel: [0, 0, 0], lastStateAt: 0, hist: [],
       buffs: {}, regrowAcc: 0,
     });
@@ -380,6 +456,17 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     }
   }
 
+  // Peace chat: once swords turn into ploughshares the tribe can talk, in words of one beat only
+  // (shared/chat.js), a line every CHAT.gap seconds each. A line with longer words isn't said.
+  function say(pl, input, t) {
+    if (!peaceful() || t - (pl.lastChat || 0) < CHAT.gap) return;
+    const { text, long } = checkChat(input);
+    if (!text) return;
+    if (long.length) { nope(pl, 'chat', { long: long.slice(0, 4) }); return; }
+    pl.lastChat = t;
+    broadcast({ t: 'chat', id: pl.id, text });
+  }
+
   function emote(pl, i, t) {
     if (i < 0 || i >= C.EMOTES.length || t - pl.lastEmote < 1.2) return;
     pl.lastEmote = t;
@@ -388,6 +475,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
 
   // E grabs whichever is closest: a weapon totem, a piece of armor, or a slain caveman's weapon.
   function tryGrab(pl, t) {
+    if (peaceful()) { tryUse(pl); return; }   // in peace E is for the shops
     if (!pl.alive) return;
     let best = null, bestD = C.GRAB_RADIUS;
     for (const pk of pickups) {
@@ -433,9 +521,17 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   }
 
   function damage(v, amount, info) {
-    if (!v.alive || !fighting()) return;
+    if (!v.alive || !(fighting() || peaceful())) return;
+    // In peace only hazards and duels hurt, and nothing goes below 1 HP: at 1 you're done.
+    if (peaceful() && v.hp <= 1) return;
     const t = now();
     const att = info.attacker || null;
+    // Ploughshares: anybody hurting anybody (not hazards, not yourself) breaks this age's peace,
+    // and a bot fights back against whoever hurt it
+    if (att && att !== v) {
+      if (plough()) breakPeace(att);
+      if (v.bot) v.grudge = { id: att.id, until: t + C.PEACE.grudge };
+    }
     // mushrooms: BIG STRONG hits harder, ROCK SKIN takes less (not for bleeding or the end of the world)
     if (info.kind !== 'bleed' && info.kind !== 'doom') {
       if (att && att !== v && !info.beast && buffed(att, 'strong', t)) amount *= C.BUFF.strong;
@@ -448,7 +544,8 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       v.armor.dur -= absorbed;
       amount -= absorbed;
     }
-    const d = Math.max(1, Math.round(amount));
+    let d = Math.max(1, Math.round(amount));
+    if (peaceful()) d = Math.min(d, v.hp - 1);
     v.hp -= d;
     if (att && att !== v) { v.lastHitBy = att.id; v.lastHitAt = t; }
     if (info.stun) v.stunUntil = Math.max(v.stunUntil, t + info.stun);
@@ -466,6 +563,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       v.armor = null;
       broadcast({ t: 'armor', id: v.id, armor: null, broke: 1 });
     }
+    if (peaceful()) { if (v.hp <= 1 && att && att !== v) duelWon(att, v); return; }
     if (v.hp <= 0) kill(v, info, t);
   }
 
@@ -529,7 +627,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
 
   function stepLoot(t, pl) {
     // ammo pouches: walk over one when you're short and you get its share of a load
-    const def = rangedDef();
+    const def = rangedDef(pl);
     if (pl.ammo >= def.ammo) return;
     for (const l of loot.values()) {
       if (!l.ammo || M.arcDist(pl.p, l.u) > C.LOOT.grabRadius) continue;
@@ -615,7 +713,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
 
   const publicBeast = b => ({
     id: b.id, kind: b.kind, look: b.look, name: b.name, owner: b.owner, p: rnd(b.p, 4), f: rnd(b.f, 4), h: b.h, hp: Math.round(b.hp), maxHp: b.maxHp,
-    left: Math.round((b.until - now()) * 10) / 10,
+    left: b.monster ? 0 : Math.round((b.until - now()) * 10) / 10, monster: b.monster ? 1 : 0,
   });
 
   // Earned on a streak. One waiting slot: a bigger beast replaces a smaller one, never the reverse.
@@ -689,6 +787,11 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     if (owner && owner.beastId === b.id) owner.beastId = 0;
     if (reason !== 'round') broadcast({ t: 'beastgone', id: b.id, reason, by: by ? by.id : 0 });
     if (reason === 'slain' && by) by.kills++;
+    // a monster slain: the hero gets paid, and another turns up in its hollow in a while
+    if (b.monster && reason === 'slain') {
+      if (by) payShells(by, C.SHOPS.haunt.reward);
+      b.home.nextSpawn = Math.max(b.home.nextSpawn, now() + C.SHOPS.haunt.respawn);
+    }
   }
 
   // Who a beast may hurt: anyone but its caveman and (in co-op) his side.
@@ -720,11 +823,14 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     for (const b of [...beasts.values()]) {
       const def = C.BEASTS[b.kind];
       const owner = players.get(b.owner);
-      if (!owner || t >= b.until) { beastGone(b, 'left'); continue; }
-      const live = fighting();
+      if (!b.monster && (!owner || t >= b.until)) { beastGone(b, 'left'); continue; }
+      const live = b.monster ? peaceful() : fighting();
 
       // pick who to go after a few times a second: the one it was sent at, else the nearest enemy
-      if ((b.think -= DT) <= 0) {
+      if ((b.think -= DT) <= 0 && b.monster) {
+        b.think = 0.25;
+        b.target = monsterTarget(b);
+      } else if (b.think <= 0) {
         b.think = 0.25;
         if (t > b.cmdUntil) { b.cmdTarget = 0; b.cmdPoint = null; }
         const sent = players.get(b.cmdTarget);
@@ -747,6 +853,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       const target = live ? players.get(b.target) : null;
       let goal = null;
       if (target && target.alive) goal = target.p;
+      else if (b.monster) goal = monsterRoam(b, t);
       else if (b.cmdPoint) {
         goal = b.cmdPoint;
         // there: it holds the spot (and hunts whoever comes near it) until the order runs out
@@ -757,7 +864,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
 
       // move: big ones steer around rocks and trees like everyone else
       const dist = target ? M.arcDist(b.p, target.p) : Infinity;
-      const close = target && dist < (def.chomp?.range ?? def.tusk?.range ?? def.bite.range) * 0.6;
+      const close = target && dist < (def.chomp?.range ?? def.tusk?.range ?? def.bite?.range ?? def.swipe.range) * 0.6;
       let move = goal && !close ? M.towardDir(b.p, goal) : null;
       if (move) move = beastSteer(b, move, def, t);
       else b.stuckFrom = null;
@@ -856,6 +963,16 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
           }
         });
       }
+    } else if (def.swipe) {
+      // a monster: one swipe at whoever's in front of it
+      if (target && ready('swipe') && dist < def.swipe.range) {
+        b.cd.swipe = t + def.swipe.cd;
+        windup('swipe', 0.35, () => {
+          for (const pl of beastVictims(b, def.swipe.range, 120).slice(0, 1)) {
+            beastHits(b, pl, { dmg: def.swipe.dmg, stun: def.swipe.stun, kb: M.scale(M.awayDir(pl.p, b.p), def.swipe.kb) });
+          }
+        });
+      }
     } else if (b.kind === 'trex') {
       // the roar freezes everyone near; the chomp is the end of most cavemen
       if (ready('roar') && beastVictims(b, def.roar.range).length) {
@@ -876,7 +993,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
 
   // Somebody fights back. Its own caveman (and his tribe in co-op) can't hurt it.
   function damageBeast(b, amount, att, pos = null) {
-    if (!beasts.has(b.id) || !fighting()) return;
+    if (!beasts.has(b.id) || !(fighting() || (b.monster && peaceful()))) return;
     if (att && (att.id === b.owner || allies(players.get(b.owner), att))) return;
     const d = Math.max(1, Math.round(amount));
     b.hp -= d;
@@ -928,7 +1045,8 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   // ------------------------------------------------------------------ Do Time clock
   function stepGame(t) {
     if (coop()) { stepCoop(t); return; }
-    if (game.mode !== 'dotime') return;
+    if (!timed()) return;
+    if (peaceful()) { stepPeace(t); return; }
     if (game.phase === 'end') {
       if (t >= game.endUntil) restartRound(t);
       return;
@@ -938,7 +1056,8 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       return;
     }
     if (t < game.eraStart + eraLen()) return;
-    if (game.era < C.ERAS.length - 1) advanceEra(t);
+    if (plough() && game.calm) startPeace(t);   // a whole age and nobody got hurt
+    else if (game.era < C.ERAS.length - 1) advanceEra(t);
     else startDoom(t);
   }
 
@@ -947,6 +1066,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   function setEra(t, index) {
     game.era = index;
     game.eraStart = t;
+    game.calm = true;   // every age is a fresh chance at peace
     const era = eraDef();
     broadcast({ t: 'era', ...gameInfo(t) });
     for (const pl of players.values()) {
@@ -1047,19 +1167,610 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     return M.randomUnit();
   }
 
-  // The world ended (Do Time) or the whole tribe is down (co-op, where only the humans are ranked).
+  // ------------------------------------------------------------------ Ploughshares: peace
+  const publicCrop = c => ({ id: c.id, u: rnd(c.u, 4), kind: c.kind, left: Math.max(0, Math.round((c.ripeAt - now()) * 10) / 10) });
+  const publicBuild = b => ({ id: b.id, u: rnd(b.u, 4), f: rnd(b.f, 3), kind: b.kind });
+  const buildsClear = (u, margin) => buildSolids.every(o => M.arcDist(u, o.u) > o.r + margin);
+  // tell one caveman why that didn't work ('spot', 'food', 'full')
+  const nope = (pl, why, extra = {}) => { if (pl.client) send(pl.client, { t: 'nope', why, ...extra }); };
+
+  function breakPeace(by) {
+    if (!game.calm || game.phase !== 'play') return;
+    game.calm = false;
+    broadcast({ t: 'peacebreak', by: by.id, ...gameInfo() });
+    log(`peace broken by "${by.name}"`);
+  }
+
+  // A whole age with nobody hurt: swords into ploughshares. Weapons become hoes, the fallen get
+  // up, and nobody can die until the round is over. The planet starts to grow, to make room for
+  // a town, and everyone gets a few shells to spend in it.
+  function startPeace(t) {
+    Object.assign(game, {
+      phase: 'peace', peaceEnd: t + PEACE_SECONDS, voteUntil: 0, food: 0,
+      skyRockAt: t + C.PEACE.growSeconds + randIn(C.PEACE.skyRockEvery), openings: [],
+    });
+    grow(t, C.PEACE.grownR, C.SHOP_OPENINGS);
+    votes.clear();
+    armorDrops.clear();
+    loot.clear();
+    spears.clear();
+    swings.length = 0;
+    for (const b of [...beasts.values()]) beastGone(b, 'round');
+    for (const pl of players.values()) {
+      Object.assign(pl, { harvests: 0, built: 0, streak: 0, reward: null, charging: false, grudge: null, zone: 0, duels: 0, practice: null });
+      pl.hungerAt = t + C.PEACE.hungerEvery;
+      pl.shells = Math.min(C.PEACE.maxShells, pl.shells + C.PEACE.startShells);
+      sendMe(pl);
+      if (pl.ai) pl.ai.throwAt = 0;
+      if (!pl.alive) { spawnPlayer(pl); continue; }   // hoe in hand
+      pl.weapon = newWeapon();
+      broadcast({ t: 'wpn', id: pl.id, wpn: pl.weapon, era: 1 });
+    }
+    broadcast({ t: 'peace', ...gameInfo(t) });
+    log('swords into ploughshares');
+  }
+
+  function stepPeace(t) {
+    stepTown(t);
+    // ripe crops get picked by whoever walks over them (bots too); the food goes to the tribe
+    for (const pl of players.values()) {
+      if (!pl.alive || pl.h > 1.5) continue;
+      for (const c of crops.values()) {
+        if (t >= c.ripeAt && M.arcDist(pl.p, c.u) < C.PEACE.harvestRadius) harvest(c, pl);
+      }
+    }
+    if (!game.voteUntil) {
+      if (t >= game.peaceEnd) openVote(t);
+      return;
+    }
+    const humans = humansHere();
+    if (t >= game.voteUntil || (humans.length && humans.every(h => votes.has(h.id)))) resolveVote(t);
+  }
+
+  function harvest(c, pl) {
+    crops.delete(c.id);
+    const n = C.CROPS[c.kind].food;
+    game.food += n;
+    pl.harvests += n;
+    pl.shells = Math.min(C.PEACE.maxShells, pl.shells + 1);   // the food's the tribe's; a shell is yours
+    sendMe(pl);
+    broadcast({ t: 'harvest', id: c.id, by: pl.id, n, food: game.food });
+  }
+
+  // A seed goes in the ground just in front of you, if there's room for it.
+  function tryPlant(pl, t) {
+    if (!peaceful() || !pl.alive || t - (pl.lastPlant || 0) < C.PEACE.plantCd) return false;
+    if (crops.size >= C.PEACE.cropMax) { nope(pl, 'full'); return false; }
+    const u = M.moveOnSphere(pl.p, pl.f, pl.f, C.PEACE.plantReach)[0];
+    let room = isClear(u, 0.4) && buildsClear(u, 0.4) && !townAt(u, 0.4);
+    for (const c of crops.values()) if (room && M.arcDist(u, c.u) < C.PEACE.cropGap) room = false;
+    if (!room) { nope(pl, 'spot'); return false; }
+    pl.lastPlant = t;
+    const kinds = Object.keys(C.CROPS);
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    const c = { id: nextId++, u, kind, ripeAt: t + C.CROPS[kind].grow, by: pl.id };
+    crops.set(c.id, c);
+    broadcast({ t: 'crop', ...publicCrop(c), by: pl.id });
+    return true;
+  }
+
+  // Build in front of you, paid for out of the tribe's food. It faces you, and it's solid.
+  function tryBuild(pl, kind, t) {
+    const def = C.BUILDS[kind];
+    if (!peaceful() || !pl.alive || !def || t - (pl.lastBuild || 0) < 0.6) return;
+    if (game.food < def.cost) { nope(pl, 'food', { need: def.cost }); return; }
+    const u = M.moveOnSphere(pl.p, pl.f, pl.f, def.r + 1.2)[0];
+    if (!isClear(u, def.r + 0.2) || !buildsClear(u, def.r + 0.2) || townAt(u, def.r + 0.2) || M.arcDist(u, C.MAMMON.at) < 6) { nope(pl, 'spot'); return; }
+    pl.lastBuild = t;
+    game.food -= def.cost;
+    pl.built++;
+    // whatever was growing where it goes is trampled
+    for (const c of [...crops.values()]) {
+      if (M.arcDist(u, c.u) < def.r + 0.3) { crops.delete(c.id); broadcast({ t: 'harvest', id: c.id, by: 0, n: 0, food: game.food }); }
+    }
+    const b = { id: nextId++, u, f: M.towardDir(u, pl.p), kind, r: def.r, h: def.h, by: pl.id };
+    builds.set(b.id, b);
+    buildSolids.push(b);
+    broadcast({ t: 'build', ...publicBuild(b), by: pl.id, food: game.food });
+  }
+
+  // ------------------------------------------------------------------ Ploughshares: the town
+  // As the planet grows, shops open one by one (SHOP_OPENINGS) near whoever's about. Each has a
+  // zone (s.at, SHOPS[kind].zone) and whoever stands in it is "at" that shop (pl.zone).
+  const shopById = id => (id ? shops.find(s => s.id === id) || null : null);
+  const atRange = pl => peaceful() && shopById(pl.zone)?.kind === 'range';
+  const inRing = pl => peaceful() && shopById(pl.zone)?.kind === 'duel';
+  const inHaunt = pl => peaceful() && shopById(pl.zone)?.kind === 'haunt';
+  const zoneAt = p => shops.find(s => M.arcDist(p, s.at) < C.SHOPS[s.kind].zone) || null;
+  const payShells = (pl, n) => { pl.shells = M.clamp(pl.shells + n, 0, C.PEACE.maxShells); sendMe(pl); };
+  const publicShop = s => ({
+    id: s.id, kind: s.kind, u: rnd(s.u, 4), f: rnd(s.f, 3), at: rnd(s.at, 4),
+    targets: s.targets ? s.targets.map(tg => ({ u: rnd(tg.u, 4) })) : null,
+  });
+
+  // Is u (give or take `margin`) on a shop, inside the ring, or in the range's line of fire?
+  function townAt(u, margin) {
+    for (const s of shops) {
+      const def = C.SHOPS[s.kind];
+      if (M.arcDist(u, s.u) < (s.kind === 'duel' || s.kind === 'haunt' ? def.zone : def.r) + margin) return true;
+      if (s.kind === 'range' && M.arcDist(u, s.lane) < def.downrange / 2 + 1 + margin) return true;
+    }
+    return false;
+  }
+
+  // Where a shop of this kind would go at u, facing f, or null if it doesn't fit there. The range
+  // is a booth, a firing line beside it (so the booth isn't in the way of the view), and a row of
+  // targets downrange.
+  function shopSpot(kind, u, f) {
+    const def = C.SHOPS[kind];
+    const free = (p, m) => isClear(p, m) && buildsClear(p, m) && !townAt(p, m) && p[1] < 0.6 && M.arcDist(p, C.MAMMON.at) > 8;
+    if (kind !== 'range') return free(u, def.zone + 2) ? { u, f, at: u } : null;
+    const { at, lane, targets } = shopLayout(kind, u, f);
+    if (!free(u, def.zone + 1.5) || !free(lane, def.downrange / 2 + 1) || targets.some(p => !free(p, 2))) return null;
+    return { u, f, at, lane, targets: targets.map((p, i) => ({ i, u: p, r: 0.35, paidAt: -99 })) };
+  }
+
+  // Somewhere with room, close to somebody (so they see it open) but not on top of them.
+  function openShop(kind, t) {
+    const def = C.SHOPS[kind];
+    const alive = [...players.values()].filter(p => p.alive);
+    const crowd = alive.some(p => !p.bot) ? alive.filter(p => !p.bot) : alive;
+    let best = null, bestScore = -Infinity;
+    for (let i = 0; i < 300; i++) {
+      const u = M.randomUnit();
+      const spot = shopSpot(kind, u, M.randomTangent(u));
+      if (!spot) continue;
+      let near = 30;
+      for (const p of crowd) near = Math.min(near, M.arcDist(u, p.p));
+      const score = -Math.abs(near - 11) + Math.random() * 3;
+      if (score > bestScore) { bestScore = score; best = spot; }
+    }
+    if (!best) { log(`no room for a ${def.name}`); return; }
+    const s = { id: nextId++, kind, ...best, nextSpawn: t };
+    shops.push(s);
+    // the buildings, the booth and the target posts are solid; the ring you just walk into
+    if (def.r) buildSolids.push({ u: s.u, r: def.r });
+    for (const tg of s.targets || []) buildSolids.push(tg);   // (the target itself: it moves when the planet grows)
+    for (const c of [...crops.values()]) {
+      if (townAt(c.u, 0)) { crops.delete(c.id); broadcast({ t: 'harvest', id: c.id, by: 0, n: 0, food: game.food }); }
+    }
+    broadcast({ t: 'shop', ...publicShop(s), first: shops.length === 1 ? 1 : 0 });
+    log(`${def.name} open`);
+  }
+
+  // A growth spurt: the planet swells to radius `to` over growSeconds, and once it's done the
+  // shops in `openings` ([kind, seconds after]) open on the new ground.
+  function grow(t, to, openings) {
+    Object.assign(game, { growFrom: game.radius, growTo: Math.min(C.PEACE.maxR, to), growStart: t });
+    for (const [kind, after] of openings) game.openings.push({ kind, at: t + C.PEACE.growSeconds + after });
+    game.openings.sort((a, b) => a.at - b.at);
+  }
+
+  function stepTown(t) {
+    // the planet grows, smoothly
+    if (game.radius !== game.growTo) {
+      const k = M.clamp((t - game.growStart) / C.PEACE.growSeconds, 0, 1);
+      game.radius = game.growFrom + (game.growTo - game.growFrom) * k * k * (3 - 2 * k);
+      C.setPlanetRadius(game.radius);
+      // a shop keeps its size: its parts are so far from its middle in the world, not in angle
+      for (const s of shops) {
+        if (s.kind !== 'range') continue;
+        const l = shopLayout(s.kind, s.u, s.f);
+        Object.assign(s, { at: l.at, lane: l.lane });
+        s.targets.forEach((tg, i) => { tg.u = l.targets[i]; });
+      }
+    }
+    if (game.openings.length && t >= game.openings[0].at) openShop(game.openings.shift().kind, t);
+    stepHaunts(t);
+    for (const pl of players.values()) {
+      if (!pl.alive) continue;
+      enterZone(pl, zoneAt(pl.p));
+      stepHunger(pl, t);
+    }
+    if (t >= game.skyRockAt) {
+      game.skyRockAt = t + randIn(C.PEACE.skyRockEvery);
+      skyRock();
+    }
+  }
+
+  // Walking into (or out of) a shop. The duel ring hands you a weapon off its rack (the practice
+  // club, or whatever you picked last time) and takes it back when you leave; the range hands you
+  // your age's ranged weapon, loaded.
+  function enterZone(pl, s) {
+    const id = s ? s.id : 0;
+    if (pl.zone === id) return;
+    const was = shopById(pl.zone);
+    pl.zone = id;
+    // the duel ring hands you a weapon off its rack, a haunted hollow a torch (and both take them
+    // back when you leave)
+    const armed = k => k === 'duel' || k === 'haunt';
+    if (armed(s?.kind) || armed(was?.kind)) {
+      // (bots grab whatever's on the rack)
+      if (pl.bot && s?.kind === 'duel') pl.duelPick = C.DUEL_WEAPONS[Math.floor(Math.random() * C.DUEL_WEAPONS.length)];
+      pl.weapon = s?.kind === 'duel' ? C.duelWeapon(pl.duelPick) : s?.kind === 'haunt' ? C.makeTorch() : C.makeTool();
+      broadcast({ t: 'wpn', id: pl.id, wpn: pl.weapon, era: 1 });
+    }
+    // bots at a range on purpose take something off the rack while they're there
+    if (pl.bot && (s?.kind === 'range' || was?.kind === 'range')) {
+      const pick = s?.kind === 'range' && pl.ai.errand?.shop === s ? C.PRACTICE_WEAPONS[Math.floor(Math.random() * C.PRACTICE_WEAPONS.length)] : null;
+      setPractice(pl, pick);
+    }
+    broadcast({ t: 'zone', id: pl.id, z: id });
+  }
+
+  // ------------------------------------------------------------------ Ploughshares: haunted hollows
+  // Monsters are beasts that belong to nobody (monster: their hollow's id). They roam their hollow,
+  // go for whoever comes in, and never leave. Slain, they pay; another comes along later.
+  function stepHaunts(t) {
+    for (const s of shops) {
+      if (s.kind !== 'haunt' || t < s.nextSpawn) continue;
+      let n = 0;
+      for (const b of beasts.values()) if (b.monster === s.id) n++;
+      if (n >= C.SHOPS.haunt.monsters) continue;
+      s.nextSpawn = t + 1.5;   // (the rest follow one at a time)
+      spawnMonster(s, t);
+    }
+  }
+
+  function spawnMonster(s, t) {
+    const kind = C.MONSTERS[Math.floor(Math.random() * C.MONSTERS.length)];
+    const def = C.BEASTS[kind];
+    let p = s.u;
+    for (let i = 0; i < 20; i++) {
+      const dir = M.randomTangent(s.u);
+      const u = M.moveOnSphere(s.u, dir, dir, rand(0, C.SHOPS.haunt.zone - 1.5))[0];
+      if (isClear(u, def.radius) && buildsClear(u, def.radius)) { p = u; break; }
+    }
+    const b = {
+      id: nextId++, kind, look: null, name: def.name, owner: 0, monster: s.id, home: s, p, f: M.randomTangent(p), h: 0, vh: 0,
+      hp: def.hp, maxHp: def.hp, until: Infinity, think: 0, target: 0, cmdTarget: 0, cmdPoint: null, cmdUntil: 0,
+      cd: {}, hitCd: new Map(), lunge: 0, pending: [], kbv: [0, 0, 0], moving: false, roam: null, roamUntil: 0,
+    };
+    beasts.set(b.id, b);
+    broadcast({ t: 'beast', ...publicBeast(b) });
+  }
+
+  // whoever's in its hollow and close enough to notice
+  function monsterTarget(b) {
+    const def = C.BEASTS[b.kind], zone = C.SHOPS.haunt.zone;
+    let best = null, bestD = def.sense;
+    for (const pl of players.values()) {
+      if (!pl.alive || M.arcDist(pl.p, b.home.u) > zone + 0.5) continue;
+      const d = M.arcDist(b.p, pl.p);
+      if (d < bestD) { bestD = d; best = pl; }
+    }
+    return best ? best.id : 0;
+  }
+
+  // nobody to chase: drift about the hollow (and back in, if it's strayed to the edge)
+  function monsterRoam(b, t) {
+    const zone = C.SHOPS.haunt.zone;
+    if (M.arcDist(b.p, b.home.u) > zone - 0.5) return b.home.u;
+    if (!b.roam || t > b.roamUntil || M.arcDist(b.p, b.roam) < 1.2) {
+      const dir = M.randomTangent(b.home.u);
+      b.roam = M.moveOnSphere(b.home.u, dir, dir, rand(0, zone - 1.5))[0];
+      b.roamUntil = t + rand(3, 6);
+    }
+    return b.roam;
+  }
+
+  // Does the step from a to b go in through the face of a target at the range (a disk standing
+  // upright, facing the firing line)? Returns the target and the point on its face, or null.
+  function targetOnPath(a, b) {
+    const def = C.SHOPS.range;
+    for (const s of shops) {
+      if (s.kind !== 'range') continue;
+      for (const tg of s.targets) {
+        const { c, n } = M.targetFace(tg.u, s.at, def.targetH);
+        const p = M.throughDisk(a, b, c, n, def.targetR);
+        if (p) return { s, tg, p };
+      }
+    }
+    return null;
+  }
+
+  // A hit at the range: the target shakes, and pays the shooter a shell (each target only once
+  // every payGap seconds, so a quick gun can't print money).
+  function hitTarget(hit, by, pos, w) {
+    const t = now();
+    const paid = !!by && t - hit.tg.paidAt >= C.SHOPS.range.payGap;
+    if (paid) {
+      hit.tg.paidAt = t;
+      payShells(by, 1);
+    }
+    broadcast({ t: 'target', shop: hit.s.id, i: hit.tg.i, by: by ? by.id : 0, paid: paid ? 1 : 0, pos: rnd(pos, 3), w });
+  }
+
+  // Every target at a range within r of pos (a rocket going off).
+  function targetsNear(pos, r) {
+    const out = [];
+    for (const s of shops) {
+      if (s.kind !== 'range') continue;
+      for (const tg of s.targets) {
+        const { c } = M.targetFace(tg.u, s.at, C.SHOPS.range.targetH);
+        if (M.len(M.sub(c, pos)) < r) out.push({ s, tg, p: c });
+      }
+    }
+    return out;
+  }
+
+  // A projectile that doesn't stick ends where it hits: a rocket goes off (rattling every target
+  // in the blast, bar the one it hit, which already counted), a tomato splats, a ball or a bullet
+  // kicks up dirt.
+  function popProjectile(s, def, pos, skip = null) {
+    spears.delete(s.id);
+    if (def.blast) {
+      broadcast({ t: 'spgone', id: s.id, boom: 1, pos: rnd(pos, 2) });
+      const by = players.get(s.owner) || null;
+      if (peaceful()) for (const hit of targetsNear(pos, def.blast)) if (hit.tg !== skip) hitTarget(hit, by, hit.p, s.w);
+      // and any monster in the blast
+      const u = M.norm(pos);
+      for (const b of [...beasts.values()]) {
+        const d = M.arcDist(u, b.p);
+        if (d < def.blast + C.BEASTS[b.kind].radius) damageBeast(b, def.maxDmg * (1 - 0.5 * Math.min(1, d / def.blast)), by, M.scale(b.p, R + 1));
+      }
+      return;
+    }
+    broadcast({ t: 'spgone', id: s.id, imp: 1, splat: def.splat ? 1 : 0, pos: rnd(pos, 2) });
+  }
+
+  // E at a shop. The doctor patches you up to full for a shell. (The tailor's counter is on the
+  // client: it sends 'buy'.)
+  function tryUse(pl) {
+    const s = shopById(pl.zone);
+    if (!pl.alive || s?.kind !== 'doctor') return;
+    if (pl.hp >= PLAYER.maxHp) { nope(pl, 'healthy'); return; }
+    const fee = C.SHOPS.doctor.fee;
+    if (pl.shells < fee) { nope(pl, 'shells', { need: fee }); return; }
+    payShells(pl, -fee);
+    broadcast({ t: 'doctor', id: pl.id, shop: s.id });
+    heal(pl, PLAYER.maxHp);
+  }
+
+  // At the tailor: buy a hat or a cape (one you've bought before goes back on for free), or send
+  // just 'hat' / 'cape' to take it off. Everyone sees it; it stays on through the rounds.
+  function buyClothes(pl, item) {
+    if (!pl.alive || shopById(pl.zone)?.kind !== 'tailor') return;
+    const def = C.CLOTHES[item];
+    const slot = def ? def.slot : item;
+    if (slot !== 'hat' && slot !== 'cape') return;
+    if (def && !pl.wardrobe.includes(item)) {
+      if (pl.shells < def.cost) { nope(pl, 'shells', { need: def.cost }); return; }
+      pl.wardrobe.push(item);
+      payShells(pl, -def.cost);
+    }
+    const wear = def ? item : null;
+    if ((pl.look[slot] || null) === wear) return;
+    pl.look[slot] = wear;
+    broadcast({ t: 'look', id: pl.id, look: pl.look });
+  }
+
+  // Knocked down to 1 HP in the ring: that's the bout. The winner gets paid; the loser gets to
+  // visit the doctor.
+  function duelWon(att, v) {
+    if (!inRing(att)) return;
+    att.duels++;
+    payShells(att, C.SHOPS.duel.win);
+    broadcast({ t: 'duel', a: att.id, v: v.id, n: C.SHOPS.duel.win });
+  }
+
+  // Now and then a rock falls out of the sky near somebody. It lands where the ring says, a
+  // couple of seconds later, and hurts like a lava bomb.
+  function skyRock() {
+    const alive = [...players.values()].filter(p => p.alive);
+    if (!alive.length) return;
+    const who = alive[Math.floor(Math.random() * alive.length)];
+    const dir = M.randomTangent(who.p);
+    const [u] = M.moveOnSphere(who.p, dir, dir, rand(1.5, 8));
+    const T = C.PEACE.skyRockWarn, v0 = 6;
+    const pos = M.scale(u, R + v0 * T + 0.5 * C.GRAVITY * T * T);
+    const vel = M.scale(u, -v0);
+    const fb = { id: nextId++, pos, vel, landU: u, land: rnd(M.scale(u, R), 2), sky: 1 };
+    fireballs.set(fb.id, fb);
+    broadcast({ t: 'fb', id: fb.id, pos: rnd(pos, 4), vel: rnd(vel, 4), land: fb.land, sky: 1 });
+  }
+
+  // Bots in peace: off to the doctor when hurt (if they can pay), a new hat when they can afford
+  // one, and otherwise farming, with the odd errand to the duel ring or the range.
+  function botPeaceGoal(b, t) {
+    const ai = b.ai;
+    const nearest = kind => {
+      let best = null, bestD = Infinity;
+      for (const s of shops) if (s.kind === kind && M.arcDist(b.p, s.at) < bestD) { bestD = M.arcDist(b.p, s.at); best = s; }
+      return best;
+    };
+    const doctor = nearest('doctor');
+    // hurt: drop whatever else (but a duellist sees the bout through, to the last HP)
+    const duelling = ai.errand?.shop.kind === 'duel' && b.zone === ai.errand.shop.id;
+    if (duelling ? b.hp <= 1 : b.hp < 60) ai.errand = null;
+    if (!ai.errand && doctor && b.hp < 60 && b.shells >= C.SHOPS.doctor.fee) return { u: doctor.at, shop: doctor, use: 1 };
+    if (ai.errand && (t > ai.errand.until || !shops.includes(ai.errand.shop))) ai.errand = null;
+    if (!ai.errand && b.hp >= 60 && Math.random() < 0.1) {
+      const tailor = nearest('tailor');
+      const want = tailor ? Object.keys(C.CLOTHES).filter(k => !b.wardrobe.includes(k) && C.CLOTHES[k].cost <= b.shells) : [];
+      if (want.length && Math.random() < 0.5) return { u: tailor.at, shop: tailor, buy: want[Math.floor(Math.random() * want.length)] };
+      // a ring with somebody already in it draws a crowd: no fun duelling the air
+      const busy = shops.filter(s => s.kind === 'duel' && [...players.values()].some(p => p !== b && p.zone === s.id));
+      const fun = busy.length && Math.random() < 0.7 ? busy : shops.filter(s => s.kind === 'duel' || s.kind === 'range');
+      if (fun.length) ai.errand = { shop: fun[Math.floor(Math.random() * fun.length)], until: t + rand(15, 35) };
+    }
+    if (ai.errand) {
+      const s = ai.errand.shop;
+      if (b.zone !== s.id) return { u: s.at, shop: s };
+      // in the ring with nobody to fight: hang about the middle until somebody comes
+      return s.kind === 'duel' && M.arcDist(b.p, s.u) > 2.5 ? { u: s.u } : null;
+    }
+    return botFarmGoal(b);
+  }
+
+  // The weapon rack in the duel ring: any weapon of any age, or the padded club. Kept for the next
+  // time you step in.
+  function pickDuelWeapon(pl, type) {
+    if (!pl.alive || !inRing(pl) || !C.DUEL_WEAPONS.includes(type)) return;
+    pl.duelPick = type;
+    pl.weapon = C.duelWeapon(type);
+    broadcast({ t: 'wpn', id: pl.id, wpn: pl.weapon });
+  }
+
+  // ------------------------------------------------------------------ Ploughshares: hunger
+  // In peace life slowly runs down, a point at a time, never below 1. When it's about to run down
+  // to 1, a stranger turns up with food instead.
+  const CALM = { dodge: 0 };   // strangers walk round rocks and huts, but don't dodge anything
+  const publicStranger = s => ({ id: s.id, p: rnd(s.p, 4), f: rnd(s.f, 3), look: s.look, for: s.forId, leaving: s.leaving ? 1 : 0 });
+
+  function stepHunger(pl, t) {
+    // knocked down to 1 by anything at all (a monster, a sky rock, a duel): help comes too
+    if (pl.hp <= 1 && !pl.strangerId) { sendStranger(pl, t); return; }
+    if (t < pl.hungerAt) return;
+    pl.hungerAt = t + C.PEACE.hungerEvery;
+    if (pl.strangerId) return;   // help is on the way
+    if (pl.hp > 2) pl.hp--;
+    else if (pl.hp === 2) sendStranger(pl, t);
+  }
+
+  // Somebody kind, from somewhere a little way off, in a hooded cloak.
+  function sendStranger(pl, t) {
+    let p = null;
+    for (let i = 0; i < 20 && !p; i++) {
+      const dir = M.randomTangent(pl.p);
+      const u = M.moveOnSphere(pl.p, dir, dir, randIn(C.STRANGER.from))[0];
+      if (isClear(u, PLAYER.radius + 0.5) && buildsClear(u, PLAYER.radius + 0.5)) p = u;
+    }
+    p ||= M.moveOnSphere(pl.p, pl.f, pl.f, -C.STRANGER.from[0])[0];
+    const s = {
+      id: nextId++, p, f: M.towardDir(p, pl.p), h: 0, forId: pl.id, giveUpAt: t + C.STRANGER.giveUp,
+      leaving: false, until: 0, look: { ...C.randomLook(), hat: 'hood', cape: 'cloak' },
+    };
+    strangers.set(s.id, s);
+    pl.strangerId = s.id;
+    broadcast({ t: 'stranger', ...publicStranger(s) });
+  }
+
+  function strangerWalk(s, dir) {
+    const d = M.tangent(s.p, dir);
+    [s.p, s.f] = M.moveOnSphere(s.p, d, d, C.STRANGER.speed * DT);
+    [s.p, s.f] = M.collideObstacles(s.p, s.f, world.obstacles, PLAYER.radius);
+    if (buildSolids.length) [s.p, s.f] = M.collideObstacles(s.p, s.f, buildSolids, PLAYER.radius);
+  }
+
+  function strangerLeaves(s, t, dir = null) {
+    s.leaving = true;
+    s.until = t + C.STRANGER.leave;
+    if (dir) s.f = M.tangent(s.p, dir);
+    const pl = players.get(s.forId);
+    if (pl && pl.strangerId === s.id) pl.strangerId = 0;
+  }
+
+  function stepStrangers(t) {
+    for (const s of [...strangers.values()]) {
+      const pl = players.get(s.forId);
+      if (!s.leaving && (!pl || !pl.alive || !peaceful())) strangerLeaves(s, t);
+      if (s.leaving) {
+        if (t >= s.until) {
+          strangers.delete(s.id);
+          broadcast({ t: 'strangergone', id: s.id });
+        } else {
+          strangerWalk(s, s.f);
+        }
+        continue;
+      }
+      // somebody who just won't stand still gets caught up with in the end
+      if (t >= s.giveUpAt) s.p = M.moveOnSphere(pl.p, pl.f, pl.f, 1.2)[0];
+      if (M.arcDist(s.p, pl.p) < 1.5) {
+        // the food changes hands, a kind word, and off they go
+        broadcast({ t: 'fed', id: s.id, v: pl.id, line: Math.floor(Math.random() * C.STRANGER.lines.length) });
+        heal(pl, C.STRANGER.food);
+        pl.hungerAt = t + C.PEACE.hungerEvery;
+        strangerLeaves(s, t, M.awayDir(s.p, pl.p));
+        continue;
+      }
+      const to = M.towardDir(s.p, pl.p);
+      strangerWalk(s, avoidHazards(s, to, CALM) || to);
+    }
+  }
+
+  // A bot at the range shoots at whichever targets are standing.
+  function botRange(b, s, t) {
+    if (b.ammo <= 0 || t < b.ai.nextThrow) return;
+    b.ai.nextThrow = t + rand(1.2, 2.6);
+    const tg = s.targets[Math.floor(Math.random() * s.targets.length)];
+    const shot = botAim(b, { p: tg.u, h: C.SHOPS.range.targetH - 1.1, vel: [0, 0, 0] });
+    if (!shot) return;
+    b.lastThrow = t;
+    if (rangedDef(b).hitscan) zap(b, shot.pos, shot.vel);
+    else throwProjectile(b, shot.pos, shot.vel, null);
+  }
+
+  // The range shed: E there picks a practice weapon off the rack (any age's, or one you only get
+  // here), swaps it, or hands it back (w null). You keep it wherever you go in peace, and can
+  // shoot it anywhere (only the targets at a range count), until you hand it back at a shed.
+  function practice(pl, w) {
+    if (!pl.alive || !atRange(pl) || (w && !C.PRACTICE_WEAPONS.includes(w))) return;
+    setPractice(pl, w);
+  }
+
+  function setPractice(pl, w) {
+    if ((pl.practice || null) === w) return;
+    pl.practice = w;
+    pl.ammo = rangedDef(pl).ammo;   // a full load of whatever's in hand now
+    pl.regen = 0;
+    pl.lastThrow = -99;
+    sendMe(pl);
+    broadcast({ t: 'practice', id: pl.id, w });
+  }
+
+  function openVote(t) {
+    game.voteUntil = t + C.PEACE.voteSeconds;
+    votes.clear();
+    broadcast({ t: 'vote', open: 1, ...gameInfo(t) });
+  }
+
+  // More yes than no keeps the farming going; anything else ends the round with the harvest.
+  function resolveVote(t) {
+    let yes = 0, no = 0;
+    for (const h of humansHere()) {
+      const v = votes.get(h.id);
+      if (v === true) yes++;
+      else if (v === false) no++;
+    }
+    game.voteUntil = 0;
+    votes.clear();
+    const keep = yes > no;
+    // more farming: and the world grows again, with more to find on the new ground
+    const bigger = keep && game.radius < C.PEACE.maxR;
+    if (keep) game.peaceEnd = t + PEACE_SECONDS;
+    if (bigger) grow(t, game.radius + C.PEACE.growStep, C.EXPANSION_OPENINGS);
+    broadcast({ t: 'vote', ...gameInfo(t), result: keep ? 'yes' : 'no', yes, no, grow: bigger ? 1 : 0 });   // the final count, not the cleared one
+    log(`vote: ${keep ? 'keep farming' : 'done farming'} (${yes}-${no})`);
+    if (!keep) endRound(t);
+  }
+
+  // Bots in peace: wander, plant now and then, and go for ripe crops they can see.
+  function botFarmGoal(b) {
+    let goal = null, bestD = 25;
+    const t = now();
+    for (const c of crops.values()) {
+      const d = M.arcDist(b.p, c.u);
+      if (t >= c.ripeAt && d < bestD) { bestD = d; goal = { u: c.u, grab: false }; }
+    }
+    return goal;
+  }
+
+  // The world ended (Do Time), the whole tribe is down (co-op, where only the humans are ranked),
+  // or the tribe voted to stop farming (Ploughshares: ranked by food picked, then things built).
   function endRound(t) {
+    const harvestFest = peaceful();
     game.phase = 'end';
     game.endUntil = t + (coop() ? C.COOP.endSeconds : DOTIME.endSeconds);
     game.strikes = [];
     for (const pl of players.values()) { pl.charging = false; if (pl.ai) pl.ai.throwAt = 0; }
     const standings = [...players.values()]
       .filter(p => !coop() || !p.bot)
-      .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
+      .sort(harvestFest ? (a, b) => b.harvests - a.harvests || b.built - a.built : (a, b) => b.kills - a.kills || a.deaths - b.deaths)
       .slice(0, 5)
-      .map(p => ({ id: p.id, name: p.name, k: p.kills, d: p.deaths, bot: p.bot }));
-    broadcast({ t: 'roundend', standings, ...gameInfo(t) });
-    log(coop() ? `tribe wiped on wave ${game.wave}` : `round over, winner "${standings[0]?.name ?? 'nobody'}"`);
+      .map(p => ({ id: p.id, name: p.name, k: harvestFest ? p.harvests : p.kills, d: harvestFest ? p.built : p.deaths, bot: p.bot }));
+    broadcast({ t: 'roundend', standings, harvest: harvestFest ? 1 : 0, ...gameInfo(t) });
+    log(coop() ? `tribe wiped on wave ${game.wave}` : harvestFest ? `harvest festival, ${game.food} food left` : `round over, winner "${standings[0]?.name ?? 'nobody'}"`);
   }
 
   // ------------------------------------------------------------------ co-op waves
@@ -1125,7 +1836,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
         spawnPlayer(pl, true, friend ? spawnNear(friend.p) : null);
       } else {
         heal(pl, PLAYER.maxHp);
-        pl.ammo = rangedDef().ammo;
+        pl.ammo = rangedDef(pl).ammo;
         sendMe(pl);
       }
     }
@@ -1161,6 +1872,17 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     game.strikes = [];
     game.mammonDead = false;   // a new Businessman for a new world
     game.nextArmorAt = t + randIn(DOTIME.armorEvery);
+    // the fields and buildings of the last peace are gone with the old world
+    crops.clear();
+    builds.clear();
+    buildSolids.length = 0;
+    votes.clear();
+    Object.assign(game, { calm: true, food: 0, peaceEnd: 0, voteUntil: 0 });
+    // ...and so is the town, and the planet is back to its usual size
+    shops.length = 0;
+    strangers.clear();
+    Object.assign(game, { radius: C.PLANET_R, growFrom: C.PLANET_R, growTo: C.PLANET_R, openings: [] });
+    C.setPlanetRadius(game.radius);
     armorDrops.clear();
     loot.clear();
     for (const f of fires) f.readyAt = 0;
@@ -1181,6 +1903,11 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       pl.deaths = 0;
       pl.streak = 0;
       pl.reward = null;
+      pl.harvests = pl.built = pl.duels = 0;
+      pl.grudge = null;
+      pl.zone = 0;
+      pl.strangerId = 0;
+      pl.practice = null;   // (the practice weapons go back with the town)
       if (pl.ai) pl.ai.throwAt = 0;
       // (in co-op every human gathers round the camp; "near a friend" would find friends who
       // haven't moved yet from where the last round left them)
@@ -1242,7 +1969,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   function throwProjectile(pl, pos, vel, tid, lag = 0) {
     pl.ammo--;
     sendMe(pl);
-    const w = eraDef().ranged;
+    const w = rangedKey(pl);
     const s = { id: nextId++, owner: pl.id, w, pos: pos.slice(), vel: vel.slice(), age: 0, stuck: false, dir: null, u: null, hgt: 0, expire: 0, lag };
     spears.set(s.id, s);
     broadcast({ t: 'spear', id: s.id, owner: pl.id, w, pos: rnd(pos, 4), vel: rnd(vel, 4), tid });
@@ -1251,17 +1978,20 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   // Lasers are instant and dead straight, so they don't follow the planet's curve:
   // aim too high and the beam heads off into space.
   function zap(pl, pos, dir, lag = 0) {
-    const def = rangedDef();
+    const def = rangedDef(pl);
     pl.ammo--;
     sendMe(pl);
     const d = M.norm(dir);
     const seenT = now() - lag;
     const targets = [];
-    for (const v of players.values()) if (v !== pl && v.alive && !allies(pl, v)) targets.push({ v, at: lag ? seenAt(v, seenT) : v });
+    // (in peace the only thing to shoot is the targets at the range)
+    if (!peaceful()) for (const v of players.values()) if (v !== pl && v.alive && !allies(pl, v)) targets.push({ v, at: lag ? seenAt(v, seenT) : v });
     let hit = null, end = null, beast = null;
     for (let s = 0.4; s <= def.range && !end; s += 0.25) {
       const p = M.madd(pos, d, s);
       if (M.len(p) <= R || M.obstacleAt(p, world.obstacles)) { end = p; break; }
+      const tgHit = peaceful() && shops.length ? targetOnPath(M.madd(pos, d, s - 0.25), p) : null;
+      if (tgHit) { hitTarget(tgHit, pl, tgHit.p, rangedKey(pl)); end = tgHit.p; break; }
       for (const { v, at } of targets) {
         const zone = M.hitPlayer(p, at.p, at.h, def.hitRadius);
         if (zone) { hit = { v, head: zone === 2 }; end = p; break; }
@@ -1284,7 +2014,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   // late, so their window opens earlier (never before the swing itself).
   function startSwing(pl, t, lag = 0) {
     const cd = pl.weapon.cd * (buffed(pl, 'quick', t) ? C.BUFF.quick : 1);
-    if (!pl.alive || !fighting() || t < pl.stunUntil || t - pl.lastSwing < cd * 0.85) return false;
+    if (!pl.alive || !(fighting() || inRing(pl) || inHaunt(pl)) || t < pl.stunUntil || t - pl.lastSwing < cd * 0.85) return false;
     pl.lastSwing = t;
     const windup = pl.weapon.windup;
     const at = t + windup;
@@ -1360,8 +2090,10 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   function meleeHit(att, t, lag = 0) {
     const w = att.weapon;
     const cosHalf = Math.cos((w.arc * Math.PI) / 360);
-    for (const v of players.values()) {
-      if (v === att || !v.alive || allies(att, v)) continue;
+    // in peace other cavemen only in the duel ring (whoever else is in it); monsters wherever they are
+    const people = !peaceful() || inRing(att);
+    for (const v of people ? players.values() : []) {
+      if (v === att || !v.alive || allies(att, v) || (peaceful() && v.zone !== att.zone)) continue;
       const at = lag ? seenAt(v, t - lag) : v;
       const dist = M.arcDist(att.p, at.p);
       if (dist > w.range + PLAYER.radius || Math.abs(at.h - att.h) > 2) continue;
@@ -1392,7 +2124,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   function projectileVictim(s, prev, def, t) {
     const owner = players.get(s.owner);
     const targets = [];
-    for (const pl of players.values()) {
+    for (const pl of peaceful() ? [] : players.values()) {   // (in peace only monsters can be hit)
       if (!pl.alive || (pl.id === s.owner && s.age < PROJECTILE.selfGrace) || allies(owner, pl)) continue;
       targets.push({ pl, at: s.lag && pl.id !== s.owner ? seenAt(pl, t - s.lag) : pl });
     }
@@ -1411,14 +2143,18 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     return null;
   }
 
-  function stickProjectile(s, t, ground) {
+  // tg: [shop id, target index] when it's stuck in a target at the range (pos is then on its face)
+  function stickProjectile(s, t, ground, tg = null) {
     s.stuck = true;
     s.expire = t + PROJECTILE.stuckLife;
     s.dir = M.norm(s.vel);
-    if (ground) s.pos = M.scale(M.norm(s.pos), R - (s.w === 'spear' ? 0.3 : 0.18));
+    const sink = s.w === 'spear' ? 0.3 : 0.18;   // the tip goes in this far
+    if (ground) s.pos = M.scale(M.norm(s.pos), R - sink);
+    if (tg) s.pos = M.madd(s.pos, s.dir, sink * 0.8);
+    s.tg = tg || undefined;
     s.u = M.norm(s.pos);
     s.hgt = M.len(s.pos) - R;
-    broadcast({ t: 'stuck', id: s.id, pos: rnd(s.pos, 4), dir: rnd(s.dir, 4) });
+    broadcast({ t: 'stuck', id: s.id, pos: rnd(s.pos, 4), dir: rnd(s.dir, 4), tg: s.tg });
   }
 
   function stepProjectiles(t) {
@@ -1431,7 +2167,20 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       const prev = s.pos.slice();
       s.age += DT;
       M.stepProjectile(s.pos, s.vel, DT);
-      const hit = fighting() ? projectileVictim(s, prev, def, t) : null;
+      const hit = fighting() || (peaceful() && beasts.size) ? projectileVictim(s, prev, def, t) : null;
+      const tgHit = peaceful() && shops.length ? targetOnPath(prev, s.pos) : null;
+      if (tgHit) {
+        // spears and arrows stick in the straw; balls and bullets just punch through it
+        hitTarget(tgHit, players.get(s.owner) || null, tgHit.p, s.w);
+        if (def.sticks === false) {
+          popProjectile(s, def, tgHit.p, tgHit.tg);
+        } else {
+          s.pos = tgHit.p;
+          stickProjectile(s, t, false, [tgHit.s.id, tgHit.tg.i]);
+        }
+        continue;
+      }
+      if (hit?.beast && def.blast) { popProjectile(s, def, hit.pos); continue; }   // a rocket goes off
       if (hit?.beast) {
         // stuck in a beast's hide
         const speed = M.len(s.vel);
@@ -1466,18 +2215,20 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       const ground = M.len(s.pos) <= R;
       const wall = !ground && M.obstacleAt(s.pos, world.obstacles);
       if ((ground || wall) && def.sticks === false) {
-        // musket balls and bullets just kick up dirt
-        spears.delete(s.id);
-        broadcast({ t: 'spgone', id: s.id, imp: 1, pos: rnd(s.pos, 2) });
+        popProjectile(s, def, s.pos);
         continue;
       }
       if (ground || wall) { stickProjectile(s, t, ground); continue; }
       if (boulders.some(b => M.len(M.sub(s.pos, M.scale(b.p, R + b.r))) < b.r + 0.15)) {
+        if (def.sticks === false) { popProjectile(s, def, s.pos); continue; }
         spears.delete(s.id);
         broadcast({ t: 'spgone', id: s.id, brk: def.sticks === false ? 0 : 1, imp: def.sticks === false ? 1 : 0, pos: rnd(s.pos, 2) });
         continue;
       }
-      if (s.age > (def.flight || PROJECTILE.maxFlight)) { spears.delete(s.id); broadcast({ t: 'spgone', id: s.id }); }
+      if (s.age > (def.flight || PROJECTILE.maxFlight)) {
+        if (def.blast) popProjectile(s, def, s.pos);   // a rocket that hits nothing goes off in the air
+        else { spears.delete(s.id); broadcast({ t: 'spgone', id: s.id }); }
+      }
     }
   }
 
@@ -1499,7 +2250,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     }
     stepLoot(t, pl);
     stepBuffs(pl, t);
-    const def = rangedDef();
+    const def = rangedDef(pl);
     if (pl.ammo < def.ammo) {
       pl.regen += DT * (buffed(pl, 'quick', t) ? 2 : 1);
       if (pl.regen >= def.regen) { pl.regen = 0; pl.ammo++; sendMe(pl); }
@@ -1624,7 +2375,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   }
 
   function botAim(b, tg) {
-    const def = rangedDef();
+    const def = rangedDef(b);
     const lvl = botLevel();
     const pos = M.madd(M.scale(b.p, R + b.h + 1.6), b.f, 0.3);
     const dist = M.arcDist(b.p, tg.p);
@@ -1772,24 +2523,35 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     if (b.reward && fighting() && !beasts.has(b.beastId)) summonBeast(b, t);
     if (!frozen && (ai.think -= DT) <= 0) {
       ai.think = randIn(lvl.think);
-      // dim bots sometimes forget there's a fight and just go for a walk
-      const daydream = Math.random() < lvl.daydream;
+      // dim bots sometimes forget there's a fight and just go for a walk (not in the duel ring:
+      // that's what they came for)
+      const daydream = !inRing(b) && Math.random() < lvl.daydream;
+      // Ploughshares: no picking fights, only fighting back (and nobody fights in peace)
+      const grudge = b.grudge && t < b.grudge.until ? b.grudge.id : 0;
       let best = null, bestD = lvl.chase;
       for (const pl of players.values()) {
         if (daydream || pl === b || !pl.alive || allies(b, pl)) continue;
+        // in peace the only fights are in the duel ring, with whoever else is in it, until one
+        // of them is down to 1 HP
+        if (peaceful() ? !inRing(b) || b.hp <= 1 || pl.zone !== b.zone || pl.hp <= 1 : plough() && pl.id !== grudge) continue;
         const d = M.arcDist(b.p, pl.p) * (pl.bot ? 1.15 : 1);
         if (d < bestD) { bestD = d; best = pl; }
       }
       ai.target = best ? best.id : 0;
-      ai.goal = bestD > 12 || !best ? botGearGoal(b, lvl) : null;
+      ai.goal = peaceful() ? (best ? null : botPeaceGoal(b, t)) : bestD > 12 || !best ? botGearGoal(b, lvl) : null;
+      if (peaceful() && t >= (ai.plantAt || 0) && Math.random() < 0.5) {
+        if (tryPlant(b, t)) ai.plantAt = t + rand(6, 14);
+      }
       if (Math.random() < 0.25) ai.strafe = -ai.strafe;
       const chatty = game.phase === 'doom' ? 0.35 : fighting() ? 0.015 : 0.08;   // the end of the world makes everyone yell
       if (Math.random() < chatty) emote(b, Math.floor(Math.random() * C.EMOTES.length), t);
+      // in peace they talk too, now and then
+      if (peaceful() && Math.random() < 0.02) say(b, BOT_CHAT[Math.floor(Math.random() * BOT_CHAT.length)], t);
     }
 
-    const def = rangedDef();
+    const def = rangedDef(b);
     // when the world ends, bots forget the fight and run around in circles
-    const target = game.phase === 'play' ? players.get(ai.target) : null;
+    const target = game.phase === 'play' || peaceful() ? players.get(ai.target) : null;
     if (game.phase === 'doom') ai.goal = null;
     let move = null, face = null;
     if (frozen) {
@@ -1797,8 +2559,11 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       if (ai.throwAt) ai.throwAt += DT;
     } else if (ai.goal) {
       move = M.towardDir(b.p, ai.goal.u);
-      if (M.arcDist(b.p, ai.goal.u) < 1.8) {
+      // (a shop's counter is reached once you're in its zone: you can't walk into the building)
+      if (ai.goal.shop ? b.zone === ai.goal.shop.id : M.arcDist(b.p, ai.goal.u) < 1.8) {
         if (ai.goal.grab) tryGrab(b, t);
+        if (ai.goal.use) tryUse(b);
+        if (ai.goal.buy) buyClothes(b, ai.goal.buy);
         ai.goal = null;
       }
     } else if (target && target.alive) {
@@ -1817,17 +2582,22 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
       } else if (dist > 26) move = to;
       else if (dist < 10) move = M.madd(M.scale(to, -0.8), side, ai.strafe);
       else move = M.madd(M.scale(to, 0.15), side, ai.strafe);
-      if (b.ammo > 0 && !ai.throwAt && t >= ai.nextThrow && dist > reach + 2 && dist < 45) {
+      if (b.ammo > 0 && !ai.throwAt && t >= ai.nextThrow && dist > reach + 2 && dist < 45 && !peaceful()) {
         ai.throwAt = t + lvl.windup * (def.chargeTime / 0.9);
         ai.throwTarget = target.id;
       }
+    } else if (atRange(b) && ai.errand?.shop.id === b.zone) {
+      // at the range on purpose: stand on the line and shoot
+      const s = ai.errand.shop;
+      face = M.towardDir(b.p, s.lane);
+      botRange(b, s, t);
     } else {
       ai.wander = M.clamp(ai.wander + rand(-1, 1) * DT * 3, -0.8, 0.8);
       b.f = M.tangent(b.p, M.rotateAxis(b.f, b.p, ai.wander * DT));
       move = b.f;
     }
 
-    if (lvl.deflect && fighting() && !stunned) botTryDeflect(b, t);
+    if (lvl.deflect && fighting() && !stunned && (!plough() || ai.target)) botTryDeflect(b, t);
 
     b.charging = !!ai.throwAt;
     if (!frozen && ai.throwAt && t >= ai.throwAt) {
@@ -1856,7 +2626,8 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     // stutter: alternate a double-speed step with a dead stop, four times a second
     const jerk = lvl.lag?.stutter ? (((t * 4 + b.id * 0.37) % 1) < 0.5 ? 2 : 0) : 1;
     const zoom = buffed(b, 'fast', t) ? C.BUFF.fast : 1;
-    const speed = PLAYER.speed * (b.weapon.speed + (b.armor?.speed || 0)) * lvl.speed * slow * jerk * zoom * (b.charging ? 0.6 : 1);
+    const limp = peaceful() && b.hp < C.PEACE.limpHp ? C.PEACE.limp : 1;
+    const speed = PLAYER.speed * (b.weapon.speed + (b.armor?.speed || 0)) * lvl.speed * slow * jerk * zoom * limp * (b.charging ? 0.6 : 1);
     let disp = move ? M.scale(M.tangent(b.p, move), speed * DT) : [0, 0, 0];
     disp = M.madd(disp, b.kbv, DT);
     b.kbv = M.scale(b.kbv, Math.exp(-DT * 5));
@@ -1864,6 +2635,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     const dl = M.len(disp);
     if (dl > 1e-6) [b.p, b.f] = M.moveOnSphere(b.p, b.f, M.scale(disp, 1 / dl), dl);
     [b.p, b.f] = M.collideObstacles(b.p, b.f, world.obstacles, PLAYER.radius);
+    if (buildSolids.length) [b.p, b.f] = M.collideObstacles(b.p, b.f, buildSolids, PLAYER.radius);
     for (const bo of boulders) {
       if (b.h > bo.r) continue;
       const hit = M.pushOut(b.p, b.f, bo.p, bo.r + PLAYER.radius);
@@ -1897,7 +2669,8 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     const bs = [...beasts.values()].map(be => [be.id, ...rnd(be.p, 4), ...rnd(be.f, 3), Math.round(be.h * 100) / 100, Math.round(be.hp), be.moving ? 1 : 0]);
     // ts (server ms) lets clients interpolate on the server's timeline instead of arrival time,
     // which absorbs internet jitter
-    broadcast({ t: 's', ts: Math.round(t * 1000), p, b, bs });
+    const st = strangers.size ? { st: [...strangers.values()].map(s => [s.id, ...rnd(s.p, 4), ...rnd(s.f, 3)]) } : null;
+    broadcast({ t: 's', ts: Math.round(t * 1000), p, b, bs, r: Math.round(game.radius * 1000) / 1000, ...st });
   }
 
   function tick() {
@@ -1907,7 +2680,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     for (const pl of players.values()) {
       if (!pl.alive) {
         // nobody climbs out of the rubble mid-apocalypse; the new round wakes everyone
-        if (t >= pl.respawnAt && game.phase === 'play') spawnPlayer(pl);
+        if (t >= pl.respawnAt && (game.phase === 'play' || peaceful())) spawnPlayer(pl);
         continue;
       }
       if (pl.bot) botThink(pl, t);
@@ -1919,6 +2692,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
     stepProjectiles(t);
     stepBeasts(t);
     stepFood(t);
+    if (strangers.size) stepStrangers(t);
     expireLoot(t);
     stepBoulders(t);
     stepVolcano(t);
@@ -1951,5 +2725,12 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds }) {
   }
 
   balanceBots();
-  return { code, clients, attach, detach, handleMessage, tick, stats };
+  // the rules it has now, to bring back if the rock closes and its code is opened again
+  const currentRules = () => ({ mode: game.mode, botLevel: game.botLevel, bots: game.bots });
+
+  // Every rock on the server shares the one R (shared/constants.js), so each puts its own planet's
+  // size back before it does anything.
+  const sized = fn => (...args) => { C.setPlanetRadius(game.radius); return fn(...args); };
+
+  return { code, clients, attach: sized(attach), detach: sized(detach), handleMessage: sized(handleMessage), tick: sized(tick), stats, rules: currentRules };
 }

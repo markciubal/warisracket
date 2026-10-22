@@ -1,4 +1,4 @@
-import { TIER_COLORS, PLAYER, ARMORS, ERAS, MODES, DISASTERS, SHROOMS } from '/shared/constants.js';
+import { TIER_COLORS, PLAYER, ARMORS, ERAS, MODES, DISASTERS, SHROOMS, BUILDS, CLOTHES, DUEL_WEAPONS, duelWeapon, RANGED, PRACTICE_WEAPONS } from '/shared/constants.js';
 import * as M from '/shared/math.js';
 
 const $ = id => document.getElementById(id);
@@ -61,7 +61,7 @@ export class Hud {
     this.ammoMax = def.ammo;
     const root = $('spear-icons');
     root.innerHTML = '';
-    root.className = def.ammo > 10 ? 'counter' : def.proj === 'arrow' ? 'arrows' : def.proj === 'ball' ? 'balls' : '';
+    root.className = def.ammo > 10 ? 'counter' : { arrow: 'arrows', ball: 'balls', pebble: 'balls pebbles', tomato: 'balls tomatoes', rocket: 'rockets' }[def.proj] || '';
     this.spearIcons = [];
     this.counter = null;
     if (def.ammo > 10) {
@@ -107,6 +107,8 @@ export class Hud {
   // (the last age counts down to a disaster nobody knows yet).
   setEra(game, left, foes = 0) {
     if (game.mode === 'coop') { this.setWave(game, left, foes); return; }
+    if (game.phase === 'peace') { this.setPeace(game, left); return; }
+    const timed = game.mode === 'dotime' || game.mode === 'plough';
     const era = ERAS[game.era];
     const last = game.era === ERAS.length - 1;
     const doom = game.phase === 'doom';
@@ -116,19 +118,127 @@ export class Hud {
     else if (game.phase === 'end') line = `NEW STONE AGE IN ${Math.ceil(left)}`;
     else if (doom) line = `EVERYTHING GONE IN ${Math.ceil(left)}`;
     else line = `${last ? 'SOMETHING BAD' : ERAS[game.era + 1].name} IN ${clockText(left)}`;
-    const key =`${game.mode}${game.era}${game.phase}${game.disaster}${line}`;
+    // Ploughshares: is the peace holding this age?
+    const calm = game.mode === 'plough' && game.phase === 'play' ? (game.calm ? 'calm' : 'broken') : '';
+    const key = `${game.mode}${game.era}${game.phase}${game.disaster}${line}${calm}`;
     if (key === this.lastEra) return;
     this.lastEra = key;
+    $('era-panel').classList.remove('peace');
     $('era-panel').classList.toggle('doom', doom);
-    $('era-panel').classList.toggle('hurry', game.mode === 'dotime' && game.phase === 'play' && last);
+    $('era-panel').classList.toggle('hurry', timed && game.phase === 'play' && last);
+    $('era-calm').textContent = calm === 'calm' ? '☮ PEACE HOLDING' : calm === 'broken' ? '⚔ PEACE BROKEN THIS AGE' : '';
+    $('era-calm').className = calm;
     $('era-name').textContent = game.mode === 'classic' ? MODES.classic : doom && disaster ? `${disaster.icon} ${disaster.name} ${disaster.icon}` : era.name;
     $('era-next').textContent = line;
-    const frac = game.mode === 'dotime' && game.phase !== 'end' ? 1 - left / (game.eraLen || game.eraSeconds) : 1;
+    const frac = timed && game.phase !== 'end' ? 1 - left / (game.eraLen || game.eraSeconds) : 1;
     $('era-fill').style.width = `${Math.min(1, Math.max(0, frac)) * 100}%`;
-    $('era-dots').innerHTML = game.mode === 'dotime'
+    $('era-dots').innerHTML = timed
       ? ERAS.map((e, i) => `<i class="${i < game.era || doom ? 'done' : i === game.era ? 'now' : ''}" title="${e.name}"></i>`).join('')
         + `<i class="end ${doom ? 'now' : ''}" title="${disaster ? disaster.name : 'SOMETHING BAD'}">${disaster ? disaster.icon : '?'}</i>`
       : '';
+  }
+
+  // Ploughshares, in peace: the farming age, the countdown to the vote, and the tribe's food.
+  setPeace(game, left) {
+    const line = game.vote ? `VOTE NOW · ${Math.ceil(left)}` : `VOTE IN ${clockText(left)}`;
+    const key = `peace${line}${game.food}`;
+    if (key === this.lastEra) return;
+    this.lastEra = key;
+    $('era-panel').classList.remove('doom', 'hurry');
+    $('era-panel').classList.add('peace');
+    $('era-name').textContent = '🌾 PLOUGH AGE 🌾';
+    $('era-next').textContent = line;
+    $('era-fill').style.width = `${Math.min(1, Math.max(0, 1 - left / (game.eraLen || 1))) * 100}%`;
+    $('era-dots').innerHTML = `<b class="food">${game.food} FOOD</b>`;
+    $('era-calm').textContent = '';
+  }
+
+  // Ploughshares, in peace: what the throw button builds, what it costs, and the keys.
+  setBuild(kind, food) {
+    const def = BUILDS[kind];
+    const key = `${kind}${food}`;
+    if (key === this.lastBuild) return;
+    this.lastBuild = key;
+    $('build-what').textContent = `${def.icon} ${def.name} · ${def.cost} FOOD`;
+    $('build-what').classList.toggle('poor', food < def.cost);
+  }
+
+  // One line of peace chat in the log (the last few, fading out after a while). note: a line
+  // from the game itself, not from a caveman.
+  chatLine(name, text, { mine = false, note = false } = {}) {
+    const el = document.createElement('div');
+    el.className = `chat-line${mine ? ' me' : ''}${note ? ' note' : ''}`;
+    el.innerHTML = note ? esc(text) : `<b>${esc(name)}</b>${esc(text)}`;
+    const log = $('chat-log');
+    log.appendChild(el);
+    while (log.children.length > 6) log.firstChild.remove();
+    setTimeout(() => el.classList.add('old'), 15000);
+    setTimeout(() => el.remove(), 16000);
+  }
+
+  // Shells: the money of the peace-time town (shown in peace only, by the CSS).
+  setShells(n) {
+    if (n === this.lastShells) return;
+    this.lastShells = n;
+    $('purse').textContent = `🐚 ${n} SHELL${n === 1 ? '' : 'S'}`;
+  }
+
+  // The tailor's counter: every hat and cape, and what pressing its button would do.
+  // look: what I'm wearing now. wardrobe: CLOTHES keys I've bought.
+  tailor(shells, wardrobe, look) {
+    $('tailor-purse').textContent = `YOU HAVE 🐚 ${shells} · BOUGHT CLOTHES ARE YOURS, WEAR THEM ANY TIME HERE`;
+    const rows = Object.entries(CLOTHES).map(([k, c]) => {
+      const owned = wardrobe.includes(k), on = look[c.slot] === k;
+      const [label, item, cls] = on ? ['TAKE OFF', c.slot, 'minor']
+        : owned ? ['WEAR', k, '']
+        : shells >= c.cost ? [`BUY · ${c.cost} 🐚`, k, ''] : [`${c.cost} 🐚`, '', 'poor'];
+      return `<div class="shop-row${on ? ' on' : ''}"><span class="shop-name">${c.name}</span>`
+        + `<button class="${cls}" data-item="${item}"${item ? '' : ' disabled'}>${label}</button></div>`;
+    });
+    $('tailor-items').innerHTML = rows.join('');
+  }
+
+  // The duel ring's weapon rack: the padded club and every weapon of every age. current: the
+  // name of what I'm holding.
+  rack(current) {
+    const AGE = { tool: 'PADDED', primitive: 'STONE AGE', sword: 'SHINY ROCK AGE', future: 'ZAP AGE' };
+    $('rack-items').innerHTML = DUEL_WEAPONS.map(type => {
+      const w = duelWeapon(type);
+      return `<button class="rack-item${w.name === current ? ' on' : ''}" data-type="${type}">`
+        + `<b>${esc(w.name.toUpperCase())}</b><small>${AGE[w.pool]} · BONK ${w.dmg}</small></button>`;
+    }).join('');
+  }
+
+  // The range shed's rack: every age's ranged weapon, and the ones you only get here. current: the
+  // practice weapon I've got (RANGED key), if any.
+  shed(current) {
+    const where = Object.fromEntries(ERAS.map(e => [e.ranged, e.name]));
+    $('shed-items').innerHTML = PRACTICE_WEAPONS.map(k => {
+      const w = RANGED[k];
+      return `<button class="rack-item${k === current ? ' on' : ''}${w.peace ? ' only' : ''}" data-w="${k}">`
+        + `<b>${esc(w.name.toUpperCase())}</b><small>${w.peace ? 'ONLY HERE' : where[k] || ''} · ${w.ammo} A LOAD</small></button>`;
+    }).join('') + (current ? '<button class="rack-item stop" data-w=""><b>✋ HAND IT BACK</b><small>STOP PRACTICE</small></button>' : '');
+  }
+
+  // While I've got a practice weapon: where to take it back (null: none).
+  practiceNote(text) {
+    if (text === this.lastPracticeNote) return;
+    this.lastPracticeNote = text;
+    $('practice-note').classList.toggle('hidden', !text);
+    if (text) $('practice-note').textContent = text;
+  }
+
+  // The vote to keep farming: open while game.vote; mine: 'yes' | 'no' | null.
+  vote(game, mine) {
+    const open = !!game.vote && this.root && !this.root.classList.contains('hidden');
+    $('vote').classList.toggle('hidden', !open);
+    if (!open) return;
+    const key = `${game.yes}${game.no}${mine}`;
+    if (key === this.lastVote) return;
+    this.lastVote = key;
+    $('vote-count').textContent = `${game.yes} YES · ${game.no} NO`;
+    $('vote-yes').classList.toggle('on', mine === 'yes');
+    $('vote-no').classList.toggle('on', mine === 'no');
   }
 
   // Co-op banner: which wave, how many bots are left and in what age; between waves, the countdown.
@@ -161,13 +271,20 @@ export class Hud {
   // disaster: DISASTERS key if the world ended, null if time just ran out.
   // wave: co-op only, the wave the tribe got wiped on.
   // profit: the Businessman's take this round, in shiny rocks. buried: the end of the world got him.
-  roundEnd(standings, myId, left, disaster = null, wave = 0, profit = 0, buried = false) {
+  // harvest: Ploughshares, the tribe voted to stop farming (standings: k = food picked, d = built).
+  roundEnd(standings, myId, left, disaster = null, wave = 0, profit = 0, buried = false, harvest = false) {
     if (!standings) { $('roundend').classList.add('hidden'); return; }
-    $('re-profit').textContent = profit ? `THE BUSINESSMAN ${buried ? 'WAS BURIED WITH' : 'MADE'} ${profit.toLocaleString('en-US')} SHINY ROCKS` : '';
+    $('re-profit').textContent = harvest ? 'THE BUSINESSMAN MADE NOTHING. NOBODY NEEDED SPEARS.'
+      : profit ? `THE BUSINESSMAN ${buried ? 'WAS BURIED WITH' : 'MADE'} ${profit.toLocaleString('en-US')} SHINY ROCKS` : '';
+    $('re-col-k').textContent = harvest ? 'FOOD' : 'BONKS';
+    $('re-col-d').textContent = harvest ? 'BUILT' : 'DEATHS';
     const doom = DISASTERS[disaster];
     $('roundend').classList.remove('hidden');
     const [win] = standings;
-    if (wave) {
+    if (harvest) {
+      $('re-title').textContent = 'HARVEST FESTIVAL!';
+      $('re-winner').innerHTML = win ? `MOST FOOD: ${esc(win.name.toUpperCase())} (${win.k})` : 'NOBODY FARMED';
+    } else if (wave) {
       $('re-title').textContent = `TRIBE WIPED · WAVE ${wave}`;
       $('re-winner').innerHTML = win ? `MOST BONKS: ${esc(win.name.toUpperCase())} (${win.k})` : 'NOBODY BONK';
     } else {
@@ -230,11 +347,13 @@ export class Hud {
   setCooldown(frac) { this.wcCd.style.width = `${Math.max(0, 1 - frac) * 100}%`; }
 
   // buffs: [{ kind, left }] from magic mushrooms, shown with their seconds left
-  setStatus({ stun, slow, bleed, buffs = [] }) {
-    const key = `${stun ? 1 : 0}${slow ? 1 : 0}${bleed ? 1 : 0}${buffs.map(b => b.kind + b.left).join()}`;
+  setStatus({ stun, slow, bleed, limp, hungry, buffs = [] }) {
+    const key = `${stun ? 1 : 0}${slow ? 1 : 0}${bleed ? 1 : 0}${limp ? 1 : 0}${hungry ? 1 : 0}${buffs.map(b => b.kind + b.left).join()}`;
     if (key === this.lastStatus) return;
     this.lastStatus = key;
     this.statusEl.innerHTML = [
+      limp && '<span class="status bleed">LIMPING · SEE DOCTOR</span>',
+      hungry && '<span class="status slow">HUNGRY</span>',
       stun && '<span class="status stun">STUNNED</span>',
       slow && '<span class="status slow">SLOWED</span>',
       bleed && '<span class="status bleed">BLEEDING</span>',
@@ -330,6 +449,7 @@ export class Hud {
       else if (it.kind === 'loot') { g.moveTo(x, y - 4); g.lineTo(x + 3.5, y); g.lineTo(x, y + 4); g.lineTo(x - 3.5, y); g.closePath(); }
       else if (it.kind === 'volcano') { g.moveTo(x, y - 8); g.lineTo(x + 8, y + 6); g.lineTo(x - 8, y + 6); g.closePath(); }
       else if (it.kind === 'boulder') g.arc(x, y, 6, 0, Math.PI * 2);
+      else if (it.kind === 'shop') g.rect(x - 5.5, y - 5.5, 11, 11);
       else if (it.kind === 'beast') { g.arc(x, y, 8, 0, Math.PI * 2); g.moveTo(x + 3, y); g.arc(x, y, 3, 0, Math.PI * 2, true); }
       else if (it.kind === 'danger') { g.arc(x, y, 7, 0, Math.PI * 2); g.globalAlpha *= 0.6; }
       else if (it.kind === 'armor') { g.moveTo(x - 6, y - 6); g.lineTo(x + 6, y - 6); g.lineTo(x + 5, y + 2); g.lineTo(x, y + 7); g.lineTo(x - 5, y + 2); g.closePath(); }

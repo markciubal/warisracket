@@ -8,12 +8,16 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Spear Sphere</title>
+  <title>War is Racket</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&family=Rubik+Dirt&display=swap" rel="stylesheet">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="War is Racket">
+  <meta name="theme-color" content="#140f1f">
+  <link rel="stylesheet" href="fonts/fonts.css">
   <link rel="stylesheet" href="style.css">
   <script type="importmap">
     { "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }
@@ -33,6 +37,7 @@
       <div id="era-bar"><div id="era-fill"></div></div>
       <div id="era-next"></div>
       <div id="era-dots"></div>
+      <div id="era-calm"></div>
     </div>
 
     <div id="top-right">
@@ -43,6 +48,20 @@
     </div>
 
     <div id="erupt-warning" class="hidden">MOUNTAIN ANGRY! FIRE ROCKS COMING!</div>
+
+    <!-- Ploughshares, in peace: the tribe can talk, one beat per word (Enter, or 💬 on phones) -->
+    <div id="chat">
+      <div id="chat-log"></div>
+      <form id="chat-form" class="hidden" autocomplete="off">
+        <input id="chat-input" type="text" maxlength="80" spellcheck="false" enterkeyhint="send" placeholder="TALK. ONE SOUND AT A TIME.">
+        <button type="submit">SAY</button>
+        <div id="chat-hint"></div>
+      </form>
+      <div id="chat-tip" class="desk-only">ENTER · TALK</div>
+    </div>
+
+    <!-- Ploughshares: while you've got a practice weapon from a range shed -->
+    <div id="practice-note" class="hidden"></div>
 
     <div id="crosshair"></div>
     <div id="center-msg"></div>
@@ -61,6 +80,13 @@
         <div id="armor-bar"><div id="armor-fill"></div></div>
       </div>
       <div id="status-icons"></div>
+      <div id="purse"></div>
+    </div>
+
+    <!-- Ploughshares, in peace: what the throw button builds -->
+    <div id="build-panel" class="stone">
+      <div id="build-what"></div>
+      <div class="hint desk-only"><span class="btn-melee">LMB</span> PLANT · <span class="btn-ranged">RMB</span> BUILD · Q NEXT</div>
     </div>
 
     <div id="spear-box" class="stone">
@@ -91,6 +117,7 @@
     <div id="stick"><div id="stick-knob"></div></div>
     <div id="t-top">
       <div class="tbtn small" id="t-tilt" title="Tilt: tap to set straight ahead"><i id="t-tilt-gauge"></i></div>
+      <div class="tbtn small hidden" id="t-chat" title="Talk">💬</div>
       <div class="tbtn small" id="t-grunt" title="Grunt">🗣</div>
       <div class="tbtn small" id="t-tribe" title="Scores, settings, rules">☰</div>
     </div>
@@ -114,6 +141,16 @@
 
   <div id="net-banner" class="hidden"></div>
 
+  <!-- Ploughshares: the vote to keep farming (keys Y / N, or tap) -->
+  <div id="vote" class="stone hidden">
+    <div class="vote-q">KEEP FARMING?</div>
+    <div class="row">
+      <button id="vote-yes">YES <span class="desk-only">(Y)</span></button>
+      <button id="vote-no">NO <span class="desk-only">(N)</span></button>
+    </div>
+    <div id="vote-count"></div>
+  </div>
+
   <!-- desktop pause: the mouse is free (Esc). Clicking anywhere that isn't a button goes back in. -->
   <div id="lock-hint" class="hidden">
     <div>CLICK TO OOGA</div>
@@ -135,7 +172,7 @@
     <div class="tablet">
       <h1 id="re-title">TIME DONE!</h1>
       <p id="re-winner"></p>
-      <table><thead><tr><th></th><th>CAVEMAN</th><th>BONKS</th><th>DEATHS</th></tr></thead><tbody id="re-rows"></tbody></table>
+      <table><thead><tr><th></th><th>CAVEMAN</th><th id="re-col-k">BONKS</th><th id="re-col-d">DEATHS</th></tr></thead><tbody id="re-rows"></tbody></table>
       <p id="re-profit"></p>
       <p id="re-timer"></p>
     </div>
@@ -153,6 +190,51 @@
         <p class="rules-note" id="council-note"></p>
       </div>
       <button id="council-close">BACK TO BONKING</button>
+    </div>
+  </div>
+
+  <!-- Ploughshares, in the town: the tailor's counter (E at the tailor) -->
+  <div id="tailor" class="hidden">
+    <div class="tablet panel">
+      <div class="panel-head">
+        <h1>TAILOR</h1>
+        <button class="close-x" id="tailor-x" title="Close (Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body">
+        <p class="rules-note" id="tailor-purse"></p>
+        <div id="tailor-items"></div>
+      </div>
+      <button id="tailor-close">DONE</button>
+    </div>
+  </div>
+
+  <!-- ...the range shed (E at a target range): a practice weapon to take anywhere -->
+  <div id="shed" class="hidden">
+    <div class="tablet panel">
+      <div class="panel-head">
+        <h1>RANGE SHED</h1>
+        <button class="close-x" id="shed-x" title="Close (Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body">
+        <p class="rules-note">TAKE ONE ANYWHERE. THE TARGETS PAY 1 🐚 A HIT. BRING IT BACK HERE TO STOP.</p>
+        <div id="shed-items"></div>
+      </div>
+      <button id="shed-close">DONE</button>
+    </div>
+  </div>
+
+  <!-- ...and the duel ring's weapon rack (E in the ring) -->
+  <div id="rack" class="hidden">
+    <div class="tablet panel">
+      <div class="panel-head">
+        <h1>WEAPON RACK</h1>
+        <button class="close-x" id="rack-x" title="Close (Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body">
+        <p class="rules-note">ANY WEAPON YOU LIKE. NOBODY IN THE RING GOES BELOW 1 HP.</p>
+        <div id="rack-items"></div>
+      </div>
+      <button id="rack-close">DONE</button>
     </div>
   </div>
 
@@ -185,7 +267,7 @@
   <!-- two groups: you (name, look) and the game (rock, rules, play). Side by side on a sideways phone. -->
   <div id="lobby">
     <div class="tablet lobby-tablet">
-      <h1 class="title">SPEAR<span>SPHERE</span></h1>
+      <h1 class="title">WAR IS<span>RACKET</span></h1>
       <div class="lobby-cols">
         <div class="lobby-me">
           <label for="name">CAVE NAME</label>
@@ -212,9 +294,11 @@
               <button id="room-go" disabled>JOIN</button>
             </div>
             <div class="rules-note" id="room-note"></div>
+            <button id="room-offline" class="minor" title="Your own rock, in this browser: you and the bots, no internet needed">PLAY OFFLINE</button>
           </div>
 
-          <!-- on a rock: its code to share, its rules (folded away), and in you go -->
+          <!-- on a rock: its code to share, its rules (open to start with, to change before playing; they
+               fold away), and in you go -->
           <div id="room-in" class="hidden">
             <label>ROCK CODE</label>
             <div class="row room-code-row">
@@ -222,7 +306,8 @@
               <button id="room-copy" class="minor">COPY LINK</button>
               <button id="room-leave" class="minor" title="Make or join a different rock">OTHER ROCK</button>
             </div>
-            <details class="fold" id="rules-box">
+            <div class="rules-note" id="room-mode"></div>
+            <details class="fold" id="rules-box" open>
               <summary id="rules-sum">RULES</summary>
               <div class="rules" id="lobby-rules"></div>
               <div class="rules-note" id="lobby-note"></div>
@@ -233,7 +318,9 @@
 
           <div class="row lobby-foot">
             <button id="open-settings" class="minor">⚙ SETTINGS</button>
+            <button id="get-app" class="minor hidden" title="Install War is Racket: it opens like an app, and plays offline">⬇ GET THE APP</button>
           </div>
+          <div class="rules-note hidden" id="app-hint"></div>
           <details class="fold how">
             <summary>CONTROLS</summary>
             <div class="controls touch-only">

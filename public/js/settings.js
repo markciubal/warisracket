@@ -29,6 +29,7 @@ export const DEFAULTS = {
   dmgNumbers: true,
   fps: false,
   ping: false,         // latency readout under the radar (off to start: one less thing on screen)
+  chat: true,          // Ploughshares: peace chat (seeing it, and talking)
 };
 
 const pct = v => `${v}%`;
@@ -63,6 +64,7 @@ export const SCHEMA = [
   { key: 'flashes', label: 'SCREEN FLASHES', type: 'range', min: 0, max: 100, step: 10, fmt: v => (v ? pct(v) : 'OFF'),
     desc: 'RED HURT FLASH, AGE CHANGE GLOW, END-OF-WORLD WHITEOUT.' },
   { key: 'dmgNumbers', label: 'DAMAGE NUMBERS', type: 'seg', options: onOff },
+  { key: 'chat', label: 'PEACE CHAT', type: 'seg', options: onOff, desc: 'ONCE PEACE BREAKS OUT THE TRIBE CAN TALK, ONE SOUND AT A TIME. OFF HIDES IT.' },
   { key: 'fps', label: 'SHOW FPS', type: 'seg', options: onOff },
   { key: 'ping', label: 'SHOW PING', type: 'seg', options: onOff,
     desc: 'YOUR LATENCY TO THE CAVE SERVER, THERE AND BACK. GREEN GOOD, YELLOW OKAY, RED LAGGY.' },

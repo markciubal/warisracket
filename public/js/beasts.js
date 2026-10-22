@@ -1,6 +1,7 @@
 // Killstreak beasts: an attack dog, a mammoth and a T-Rex, built from boxes, cones and squashed
 // spheres like everything else. Each has a walk cycle, its attack moves, a death, and a name tag
-// with a health bar ("GRONK'S MAMMOTH").
+// with a health bar ("GRONK'S MAMMOTH"). The monsters of a haunted hollow (Ploughshares) are beasts
+// too: a ghost and a skeleton.
 import * as THREE from 'three';
 import { BEASTS } from '/shared/constants.js';
 import { mat, mergeChildren, shadows, placeOnSphere } from './util.js';
@@ -179,9 +180,76 @@ function buildTrex() {
   return { root, body, torso, neck, head, jaw, legs, tail, tagY: 6.6 };
 }
 
-const BUILD = { dog: buildDog, mammoth: buildMammoth, trex: buildTrex };
+// A ghost: a sheet with holes for eyes, hovering and bobbing, little arms out. See-through.
+function buildGhost() {
+  const root = new THREE.Group();
+  const body = pivot(root);
+  const float = pivot(body, 0, 0.45, 0);
+  const sheet = new THREE.MeshLambertMaterial({ color: '#f4f2ff', emissive: '#6c6890', emissiveIntensity: 0.4, transparent: true, opacity: 0.85, flatShading: true, side: THREE.DoubleSide });
+  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.62, 1.1, 12, 1, true), sheet);
+  skirt.position.y = 0.55;
+  float.add(skirt);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), sheet);
+  dome.position.y = 1.1;
+  float.add(dome);
+  // a ragged hem
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const tip = new THREE.Mesh(cone(0.13, 0.28, 4), sheet);
+    tip.position.set(Math.cos(a) * 0.55, -0.1, Math.sin(a) * 0.55);
+    tip.rotation.x = Math.PI;
+    float.add(tip);
+  }
+  for (const s of [-1, 1]) part(float, ball(0.08, 0.8, 1.3, 0.5), '#120d1a', s * 0.15, 1.18, 0.41);
+  part(float, ball(0.09, 1.2, 0.8, 0.5), '#120d1a', 0, 0.92, 0.44);   // "oooo"
+  const arms = [-1, 1].map(s => {
+    const arm = pivot(float, s * 0.46, 0.85, 0);
+    const nub = new THREE.Mesh(cone(0.11, 0.42, 6), sheet);
+    nub.position.x = s * 0.18;
+    nub.rotation.z = s * -Math.PI / 2;
+    arm.add(nub);
+    return arm;
+  });
+  return { root, body, float, arms, tagY: 2.9 };
+}
+
+// A skeleton: bones, a grinning skull, and a bone club in its right hand.
+function buildSkeleton() {
+  const root = new THREE.Group();
+  const body = pivot(root);
+  const bone = '#ece4cc', dark = '#1a1410';
+  const hips = pivot(body, 0, 0.95, 0);
+  part(hips, box(0.4, 0.1, 0.18), bone);
+  const legs = [-1, 1].map(s => {
+    const leg = pivot(hips, s * 0.13, 0, 0);
+    part(leg, cyl(0.035, 0.035, 0.9), bone, 0, -0.45, 0);
+    part(leg, box(0.1, 0.05, 0.22), bone, 0, -0.92, 0.05);
+    return leg;
+  });
+  const torso = pivot(hips, 0, 0.05, 0);
+  part(torso, cyl(0.035, 0.035, 0.75), bone, 0, 0.37, -0.06);
+  for (let i = 0; i < 4; i++) {
+    const rib = part(torso, new THREE.TorusGeometry(0.2 - i * 0.015, 0.024, 4, 12, Math.PI * 1.4), bone, 0, 0.3 + i * 0.12, 0);
+    rib.rotation.set(Math.PI / 2, 0, Math.PI * 0.8);
+  }
+  const head = pivot(torso, 0, 0.82, 0);
+  part(head, ball(0.19, 1, 1.05, 1.05), bone, 0, 0.12, 0);
+  part(head, box(0.2, 0.08, 0.16), bone, 0, -0.04, 0.05);
+  for (const s of [-1, 1]) part(head, ball(0.05), dark, s * 0.075, 0.13, 0.165);
+  for (let i = 0; i < 5; i++) part(head, box(0.02, 0.04, 0.02), dark, -0.06 + i * 0.03, -0.01, 0.13);   // teeth
+  const arms = [-1, 1].map(s => {
+    const arm = pivot(torso, s * 0.25, 0.6, 0);
+    part(arm, cyl(0.03, 0.03, 0.62), bone, 0, -0.31, 0);
+    return arm;
+  });
+  const club = part(arms[0], cyl(0.05, 0.09, 0.62), bone, 0, -0.66, 0.24);
+  club.rotation.x = Math.PI / 2;
+  return { root, body, torso, head, arms, legs, tagY: 2.6 };
+}
+
+const BUILD = { dog: buildDog, mammoth: buildMammoth, trex: buildTrex, ghost: buildGhost, skeleton: buildSkeleton };
 // how long each move's animation runs (s)
-const MOVE_TIME = { pounce: 0.6, bite: 0.3, tusk: 0.6, trample: 0.3, chomp: 0.6, roar: 1.2 };
+const MOVE_TIME = { pounce: 0.6, bite: 0.3, tusk: 0.6, trample: 0.3, chomp: 0.6, roar: 1.2, swipe: 0.5 };
 const TEAM_COLOR = { mine: '#ffd34d', ally: '#8dff9a', foe: '#ff8a7a' };
 
 export class Beast {
@@ -273,7 +341,7 @@ export class Beast {
     const mt = this.move ? this.moveT / MOVE_TIME[this.move] : 1;
     if (mt >= 1) this.move = null;
     const env = this.move ? Math.sin(Math.PI * Math.min(1, mt)) : 0;   // 0 -> 1 -> 0 over the move
-    const stride = { dog: 1.9, mammoth: 0.75, trex: 0.7 }[this.kind];
+    const stride = { dog: 1.9, mammoth: 0.75, trex: 0.7, ghost: 1, skeleton: 1.7 }[this.kind];
     this.walk += dt * Math.min(speed, this.def.speed * 2) * stride;
     const w = this.walk;
     const going = Math.min(1, speed / 2);
@@ -300,6 +368,24 @@ export class Beast {
       this.head.rotation.x = -0.55 * (this.move === 'tusk' ? env : 0);
       this.head.rotation.z = 0.3 * (this.move === 'tusk' ? env : 0);
       this.tail.rotation.x = Math.sin(t * 2.5) * 0.4;
+    } else if (this.kind === 'ghost') {
+      // it hovers and bobs, leans into a glide, and lunges with both arms for a BOO
+      const boo = this.move === 'swipe' ? env : 0;
+      this.float.position.y = 0.45 + Math.sin(t * 2.2) * 0.14;
+      this.body.rotation.x = 0.18 * going + 0.3 * boo;
+      this.arms.forEach((arm, i) => {
+        arm.rotation.z = (i ? -1 : 1) * (0.5 - 0.4 * boo) + Math.sin(t * 3 + i) * 0.12;
+        arm.rotation.y = (i ? 1 : -1) * 0.9 * boo;
+      });
+    } else if (this.kind === 'skeleton') {
+      // a stiff walk, a rattling skull, and the club coming over for a swipe
+      const a = Math.sin(w) * 0.6 * going;
+      this.legs[0].rotation.x = a;
+      this.legs[1].rotation.x = -a;
+      this.arms[1].rotation.x = -a * 0.6;
+      this.arms[0].rotation.x = this.move === 'swipe' ? -2.4 * Math.sin(Math.PI * Math.min(1, mt * 0.8)) : a * 0.6;
+      this.head.rotation.z = Math.sin(t * 9) * 0.06;
+      this.head.rotation.x = 0.25 * (this.move === 'swipe' ? env : 0);
     } else {
       const a = Math.sin(w) * 0.55 * going;
       this.legs.forEach((leg, i) => {

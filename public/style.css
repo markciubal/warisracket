@@ -141,6 +141,8 @@ button:disabled { filter: grayscale(0.8) brightness(0.8); cursor: wait; }
 #reroll-name { padding: 6px 10px; }
 
 #play { margin-top: 12px; width: 100%; font-size: 23px; padding: 8px; }
+/* the rules start open, so on a short screen PLAY sticks to the bottom and they scroll under it */
+#play { position: sticky; bottom: 10px; z-index: 2; filter: drop-shadow(0 4px 10px rgba(10, 6, 18, 0.6)); }
 
 #online { margin-top: 6px; font-size: 12px; color: #2b241d; min-height: 15px; }
 
@@ -458,7 +460,7 @@ body.details #wc-stats { display: grid; grid-template-columns: 74px 1fr 38px; ga
 #scoreboard .hint { margin-top: 10px; text-align: center; font-size: 12px; color: #2b241d; }
 
 /* ---------------------------------------------------------------- round end & council */
-#roundend, #council, #settings {
+#roundend, #council, #settings, #tailor, #rack, #shed {
   position: fixed;
   inset: 0;
   display: flex;
@@ -468,7 +470,7 @@ body.details #wc-stats { display: grid; grid-template-columns: 74px 1fr 38px; ga
   background: radial-gradient(ellipse at center, rgba(20, 12, 30, 0.25), rgba(10, 6, 18, 0.7));
 }
 #roundend { z-index: 15; pointer-events: none; }
-#council { z-index: 22; }
+#council, #tailor, #rack, #shed { z-index: 22; }
 
 /* ---------------------------------------------------------------- panels (council, settings) */
 /* title (with its ✕) and the bottom buttons stay put; only the middle scrolls on short screens */
@@ -566,7 +568,7 @@ button.minor {
 #lock-hint button { font-size: 14px; text-shadow: none; }
 #lock-quit, #settings-quit { min-width: 92px; }   /* same size when it turns into SURE? */
 #lock-hint #lock-resume { font-size: 16px; }
-#roundend h1, #council h1 { margin: 0 0 4px; font-size: 30px; color: #f7d58b; text-shadow: 0 3px 0 #6b3a12; }
+#roundend h1, #council h1, #tailor h1, #rack h1, #shed h1 { margin: 0 0 4px; font-size: 30px; color: #f7d58b; text-shadow: 0 3px 0 #6b3a12; }
 #council h1 { font-size: 28px; }
 #re-winner { margin: 2px 0 8px; font-size: 17px; color: #ffd34d; text-shadow: 0 2px 0 #3a1f08; }
 #roundend table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -641,6 +643,85 @@ details.fold[open] summary { margin-bottom: 8px; }
 #vignette.blast { background: radial-gradient(ellipse at center, rgba(255, 255, 240, 0.95), rgba(255, 200, 120, 0.9)); }
 #vignette.water { background: radial-gradient(ellipse at center, rgba(120, 190, 240, 0.85), rgba(20, 70, 130, 0.95)); }
 #vignette.cold { background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.95), rgba(190, 225, 255, 0.9)); }
+
+/* Ploughshares: is the peace holding this age; in peace, the plough age and the tribe's food */
+#era-calm { margin-top: 2px; font-size: 11px; text-shadow: 0 1px 0 #000; }
+#era-calm:empty { display: none; }
+#era-calm.calm { color: #b8f08a; }
+#era-calm.broken { color: #ff8a6a; }
+#era-panel.peace { background: linear-gradient(160deg, #8fae5a, #5f7f36 55%, #3f5a24); }
+#era-panel.peace #era-name { color: #fff3c4; }
+#era-panel.peace #era-next { color: #20330f; }
+#era-dots .food { font-size: 12px; font-weight: 400; color: #fff3c4; text-shadow: 0 1px 0 #20330f; }
+
+/* in peace: the build panel takes the ammo box's place */
+#build-panel { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: 236px; padding: 6px 10px 5px; text-align: center; }
+#build-what { font-size: 15px; color: #fff3d0; text-shadow: 0 2px 0 #000; }
+#build-what.poor { color: #d9b9a0; opacity: 0.75; }
+#build-panel .hint { margin-top: 2px; font-size: 11px; color: #2b241d; }
+body:not(.peace) #build-panel, body.peace:not(.practicing) #spear-box, body.practicing #build-panel, body.touch #build-panel { display: none !important; }
+
+/* the town: shells (peace only), and the tailor's counter */
+#purse { margin-top: 4px; font-size: 13px; color: #ffe9a8; text-shadow: 0 1px 0 #000; }
+body:not(.peace) #purse { display: none; }
+#tailor .tablet { width: min(420px, 100%); }
+#tailor-close, #rack-close, #shed-close { margin-top: 12px; width: 100%; }
+#rack .tablet, #shed .tablet { width: min(560px, 100%); }
+#rack-items, #shed-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
+.rack-item.only { background: linear-gradient(#9fd86a, #5f9a32); }
+.rack-item.stop { background: linear-gradient(#e8dcc0, #b9a888); }
+/* while you've got a practice weapon: take it back to the shed to stop */
+#practice-note { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); padding: 4px 12px 2px; font-size: 13px; color: #ffe9a8; background: rgba(20, 12, 6, 0.62); border: 2px solid rgba(255, 211, 77, 0.5); border-radius: 10px; text-shadow: 0 1px 0 #000; white-space: nowrap; pointer-events: none; }
+body.touch #practice-note { top: calc(84px + var(--st)); bottom: auto; font-size: 11px; }
+/* the range shed's own ammo: stones, tomatoes, rockets */
+#spear-icons.pebbles .spear-icon::after { background: #8d8a83; }
+#spear-icons.tomatoes .spear-icon::after { background: #d8382c; }
+#spear-icons.rockets .spear-icon::before { left: 4px; top: 10px; width: 10px; height: 38px; border-radius: 4px; background: #5f7040; }
+#spear-icons.rockets .spear-icon::after { left: 4px; border-left-width: 5px; border-right-width: 5px; border-bottom-color: #c8402a; }
+.rack-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 5px 9px; font-size: 13px; text-align: left; }
+.rack-item small { font-size: 10px; opacity: 0.75; }
+.rack-item.on { outline: 3px solid #ffe066; outline-offset: 1px; }
+.shop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 2px; border-bottom: 2px solid rgba(43, 36, 29, 0.18); }
+.shop-row.on .shop-name { color: #2f6b12; }
+.shop-row.on .shop-name::after { content: ' ✓'; }
+.shop-name { font-size: 15px; color: #2b241d; }
+.shop-row button { font-size: 13px; padding: 3px 12px; min-width: 104px; }
+.shop-row button.poor { opacity: 0.55; }
+
+/* in peace: the tribe talks, one beat per word */
+#chat { position: absolute; left: 14px; bottom: 98px; width: 340px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+#chat-log { display: flex; flex-direction: column; gap: 3px; }
+.chat-line { align-self: flex-start; max-width: 100%; padding: 3px 9px 2px; font-size: 13px; color: #fff3d6; background: rgba(20, 12, 6, 0.55); border-radius: 8px; text-shadow: 0 1px 0 #000; overflow-wrap: anywhere; transition: opacity 1s; }
+.chat-line b { color: #ffd34d; font-weight: 400; margin-right: 6px; }
+.chat-line.me b { color: #8dff9a; }
+.chat-line.note { color: #ffb3a0; }
+.chat-line.old { opacity: 0; }
+#chat-form { pointer-events: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+#chat-input { flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 5px 9px 3px; border: 3px solid var(--ink); border-radius: 8px; background: var(--bone); color: var(--ink); text-transform: uppercase; }
+#chat-input:focus { outline: none; box-shadow: 0 0 0 3px rgba(255, 224, 102, 0.6); }
+#chat-form button { font-size: 13px; padding: 3px 12px; }
+#chat-hint { width: 100%; font-size: 11px; color: #fff3d6; text-shadow: 0 1px 0 #000; }
+#chat-hint.bad { color: #ff8a6a; }
+#chat-form.no { animation: chatNo 0.08s 4 alternate; }
+@keyframes chatNo { to { transform: translateX(5px); } }
+#chat-tip { font-size: 11px; color: rgba(255, 243, 214, 0.7); text-shadow: 0 1px 0 #000; }
+body:not(.peace) #chat-form, body:not(.peace) #chat-tip, body.chatting #chat-tip, body.no-chat #chat { display: none; }
+.floater.emote.chat { white-space: normal; width: max-content; max-width: 230px; text-align: center; }
+
+/* the vote to keep farming */
+#vote { position: fixed; top: 96px; left: 50%; transform: translateX(-50%); z-index: 10;   /* above the pause screen */ padding: 8px 14px 6px; text-align: center; }
+#vote .vote-q { font-size: 18px; color: #f7d58b; text-shadow: 0 2px 0 #3a1f08; }
+#vote .row { margin-top: 6px; gap: 10px; }
+#vote button { font-size: 14px; padding: 4px 14px; }
+#vote button.on { outline: 3px solid #ffe066; outline-offset: 1px; }
+#vote button span { font-size: 11px; opacity: 0.7; }
+#vote-count { margin-top: 4px; font-size: 11px; color: #2b241d; }
+body.touch #vote { top: calc(74px + var(--st)); }
+body.touch #chat { top: calc(150px + var(--st)); bottom: auto; left: calc(8px + var(--sl)); width: min(300px, 42vw); }
+body.touch .chat-line { font-size: 11px; }
+body.touch #chat-log .chat-line:nth-last-child(n + 5) { display: none; }
+/* (on a phone the box goes up top, under the age panel, clear of the buttons and the keyboard) */
+body.touch #chat-form { position: fixed; top: calc(84px + var(--st)); left: 50%; width: min(460px, 64vw); margin-left: max(-230px, -32vw); z-index: 30; }
 
 #erupt-warning {
   position: absolute;

@@ -1,6 +1,10 @@
 // Shared tuning, weapon tables and caveman flavor. Imported by both server and browser.
 
-export const R = 30;                 // planet radius
+// Planet radius. It grows when peace breaks out in Ploughshares, so it's a live binding: import it
+// by name (`import { R }`), never copy it out (`const { R } = C` would freeze it).
+export let R = 30;
+export const PLANET_R = 30;          // the usual size, for every new round
+export function setPlanetRadius(r) { R = r; }
 export const TICK_HZ = 60;           // server simulation rate
 export const SNAP_EVERY = 3;         // ticks per snapshot (20 Hz)
 export const GRAVITY = 20;           // pull toward planet center for spears, arrows & lava bombs
@@ -27,6 +31,8 @@ export const PROJECTILE = {
 // auto: fires while the button is held. hitscan: instant straight beam out to `range`.
 // sticks: false means it vanishes on impact instead of lying around to be picked up.
 // flight: seconds before a miss is cleaned up. burst: shots per bot volley. spread: radians.
+// peace: only from a Ploughshares range shed, never in a war. blast: goes off where it lands,
+// rattling every target within this far. splat: splats on whatever it hits.
 export const RANGED = {
   spear:   { name: 'Spear',      proj: 'spear',  ammo: 3,  regen: 5,    chargeTime: 0.9,  minSpeed: 13, maxSpeed: 31, minDmg: 28, maxDmg: 60, headMult: 1.5,  hitRadius: 0.65, lift: 0.5,  cooldown: 0.35, botPace: 1,
     hint: 'HOLD RMB · THROW SPEAR' },
@@ -40,7 +46,19 @@ export const RANGED = {
     sticks: false, flight: 1.5, auto: true, spread: 0.018, burst: [4, 8], hint: 'HOLD RMB · BANG BANG BANG' },
   laser:   { name: 'Zap Stick',  proj: 'laser',  ammo: 14, regen: 0.3,  chargeTime: 0,    minSpeed: 0,  maxSpeed: 0,  minDmg: 20, maxDmg: 20, headMult: 1.75, hitRadius: 0.5,  lift: 0,    cooldown: 0.16, botPace: 0.4,
     hitscan: true, range: 60, auto: true, burst: [3, 6], hint: 'HOLD RMB · ZAP ZAP' },
+  // only at the range shed, in peace
+  slingshot: { name: 'Slingshot', proj: 'pebble', ammo: 5, regen: 1.2,  chargeTime: 0.5,  minSpeed: 18, maxSpeed: 38, minDmg: 6,  maxDmg: 12, headMult: 1.5,  hitRadius: 0.4,  lift: 0.22, cooldown: 0.3,  botPace: 0.6,
+    sticks: false, flight: 3, peace: true, hint: 'HOLD RMB · PULL · LET GO · PING' },
+  crossbow:  { name: 'Crossbow',  proj: 'arrow',  ammo: 1, regen: 1.1,  chargeTime: 0,    minSpeed: 62, maxSpeed: 62, minDmg: 40, maxDmg: 40, headMult: 1.75, hitRadius: 0.5,  lift: 0.06, cooldown: 0.9,  botPace: 0.8,
+    peace: true, hint: 'RMB · THWACK' },
+  tomato:    { name: 'Tomatoes',  proj: 'tomato', ammo: 4, regen: 1.5,  chargeTime: 0.6,  minSpeed: 10, maxSpeed: 24, minDmg: 1,  maxDmg: 3,  headMult: 1,    hitRadius: 0.5,  lift: 0.45, cooldown: 0.4,  botPace: 0.7,
+    sticks: false, flight: 4, splat: true, peace: true, hint: 'HOLD RMB · LOB · SPLAT' },
+  bazooka:   { name: 'Bazooka',   proj: 'rocket', ammo: 1, regen: 3,    chargeTime: 0,    minSpeed: 40, maxSpeed: 40, minDmg: 80, maxDmg: 80, headMult: 1,    hitRadius: 0.6,  lift: 0.05, cooldown: 1,    botPace: 1.2,
+    sticks: false, flight: 2.5, blast: 3.5, peace: true, hint: 'RMB · ROCKET · BOOM' },
 };
+
+// The range shed's rack (Ploughshares): every age's ranged weapon, and the ones you only get there.
+export const PRACTICE_WEAPONS = ['spear', 'bow', 'longbow', 'musket', 'gun', 'laser', 'slingshot', 'crossbow', 'tomato', 'bazooka'];
 
 // ---------------------------------------------------------------- Do Time eras
 // In Do Time mode a round walks through these in order; Forever Stone stays in the first.
@@ -95,7 +113,101 @@ export const DOTIME = {
   armorLife: 60,
 };
 
-export const MODES = { dotime: 'DO TIME', classic: 'FOREVER STONE', coop: 'TRIBE VS BOTS' };
+export const MODES = { dotime: 'DO TIME', plough: 'PLOUGHSHARES', classic: 'FOREVER STONE', coop: 'TRIBE VS BOTS' };
+
+// Ploughshares: the ages go by as in Do Time, but bots only ever fight back. If a whole age passes
+// with nobody hurting anybody, swords turn into ploughshares: weapons become hoes, nobody can die,
+// and the tribe farms (plant, harvest into a shared food store) and builds with the food. The
+// planet grows and a town opens up (SHOPS). When the farming time runs out everyone votes to keep
+// going; otherwise the round ends with a harvest festival and a new Stone Age.
+export const PEACE = {
+  seconds: 120,       // farming before each vote (PEACE_SECONDS / --peace-seconds to change)
+  voteSeconds: 15,
+  grudge: 25,         // seconds a bot fights back against whoever hurt it
+  plantCd: 0.4,       // seconds between plantings
+  plantReach: 1.4,    // seeds go this far in front of you
+  cropGap: 0.9,       // closest two crops can be
+  cropMax: 90,        // on the whole planet
+  harvestRadius: 1.1, // walk this close to a ripe crop to pick it
+  // The planet grows to make room for a town, and shops open one by one (SHOP_OPENINGS). Every
+  // vote to keep farming grows it again (growStep, up to maxR), with more opening on the new ground
+  // (EXPANSION_OPENINGS).
+  grownR: 40,
+  growStep: 10,
+  maxR: 80,
+  growSeconds: 12,
+  // Shells are the money: everyone gets a few when peace breaks out, and earns more picking crops
+  // (one a crop), hitting targets and winning duels.
+  startShells: 3,
+  maxShells: 99,
+  // Nobody dies in peace, but the volcano, boulders and sky rocks still hurt (down to 1 HP), and
+  // below limpHp you walk slow until the doctor fixes you up.
+  limpHp: 40,
+  limp: 0.7,
+  skyRockEvery: [16, 30],   // seconds between sky rocks
+  skyRockWarn: 2.4,         // seconds from the warning ring to the impact
+  // Hunger: life runs down a point this often (never below 1). When it's about to run down to 1,
+  // or anything else has knocked you down to 1, a stranger turns up with food (STRANGER).
+  hungerEvery: 1.5,
+};
+
+// Kind strangers of the peace: one walks over from somewhere nearby, hands the hungry caveman
+// food (food: life back) and wanders off again. from: how far away they appear. giveUp: seconds of
+// chasing someone who won't stand still before they just catch up. leave: seconds walking away.
+export const STRANGER = {
+  speed: 9.5, from: [13, 18], giveUp: 25, food: 60, leave: 4,
+  // (in words of one beat, like all talk in peace: see shared/chat.js)
+  lines: ['YOU LOOK WEAK, FRIEND. EAT.', 'HERE. EAT.', 'I HAVE SOME TO SPARE.', 'NO SHELLS. JUST EAT.', 'FOOD IS FOR ALL.'],
+};
+
+// The town that grows in a long peace. r: how much ground the building takes (and blocks).
+// zone: stand this close (to the shop, or inside the ring) to use it.
+//   doctor: E pays `fee` shells to heal to full.
+//   range:  E at the shed picks a practice weapon (PRACTICE_WEAPONS), any age's or one you only
+//           get there; you keep it, and can shoot it anywhere in peace, until you hand it back at
+//           the shed. Targets downrange pay a shell a hit (each one at most once every payGap
+//           seconds), and spears and arrows stick in them.
+//   duel:   a ring where you can bonk each other (pick any weapon off the rack, DUEL_WEAPONS), but
+//           nobody goes below 1 HP; knocking someone down to 1 wins the bout.
+//   tailor: E to buy hats and capes (CLOTHES).
+//   haunt:  a spooky hollow where monsters (BEASTS with monster: true) roam and never leave. Your
+//           hoe is a torch in there; each one slain pays `reward` shells, and another comes
+//           `respawn` seconds later, up to `monsters` at once.
+export const SHOPS = {
+  doctor: { name: 'DOCTOR',       r: 1.7, zone: 3.6, fee: 1 },
+  range:  { name: 'TARGET RANGE', r: 1.0, zone: 3.2, targets: 3, downrange: 9, spread: 2.6, targetR: 0.75, targetH: 1.35, payGap: 1 },
+  duel:   { name: 'DUEL RING',    r: 0,   zone: 5.5, win: 3 },
+  tailor: { name: 'TAILOR',       r: 1.7, zone: 3.6 },
+  haunt:  { name: 'HAUNTED HOLLOW', r: 0, zone: 7, monsters: 3, respawn: 10, reward: 2 },
+};
+// [kind, seconds after the planet has finished growing]
+export const SHOP_OPENINGS = [['doctor', 2], ['range', 7], ['duel', 13], ['tailor', 19], ['haunt', 26], ['range', 45], ['range', 80]];
+// ...and after each later growth spurt, on the new ground
+export const EXPANSION_OPENINGS = [['haunt', 3], ['doctor', 9]];
+// slot: where it goes. cost: shells. Bought ones are yours (wear any of them again for free) until
+// you leave the rock.
+export const CLOTHES = {
+  straw:    { name: 'STRAW HAT',    slot: 'hat',  cost: 2 },
+  flowers:  { name: 'FLOWER CROWN', slot: 'hat',  cost: 3 },
+  tophat:   { name: 'TOP HAT',      slot: 'hat',  cost: 5 },
+  crown:    { name: 'GOLD CROWN',   slot: 'hat',  cost: 10 },
+  redcape:  { name: 'RED CAPE',     slot: 'cape', cost: 3 },
+  bluecape: { name: 'BLUE CAPE',    slot: 'cape', cost: 3 },
+  goldcape: { name: 'GOLD CAPE',    slot: 'cape', cost: 8 },
+};
+// grow: seconds to ripe. food: what it adds to the tribe store.
+export const CROPS = {
+  wheat:   { name: 'WHEAT',   grow: 15, food: 1 },
+  corn:    { name: 'CORN',    grow: 22, food: 2 },
+  pumpkin: { name: 'PUMPKIN', grow: 30, food: 3 },
+};
+// cost: food from the tribe store. r: how much ground it takes (and blocks). icon: for the HUD.
+export const BUILDS = {
+  fence: { name: 'FENCE',      cost: 2,  r: 0.55, h: 1.2, icon: '🪵' },
+  hut:   { name: 'HUT',        cost: 6,  r: 1.9,  h: 3.4, icon: '🛖' },
+  head:  { name: 'STONE HEAD', cost: 12, r: 1.1,  h: 3.6, icon: '🗿' },
+};
+export const BUILD_ORDER = Object.keys(BUILDS);
 
 // Rocks (lobbies): each is its own planet on the same server, found by a short code. Codes the
 // server makes up skip vowels so they never spell anything; any 4 letters work in a link.
@@ -266,6 +378,11 @@ export const MAMMON = {
   // about then). He goes over with the coins bursting out of him, and these are his last words.
   dieAt: 5.5,
   death: 'BURY ME WITH MY MONEY.',
+  // Ploughshares: peace breaks out, and the farming ends
+  peace: 'NO! PEACE IS BAD FOR BUSINESS!',
+  harvest: 'NOBODY BUYS SPEARS ANY MORE...',
+  shop: 'FINALLY. SOME BUSINESS.',
+  free: ['FREE FOOD?! WHO PAYS FOR THAT?', 'CHARITY IS BAD FOR BUSINESS.', 'GIVING THINGS AWAY? DISGUSTING.'],
 };
 
 // ---------------------------------------------------------------- melee weapons
@@ -330,6 +447,50 @@ function weightedPick(list, rng) {
 
 // Every weapon is a random type from the pool + random prefix + a small per-stat roll,
 // so no two are identical.
+// What everyone holds once swords turn into ploughshares. Shaped like a weapon so the HUD and the
+// caveman model take it as one; it can't hurt anybody (nothing can, in peace).
+export function makeTool() {
+  return {
+    type: 'hoe', pool: 'tool', verb: 'PLANT', prefix: '', tier: 'common', name: 'Hoe',
+    dmg: 0, range: 1.5, cd: 0.5, windup: 0.1, kb: 0, arc: 60, speed: 1.05,
+    stun: 0, slow: 0, bleed: 0, leech: 0, heal: 0, crit: 0, scale: 1, desc: 'Dig. Plant. Grow food.',
+  };
+}
+
+// What you hold in the duel ring, unless you pick something else off the rack: a padded club. It
+// hurts, but nothing in the ring takes anybody below 1 HP.
+export function makePracticeClub() {
+  return {
+    type: 'club', pool: 'tool', verb: 'BONK', prefix: '', tier: 'common', name: 'Practice Club',
+    dmg: 18, range: 2.2, cd: 0.7, windup: 0.16, kb: 6, arc: 100, speed: 1,
+    stun: 0, slow: 0, bleed: 0, leech: 0, heal: 0, crit: 0, scale: 0.9, desc: 'Padded. For duels.',
+  };
+}
+
+// What your hoe turns into in a haunted hollow: fire on a stick. Monsters hate it.
+export function makeTorch() {
+  return {
+    type: 'torch', pool: 'tool', verb: 'BURN', prefix: '', tier: 'common', name: 'Torch',
+    dmg: 26, range: 2.3, cd: 0.55, windup: 0.12, kb: 7, arc: 110, speed: 1,
+    stun: 0, slow: 0, bleed: 0, leech: 0, heal: 0, crit: 0, scale: 1, desc: 'Fire on a stick. Monsters hate it.',
+  };
+}
+
+// One weapon of a given type, plain: no prefix, no roll.
+export function weaponOfType(type) {
+  const base = WEAPON_TYPES[type];
+  return {
+    type, pool: base.pool, verb: base.verb, prefix: '', tier: 'common', name: base.name,
+    dmg: base.dmg, range: base.range, cd: base.cd, windup: base.windup, kb: base.kb, arc: base.arc, speed: base.speed,
+    stun: base.stun || 0, slow: base.slow || 0, bleed: base.bleed || 0, leech: base.leech || 0, heal: base.heal || 0,
+    crit: base.crit || 0, scale: 1, desc: base.desc,
+  };
+}
+
+// The duel ring's weapon rack: the padded club, or any weapon of any age.
+export const DUEL_WEAPONS = ['practice', ...Object.keys(WEAPON_TYPES)];
+export const duelWeapon = type => (WEAPON_TYPES[type] ? weaponOfType(type) : makePracticeClub());
+
 export function makeWeapon(rng = Math.random, pool = 'primitive') {
   const types = Object.keys(WEAPON_TYPES).filter(k => WEAPON_TYPES[k].pool === pool);
   const type = types[Math.floor(rng() * types.length)];
@@ -434,4 +595,15 @@ export const BEASTS = {
     verb: 'EAT', desc: 'RARE! CHOMP. ROAR MAKE EVERYBODY FREEZE.',
     chomp: { range: 5.4, dmg: 72, kb: 16, cd: 1.7, arc: 80 }, roar: { range: 15, stun: 1.1, cd: 9 },
   },
+  // The monsters of a haunted hollow (Ploughshares): nobody's, they never leave their hollow, and
+  // they go for whoever comes in. swipe: their one attack.
+  ghost: {
+    name: 'Ghost', icon: '👻', rank: 0, hp: 60, radius: 0.7, height: 2.3, speed: 5.5, sense: 10, monster: true,
+    verb: 'SPOOK', desc: 'BOO.', swipe: { range: 2.0, dmg: 12, stun: 0.5, kb: 5, cd: 1.4 },
+  },
+  skeleton: {
+    name: 'Skeleton', icon: '💀', rank: 0, hp: 90, radius: 0.6, height: 2.1, speed: 6.5, sense: 10, monster: true,
+    verb: 'RATTLE', desc: 'CLACK CLACK.', swipe: { range: 2.2, dmg: 16, kb: 7, cd: 1.1 },
+  },
 };
+export const MONSTERS = Object.keys(BEASTS).filter(k => BEASTS[k].monster);

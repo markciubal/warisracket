@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { R } from '/shared/constants.js';
 import { softDotTexture } from './textures.js';
-import { behindPlanet, standOn } from './util.js';
+import { behindPlanet, standOn, lift } from './util.js';
 
 const MAX_PARTICLES = 900;
 const _m = new THREE.Matrix4();
@@ -233,6 +233,11 @@ export class Effects {
   }
 
   // ---------------------------------------------------------------- ground decals
+  // The planet grew (or shrank) by dR: the marks on the ground move with it.
+  lift(dR) {
+    for (const d of this.decals) lift(d.mesh, dR);
+  }
+
   // A flat disk/ring stuck to the planet surface. Returns a handle with .remove().
   decal(u, { radius = 1, inner = 0, color = '#000000', opacity = 0.5, life = Infinity, pulse = false, additive = false } = {}) {
     const geo = inner > 0 ? new THREE.RingGeometry(inner, radius, 40) : new THREE.CircleGeometry(radius, 32);

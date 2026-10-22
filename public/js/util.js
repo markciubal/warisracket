@@ -74,6 +74,13 @@ export function standOn(obj, u, yaw = 0, h = 0) {
   obj.position.copy(u).multiplyScalar(R + h);
 }
 
+// The planet grew (or shrank) by dR under obj: keep it on the ground, or as high above it.
+// (Anything at the planet's center, like the planet itself, stays put.)
+export function lift(obj, dR) {
+  const r = obj.position.length();
+  if (r > 1) obj.position.multiplyScalar((r + dR) / r);
+}
+
 // Matte surfaces (nearly everything here) use Lambert shading, which looks the same in this
 // flat-shaded style and is far cheaper per pixel than the physically based material.
 // Only things that should actually shine (metal, ice, glass, wet) get MeshStandardMaterial.

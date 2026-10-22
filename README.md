@@ -1,4 +1,4 @@
-# Spear Sphere
+# War is Racket
 
 Multiplayer caveman spear-throwing on a tiny planet. Ooga booga.
 
@@ -39,17 +39,44 @@ One server runs any number of separate games at once. Each one is a **rock**: it
 cavemen, bots, Do Time clock, chief and rules, found by a 4-letter code.
 
 - **MAKE NEW ROCK** in the lobby rolls a fresh code (no vowels, so it never spells anything).
-  The address bar becomes the rock's link, e.g. `https://my-spear-sphere.herokuapp.com/KPTX`.
+  The address bar becomes the rock's link, e.g. `https://my-war-is-racket.herokuapp.com/KPTX`.
   **COPY LINK** (**SHARE LINK** on phones) sends it to friends.
 - Friends open that link, or go to the bare URL and type the code into **JOIN ROCK**. Pasting
   the whole link into the code box works too.
 - **OTHER ROCK** in the lobby leaves for a different one. The code also shows on the scoreboard
   (Tab, or ☰ on phones) so you can read it out mid-game.
 - A rock closes as soon as nobody is on it or watching its lobby, but its link keeps working:
-  whoever opens it next gets a fresh planet under the same code. After a server restart,
-  everyone who was on a rock reconnects onto the same code with the rules it had.
+  whoever opens it next (a reload, or a friend arriving after everyone left) gets a fresh
+  planet under the same code, with the mode and bots it had (remembered for 6 hours). After a
+  server restart, everyone who was on a rock reconnects onto the same code with the rules it had.
 - Codes keep games apart; they aren't passwords. A wrong code is answered slowly so guessing
   one takes a while, and `/health` never lists them.
+
+## The app, and playing offline
+
+War is Racket installs like an app and plays with no internet, against bots.
+
+- **⬇ GET THE APP** shows at the bottom of the lobby when the browser can install it (Chrome,
+  Edge, Android). One tap puts it on the home screen or desktop, and it opens full screen like
+  any app. On an iPhone or iPad the button says how instead: in Safari, Share → *Add to Home
+  Screen*.
+- **PLAY OFFLINE** (under JOIN ROCK) puts you on your own rock in the browser: you and the bots,
+  no server and no link to share. **GO ONLINE** goes back to the server's rocks.
+- If there's no signal, or the server can't be reached, when the page opens, the game goes
+  offline by itself and says why.
+- The first visit keeps a copy of the whole game (about 3.5 MB: page, scripts, three.js,
+  fonts, icons), so it opens with no connection, installed or just bookmarked. Online it
+  always asks the server first, so you never play an old version. If the server doesn't
+  answer within 6 seconds, it uses the copy.
+- Installing and the offline copy need `https://` (the Heroku URL is fine) or `localhost`.
+  Over plain `http://` on your Wi-Fi the game still plays, but it can't be installed and needs
+  the server.
+
+How it works: `public/sw.js` is the service worker. server.js sends it out with a version (a
+hash of every file) and the list of files to keep, so each deploy refreshes the copy by itself.
+Offline, `public/js/offline-worker.js` runs `room.js` (the same game code the server runs) in a
+Web Worker. `public/js/offline.js` stands in for the WebSocket, so the client plays it exactly
+as it plays the server.
 
 ## Deploy to Heroku
 
@@ -59,15 +86,15 @@ players connect with `wss://` automatically. From this folder:
 ```
 git init
 git add .
-git commit -m "Spear Sphere"
+git commit -m "War is Racket"
 heroku login
-heroku create my-spear-sphere          # pick any free name
+heroku create my-war-is-racket          # pick any free name
 git push heroku HEAD:main
 heroku ps:scale web=1
 heroku open
 ```
 
-Make a rock and send friends its link (`https://my-spear-sphere-xxxx.herokuapp.com/KPTX`), and
+Make a rock and send friends its link (`https://my-war-is-racket-xxxx.herokuapp.com/KPTX`), and
 everyone lands on the same planet while other groups play on their own rocks. To ship changes
 later: `git commit -am "more ooga"` then `git push heroku HEAD:main`.
 
@@ -75,8 +102,9 @@ Settings (optional), e.g. `heroku config:set BOT_LEVEL=7 ERA_SECONDS=120`:
 
 | Config var | Flag | Default | What it does |
 | --- | --- | --- | --- |
-| `MODE` | `--mode` | `dotime` | `dotime`, `classic` (Forever Stone) or `coop` (Tribe vs Bots) |
-| `ERA_SECONDS` | `--era-seconds` | 45 | Length of each Do Time age |
+| `MODE` | `--mode` | `dotime` | `dotime`, `plough` (Ploughshares), `classic` (Forever Stone) or `coop` (Tribe vs Bots) |
+| `ERA_SECONDS` | `--era-seconds` | 45 | Length of each Do Time (and Ploughshares) age |
+| `PEACE_SECONDS` | `--peace-seconds` | 120 | Ploughshares: farming time before each vote to keep going |
 | `BOT_LEVEL` | `--bot-level` | 1 | Bot brains, 1–10: 1 wanders around and lags, 5 is a fair fight, 10 barely misses |
 | `BOTS` | `--bots` | 4 | Bots fill the planet up to this many cavemen (0–10). 0 = humans only |
 | `MAX_PLAYERS` | | 12 | Human cap on each rock. Extra visitors see "CAVE FULL" in that rock's lobby |
@@ -128,6 +156,7 @@ your router or use a tunnel such as `cloudflared tunnel --url http://localhost:3
 | E | Swap weapons at a glowing totem, put on armor, or (when hurt) eat the roast at a campfire |
 | Q | Killstreak beast: call it, then aim and Q again to send it |
 | 1–6 | Grunt: OOGA!, BOOGA!, UNGA BUNGA!, ME SMASH!, ME HUNGRY., WAR IS RACKET! |
+| Enter | In peace (Ploughshares): talk, in words of one syllable |
 | Tab | Scores (with the rock code), plus your weapon's full stats on its card |
 | C | Tribe council (planet rules) |
 | M / N | Mute everything / toggle the drums |
@@ -181,8 +210,6 @@ LOW and AUTO both adjust resolution on the fly. Only HIGH keeps it fixed.
 Open the same link on a phone and turn it sideways. Touch screens get touch controls
 automatically (add `?touch` to the URL to try them on a computer with the mouse).
 
-| Touch | Action |
-| --- | --- |
 The controls are the usual phone-game ones: a thumbstick on the left, drag on the right to look.
 
 | Touch | Action |
@@ -258,6 +285,104 @@ With the default `ERA_SECONDS=45` a whole round is 4½ minutes plus the finale.
 
 **Forever Stone** is the original mode: spears and bones only, no clock, no armor.
 
+## Ploughshares
+
+The ages go by as in Do Time, with the same weapons, but **bots never start a fight**: they
+only fight back, against whoever hurt them, for a while. So whether there's peace is up to the
+people. Hurting anybody (bonk, spear, shot, beast; not boulders, lava or your own spear) breaks
+the peace for that age: the age panel shows **☮ PEACE HOLDING** or **⚔ PEACE BROKEN**, and the
+feed says who broke it.
+
+If a **whole age goes by with nobody hurt**: **SWORDS INTO PLOUGHSHARES!** Every weapon turns
+into a hoe, anyone down gets up, and **nobody can die** until the round is over. The **Plough
+Age** begins:
+
+- **Plant**: the attack button (left click / F, PLANT on phones) puts a seed in the ground just
+  in front of you: wheat, corn or pumpkin. Crops grow (15 to 30 s) and sway when they're ripe.
+- **Harvest**: walk over a ripe crop to pick it. Its food (1 to 3) goes into the tribe's shared
+  store, shown on the age panel. Bots farm too: they plant now and then and pick what's ripe.
+- **Build**: the throw button (right click, BUILD on phones) builds in front of you, paid for
+  out of the store: a **fence** (2 food), a **hut** (6) or a big **stone head** (12). **Q**
+  (NEXT on phones) picks which. They face whoever built them, and they're solid.
+- **Vote**: when the farming time is up (2 minutes, `PEACE_SECONDS`) everyone votes **KEEP
+  FARMING?** with Y / N or the buttons. More yes than no gives another stretch of farming;
+  anything else ends the round with a **HARVEST FESTIVAL** ranking who picked the most food and
+  built the most. Then a new Stone Age, the fields, buildings and town gone, the planet back to
+  its usual size, and the peace has to be kept all over again.
+
+### The town
+
+As peace breaks out **the planet grows** (radius 30 to 40, over 12 seconds), and a town opens up
+on the new ground, one shop at a time, near wherever people are: a **doctor**, a **target range**,
+a **duel ring**, a **tailor**, a **haunted hollow**, and later two more ranges. Each shop has a
+floating sign and shows on the radar as a square; stand in its circle to use it.
+
+**Every time the tribe votes to keep farming, the planet grows again**: 10 more each time (40, 50,
+60...), up to 80, with a new haunted hollow and another doctor on the new ground. The shops keep
+their size as it grows under them. The new Stone Age is back to the usual 30.
+
+- **Shells** 🐚 are the money. Everyone gets 3 when peace breaks out (they're shown under your
+  health) and earns more: **1 for every crop you pick** (the food still goes to the tribe), 1 for
+  every target hit, 3 for every duel won. Your shells stay with you from round to round.
+- **Doctor**: **E** (HEAL on phones) gets you all better for **1 shell**.
+- **Target range**: **E** at the range shed (WEAPONS on phones) opens its rack: every age's ranged
+  weapon (spear, bow, longbow, boom stick, bang stick, zap stick) and four you only get here, never
+  in a war: a **slingshot**, a **crossbow**, **tomatoes** (they splat red on whatever they hit) and
+  a **bazooka** (its rockets go off where they land and rattle every target in the blast). Take one
+  and you're practicing: keep it, go anywhere, shoot from anywhere (only the targets count), and a
+  note on screen reminds you to **take it back to the range shed** to stop (E there again to swap
+  it or hand it back). A hit on a target makes it shake and earns a shell (each target pays at most
+  once a second, so a quick gun can't print money). Spears and arrows stick in the target where
+  they hit and shake with it; walk up to it to pull them out again. Musket balls and bullets punch
+  through the straw. Without a practice weapon, nobody throws or shoots in peace.
+- **Duel ring**: inside the ropes your hoe becomes a padded **practice club**, and you can bonk
+  anyone else in the ring. **E** (WEAPON on phones) opens the **weapon rack**: pick any weapon of
+  any age (a Dino Femur, a Longsword, a Glow Stick...), and it's yours whenever you step back
+  into the ring. Bots grab whatever's on the rack. **Nobody goes below 1 HP**: knocking someone
+  down to 1 wins the bout and 3 shells, and the loser had better see the doctor.
+- **Haunted hollow**: a dark place of dead trees, crooked gravestones and drifting wisps, where
+  **ghosts and skeletons** roam. They never leave the hollow, but they go for anyone who comes in.
+  Inside, your hoe becomes a **torch**; practice weapons work on them too (a bazooka does nicely).
+  Every monster slain pays **2 shells**, and another rises in its place a while later. They can
+  knock you down to 1 HP, never further.
+- **Tailor**: **E** (SHOP on phones) opens the counter: straw hat (2), flower crown (3), top hat
+  (5), gold crown (10), red or blue cape (3), gold cape (8). Everyone sees what you wear, it stays
+  on in later rounds, and anything you've bought you can put back on for free (or take off).
+- **It's still a dangerous world.** The volcano erupts again, boulders still roll, and now and
+  then a **sky rock** falls near somebody (a red ring shows where, and the feed says LOOK UP!).
+  They hurt, but in peace nothing takes you below 1 HP. Below 40 HP you **limp** (walk slower)
+  until the doctor fixes you up.
+- **Hunger**: in peace your life slowly runs down, a point every 1.5 seconds (**HUNGRY** under
+  your health), never below 1. But just as it's about to run down to 1, **a stranger** in a
+  hooded cloak walks over from somewhere nearby with food in hand, gives you +60 life with a kind
+  word, and wanders off again (no shells asked). The same goes for anyone knocked down to 1 by
+  anything else (a monster, a sky rock, a duel): a stranger always comes. The Businessman can't
+  stand it.
+
+Bots use the town too: they see the doctor when they're hurt and can pay, buy hats when they're
+rich, take practice weapons to the ranges and duel each other in the ring. (They don't go looking
+for monsters, but one that wanders into a hollow gets a fright.)
+
+### Peace chat
+
+When peace breaks out **the tribe can talk**, but only in **words of one syllable** ("one sound
+at a time"). **Enter** opens the chat box (**💬** on phones), Enter says it, Esc puts it away.
+As you type, any longer word is pointed out (**TOO LONG: BANANAS**) and the line can't be sent
+until it's gone; the server checks again. What's said shows in the chat log, in a bubble over
+the speaker's head, and is read out in a caveman voice to anyone nearby. Bots chime in now and
+then (**GROW, CORN, GROW.**), and so does the stranger. One line every 1.5 seconds, up to 80
+letters; rude words come out as **GRR**. When the peace ends, so does the talking.
+**PEACE CHAT** in the settings turns it off.
+
+The syllable counter (`shared/chat.js`) is rules, not a dictionary: it counts the vowel sounds
+and knows the usual silent ones (the e in "make", the ed in "jumped", the es in "takes"). It
+gets nearly all everyday words right, but it can miss now and then; the words it's known to
+get wrong are listed at the top of the file, to add to.
+
+If an age does see a fight, the next age comes as normal, and fighting all the way through the
+Zap Age still ends the world. The Businessman hates all of it: no war, no profit, and he wastes
+away for as long as the peace lasts (though he does perk up when the first shop opens).
+
 ## Tribe vs Bots (co-op)
 
 Every human on the planet is one tribe, fighting waves of bots together.
@@ -285,7 +410,7 @@ Every human on the planet is one tribe, fighting waves of bots together.
 The human who's been on the planet longest is the **chief** (feather headdress, marked in the
 scoreboard). The chief opens the **tribe council** with C to change:
 
-- **Mode**: Do Time, Forever Stone or Tribe vs Bots (co-op). Changing it starts a new round.
+- **Mode**: Do Time, Ploughshares, Forever Stone or Tribe vs Bots (co-op). Changing it starts a new round.
 - **Bot brains**, from 1 to 10:
 
   | Level | Name | What they're like |
@@ -304,7 +429,9 @@ scoreboard). The chief opens the **tribe council** with C to change:
 - **Bot fill**: bots join until the planet has this many cavemen and leave as humans arrive.
 
 Every rock has its own chief and rules. If nobody is playing on a rock yet, its lobby shows the
-same controls, so whoever makes the rock (or arrives first) sets the rules and becomes chief.
+same controls, so whoever makes the rock (or arrives first) sets the rules and becomes chief. The
+rules start open in the lobby, right above **OOGA BOOGA!** (click **RULES** to fold them away);
+on a short screen the button stays at the bottom and the rules scroll under it.
 
 ## How it plays
 
@@ -472,6 +599,8 @@ server.js            HTTP static server + WebSocket front door: makes rocks (lob
 room.js              One rock's game: projectiles, hits, armor, Do Time clock, rules, hazards, bots
 shared/constants.js  Tuning: ages, ranged weapons, armor, bot levels, melee weapons, names
 shared/math.js       Sphere-surface movement, collisions, projectile physics
+shared/chat.js       Ploughshares: peace chat's one-syllable rule (syllable counter) and its tidying
+shared/layout.js     Ploughshares: where a shop's parts go, so the server and clients agree as the planet grows
 public/index.html    Page shell, HUD, lobby, council and round-end markup
 public/style.css     Carved-stone UI
 public/js/main.js    Client: networking, local movement, camera, events, rules UI
@@ -484,9 +613,16 @@ public/js/hud.js     HUD, era banner, radar, scoreboard, round-end screen
 public/js/input.js   Keyboard and pointer-locked mouse (touch controls feed the same state)
 public/js/touch.js   Phone controls: thumbstick, buttons, drag-to-aim, tilt aiming
 public/js/settings.js Player settings (sound, controls, screen) and the settings panel
-public/js/beasts.js  Killstreak beast models and animation: attack dogs, mammoth, T-Rex
+public/js/beasts.js  Killstreak beast models and animation: attack dogs, mammoth, T-Rex; and the haunted hollows' ghosts and skeletons
 public/js/mammon.js  The Businessman: model, outfits per age, disaster gear, fattening stages,
                      coin heap and profit sign
+public/js/farm.js    Ploughshares: crops growing and the fences, huts and stone heads built in peace
+public/js/town.js    Ploughshares: the doctor, target ranges, duel ring and tailor of a long peace
+public/js/offline.js Playing offline: stands in for the WebSocket, talking to offline-worker.js
+public/js/offline-worker.js  room.js running in the browser: your own rock, you and the bots
+public/sw.js         Service worker: keeps a copy of the game so it opens with no connection
+public/manifest.webmanifest, public/icons/  The installed app's name, icons and full screen
+public/fonts/        The two fonts, kept here (not Google Fonts) so they work offline
 ```
 
 The client is authoritative over its own movement. The server owns projectiles, damage,
