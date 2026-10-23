@@ -124,6 +124,16 @@ function applySetting(k, v) {
       break;
     case 'gfx': gfxKey = GFX[v] ? v : 'auto'; applyGfx(); break;
     case 'fov': camera.fov = v; camera.updateProjectionMatrix(); break;
+    case 'view':
+      // switched mid-game (V, or here): glide over from the old view, the look kept in range
+      if (state.joined && me.alive) {
+        state.camGlide = { from: v === 'first' ? 'third' : 'first', at: clock(), secs: 0.45 };
+        const [lo, hi] = PITCH_RANGE[v === 'first' ? 'first' : 'third'];
+        me.pitch = M.clamp(me.pitch, lo, hi);
+        me.aim = M.clamp(me.aim, lo, hi);
+        hud.center(v === 'first' ? '1ST PERSON' : '3RD PERSON', isTouch ? '' : 'V SWITCHES', 1);
+      }
+      break;
     case 'flashes': hud.flashScale = v / 100; break;
     case 'dmgNumbers': fx.numbers = v; break;
     case 'chat':
@@ -208,6 +218,7 @@ const state = {
   tid: 0,
   lastSend: 0,
   lobbyAngle: 0,
+  camGlide: null,      // the camera gliding between views: { from: 'first' | 'third', at, secs }
   miniScoreT: 0,
   radarT: 0,
   eruptUntil: 0,
@@ -1486,6 +1497,7 @@ const handlers = {
     if (pl.model.tag) pl.model.tag.visible = false;
     state.practice = pl.practice;
     Object.assign(me, { p: pl.rp, f: pl.rf, h: 0, vh: 0, alive: true, hp: PLAYER.maxHp, ammo: m.ammo, wpn: pl.wpn, armor: null });
+    wakeUp();   // (into the world: eyes open, and out over the shoulder)
     hud.setWeapon(pl.wpn);
     hud.setHp(me.hp);
     if (!me.helped) {
@@ -1776,6 +1788,7 @@ const handlers = {
       }
     }
     if (m.v === state.myId) {
+      if (settings.get('view') === 'first') state.camGlide = { from: 'first', at: clock(), secs: 0.9 };
       me.alive = false;
       me.deadAt = clock();
       // knocked out in peace: lie down where the server has me, which is where I'll wake up
@@ -1805,11 +1818,13 @@ const handlers = {
     pl.model.place(m.p, m.f, 0);
     if (m.id === state.myId) {
       state.sq = m.sq;
-      if (!me.alive) hud.wake();   // (back from sleep: the eyes open. Not for a new round's fresh start.)
+      const waking = !me.alive;   // (back from sleep, or from the dead. Not a new round's fresh start.)
+      const look = settings.get('view') === 'first' ? 0.05 : 0.32;
       Object.assign(me, {
         p: m.p, f: m.f, h: 0, vh: 0, kbv: [0, 0, 0], alive: true, hp: PLAYER.maxHp, ammo: rangedDef().ammo,
-        wpn: m.wpn, armor: null, stunUntil: 0, slowUntil: 0, charging: false, pitch: 0.32, aim: 0.32, buffs: {},
+        wpn: m.wpn, armor: null, stunUntil: 0, slowUntil: 0, charging: false, pitch: look, aim: look, buffs: {},
       });
+      if (waking) wakeUp();
       // however the phone is held now counts as "straight ahead"
       tilt.recenter();
       hud.death(false);
@@ -3371,8 +3386,9 @@ function updateLocal(dt, t) {
     const tiltTurn = me.alive ? tilt.turn : 0, tiltPitch = me.alive ? tilt.pitch : 0;
     me.f = M.tangent(me.p, M.rotateAxis(me.f, me.p, -mdx * sens - tiltTurn * dt));
     if (me.alive) {
-      me.aim = M.clamp(me.aim + mdy * sens, -0.35 - tiltPitch, 1.2 - tiltPitch);
-      me.pitch = M.clamp(me.aim + tiltPitch, -0.35, 1.2);
+      const [lo, hi] = PITCH_RANGE[firstPerson() ? 'first' : 'third'];
+      me.aim = M.clamp(me.aim + mdy * sens, lo - tiltPitch, hi - tiltPitch);
+      me.pitch = M.clamp(me.aim + tiltPitch, lo, hi);
     }
   }
   const canAct = me.alive && t >= me.stunUntil && input.locked;
@@ -3903,11 +3919,27 @@ function updatePlayers(dt, t, renderT) {
 
 const SUN_HINT = M.norm([0.45, 0.3, 0.84]);
 
-// Where the camera sits and what it looks at, before any shake. It orbits a pivot above and right
-// of the head so the caveman sits lower-left, clear of the crosshair (left of it and lower-right
-// for the left-handed, so the throwing hand stays near it). The crosshair is the middle of the
-// screen: the line from pos through look (aimPoint follows it).
+// Where the camera sits and what it looks at, before any shake: over the shoulder (shoulderRig),
+// or in first person through my own eyes (eyeRig: the V key, or VIEW in settings; knocked out,
+// it's over the shoulder again, to see myself asleep). The crosshair is the middle of the screen:
+// the line from pos through look (aimPoint follows it). The camera can glide from one to the
+// other (state.camGlide): out of my eyes when I wake up, or either way when V switches them.
+const firstPerson = () => settings.get('view') === 'first' && me.alive;
+const mix = (a, b, k) => M.add(M.scale(a, 1 - k), M.scale(b, k));
 function cameraRig(t) {
+  const want = firstPerson() ? eyeRig() : shoulderRig(t);
+  const g = state.camGlide;
+  if (!g) return want;
+  const k = M.clamp((t - g.at) / g.secs, 0, 1);
+  if (k >= 1) { state.camGlide = null; return want; }
+  const from = g.from === 'first' ? eyeRig() : shoulderRig(t);
+  const e = k * k * (3 - 2 * k);
+  return { pos: mix(from.pos, want.pos, e), pivot: mix(from.pivot, want.pivot, e), look: mix(from.look, want.look, e) };
+}
+
+// It orbits a pivot above and right of the head so the caveman sits lower-left, clear of the
+// crosshair (left of it and lower-right for the left-handed, so the throwing hand stays near it).
+function shoulderRig(t) {
   const up = me.p, fw = me.f;
   const right = M.cross(fw, up);
   const head = M.scale(up, R + me.h + 1.75);
@@ -3921,12 +3953,37 @@ function cameraRig(t) {
   return { pos, pivot, look: M.madd(pivot, back, -4) };
 }
 
+// my own eyes: at the front of the head, looking the way I face, tipped down by the pitch
+function eyeRig() {
+  const up = me.p, fw = me.f;
+  const eye = M.add(M.scale(up, R + me.h + 1.72), M.scale(fw, 0.18));
+  const look = M.add(M.scale(fw, Math.cos(me.pitch)), M.scale(up, -Math.sin(me.pitch)));
+  return { pos: eye, pivot: eye, look: M.madd(eye, look, 4) };
+}
+
+// Waking up, or coming into the world: a blink (hud.wake), seen through my own eyes, then the
+// camera draws back over my shoulder as they open (in first person it stays in them)
+function wakeUp() {
+  hud.wake();
+  state.camGlide = { from: 'first', at: clock() + 0.35, secs: 1.2 };
+}
+
+// V: over the shoulder <-> my own eyes, gliding between them
+const PITCH_RANGE = { third: [-0.35, 1.2], first: [-1.3, 1.3] };
+function toggleView() {
+  const was = settings.get('view');
+  settings.set('view', was === 'first' ? 'third' : 'first');
+}
+
 function updateCamera(dt, t) {
   let focus, up;
   const pl = myPlayer();
   if (state.joined && pl) {
     up = v3(me.p);
     const rig = cameraRig(t);
+    // (the camera in or near my own head: my caveman out of the way, as in most first-person
+    // games, and no weapon held up across the view; back in sight as the camera draws away)
+    pl.model.body.visible = M.len(M.sub(rig.pos, M.scale(me.p, R + me.h + 1.75))) > 1.3;
     const pos = v3(rig.pos);
     const look = v3(rig.look);
     if (fx.shake > 0 && settings.get('shake') > 0) {
@@ -4095,6 +4152,9 @@ function updateHud(dt, t) {
 // ====================================================================== lobby
 let profileLook = null;   // the look being picked in the lobby (the Businessman borrows its skin)
 
+// the War is Racket Do Good Fund's Stripe page (DO GOOD FUND in the lobby)
+const DO_GOOD_FUND = 'https://buy.stripe.com/7sY6oIfxA3Qgf94gHig3600';
+
 function initLobby() {
   const saved = store.get('ss-profile') || {};
   const look = profileLook = { ...C.randomLook(), ...(saved.look || {}) };
@@ -4156,6 +4216,9 @@ function initLobby() {
   $('play').onclick = join;
   nameEl.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
   $('open-settings').onclick = () => toggleSettings(true);
+  // the War is Racket Do Good Fund: a dollar, through Stripe, in a tab of its own (the installed
+  // app opens it in the browser)
+  $('do-good').onclick = () => window.open(DO_GOOD_FUND, '_blank', 'noopener');
 
   // rocks: make one, or type in a friend's code (pasting their whole link works too)
   const codeEl = $('room-code');
@@ -4351,6 +4414,7 @@ addEventListener('keydown', e => {
     hud.center(`GRAPHICS: ${GFX[gfxKey].label}`, '', 1.2);
   }
   if (e.code === 'KeyC') toggleCouncil();
+  if (e.code === 'KeyV') toggleView();
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && canChat()) { e.preventDefault(); openChat(); }
   if (e.code === 'Escape' && !$('council').classList.contains('hidden')) toggleCouncil(false, false);
   if (e.code === 'Escape' && townPanelOpen()) closePanels();

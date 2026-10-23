@@ -24,6 +24,7 @@ export const DEFAULTS = {
   vibrate: true,
   gfx: isTouch ? 'low' : 'auto',
   fov: 65,             // degrees, vertical
+  view: 'third',       // the camera: third (behind, over the shoulder) | first (through my caveman's eyes)
   shake: 100,          // percent
   flashes: 100,        // percent: hurt / age / disaster screen flashes
   dmgNumbers: true,
@@ -59,6 +60,8 @@ export const SCHEMA = [
   { section: 'SCREEN' },
   { key: 'gfx', label: 'GRAPHICS', type: 'seg', options: [['low', 'LOW'], ['auto', 'AUTO'], ['high', 'HIGH']], hot: 'G',
     desc: 'LOW: FASTEST, NO SHADOWS. AUTO: LOWERS SHARPNESS WHEN SLOW. HIGH: SHARPEST.' },
+  { key: 'view', label: 'VIEW', type: 'seg', options: [['third', '3RD PERSON'], ['first', '1ST PERSON']], hot: 'V',
+    desc: '3RD PERSON: FROM BEHIND, OVER THE SHOULDER. 1ST PERSON: THROUGH YOUR CAVEMAN\'S OWN EYES.' },
   { key: 'fov', label: 'VIEW WIDTH', type: 'range', min: 50, max: 95, step: 1, fmt: v => `${v}°` },
   { key: 'shake', label: 'SCREEN SHAKE', type: 'range', min: 0, max: 100, step: 10, fmt: v => (v ? pct(v) : 'OFF') },
   { key: 'flashes', label: 'SCREEN FLASHES', type: 'range', min: 0, max: 100, step: 10, fmt: v => (v ? pct(v) : 'OFF'),

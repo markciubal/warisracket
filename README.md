@@ -65,6 +65,10 @@ cavemen, bots, War mode clock, chief and rules, found by a 4-letter code. A rock
   one takes a while. Private rocks never show in the list, and `/health` lists no codes at all.
   A link to a code nobody has used makes a private rock.
 
+**💚 DO GOOD FUND**, at the bottom of the lobby, opens a $1 donation to the War is Racket Do Good
+Fund on Stripe, in a new tab (from the installed app, in the browser). The link is
+`DO_GOOD_FUND` in `public/js/main.js`.
+
 ## The app, and playing offline
 
 War is Racket installs like an app and plays with no internet, against bots.
@@ -176,6 +180,7 @@ your router or use a tunnel such as `cloudflared tunnel --url http://localhost:3
 | Enter | In peace mode: talk, one syllable per word |
 | Tab | Scores (with the rock code), plus your weapon's full stats on its card |
 | C | Tribe council (planet rules) |
+| V | Switch the view: over the shoulder (3rd person) or through your caveman's own eyes (1st person), gliding between them |
 | M / N | Mute everything / toggle the drums |
 | G | Graphics: LOW / AUTO / HIGH |
 | O | Settings |
@@ -202,13 +207,20 @@ stay quiet until you join.
 | --- | --- |
 | Sound | Sound on/off (M), all sound (starts at 65%), bonks & booms, drums on/off (N), drum loudness, caveman voices (starts at 50%; 0 turns the spoken grunts off) |
 | Controls | Mouse speed (drag speed on phones), flip up/down look, handed (right / left). Phones also get tilt aim (off by default / soft / normal / wild), flip up/down tilt and buzz |
+| Screen | Graphics (G), view (V: 3rd or 1st person), view width (field of view, 50–95°), screen shake, screen flashes (red hurt flash, age glow, end-of-world whiteout), damage numbers, FPS counter, show ping (your latency under the radar: green under 90 ms, yellow under 180, red above; off to start) |
 
 **Handed**: right-handed (the default) bonks with left click and throws with right click, and your
 caveman throws with his right hand and clubs with his left. Left-handed swaps both: right click
 bonks, left click throws, and your caveman is the mirror image, throwing with his left hand. Your
 shots come out of that side, the camera moves to that shoulder, and everyone else sees the hands
 swap. About one bot in ten is left-handed too.
-| Screen | Graphics (G), view width (field of view, 50–95°), screen shake, screen flashes (red hurt flash, age glow, end-of-world whiteout), damage numbers, FPS counter, show ping (your latency under the radar: green under 90 ms, yellow under 180, red above; off to start) |
+
+**View** (V, or VIEW under Screen): **3rd person** (the default) looks over your caveman's shoulder;
+**1st person** looks through his own eyes. Your own caveman is out of the way in 1st person, you
+can look further up and down, and shots still go where the crosshair is. Knocked out, the camera
+floats out of your head so you can see yourself down. Whichever view, **coming into the world and
+waking up** start with a blink through your own eyes; in 3rd person the camera then draws back
+over your shoulder as they open.
 
 ### Graphics
 
@@ -431,7 +443,8 @@ under them. A new round starts back at the usual 30.
 - **Going to sleep**: in peace, whatever knocks you out (a monster, a sky rock, a boulder, the
   volcano) only puts you to sleep. You lie where you fell for **10 seconds** (a countdown says
   so), then wake up **on the same spot**, blinking (a quick snap, a double blink, a groggy one, a
-  flutter or a squint, never more than half a second), with your gear still on you. Being knocked
+  flutter or a squint, never more than half a second) through your own eyes before the camera
+  draws back over your shoulder, with your gear still on you. Being knocked
   out doesn't count as a death on the scoreboard. (A duel still stops at 1, and so does hunger.)
 - **Hunger**: in peace your life slowly runs down, a point every 1.5 seconds (**HUNGRY** under
   your health), never below 1. But just as it's about to run down to 1, **a stranger** in a
