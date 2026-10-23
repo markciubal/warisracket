@@ -11,9 +11,10 @@ import { isTouch, TiltAim, TouchControls, TILT_LEVELS, buzz, setBuzz } from './t
 import { Settings, buildSettingsPanel } from './settings.js';
 import { Beast } from './beasts.js';
 import { Farm } from './farm.js';
-import { Town, SHOP_LOOK } from './town.js';
+import { Town, SHOP_LOOK, zoneOf, drumsOf } from './town.js';
 import { CHAT, SAY_IT, checkChat } from '/shared/chat.js';
 import { OfflineSocket, OFFLINE_ROOM } from './offline.js';
+import { GearView, meleeRows, rangedRows } from './gear.js';
 import { buildProjectile, buildArmorDisplay, buildWeapon } from './weapons.js';
 import { peltSwatchURL, softDotTexture } from './textures.js';
 import { v3, mat, noise3, standOn, horizonTest, lift } from './util.js';
@@ -216,7 +217,7 @@ const state = {
   clockOffset: null,   // server time minus client time, from snapshot timestamps
   ping: 0,
   pingT: 0,
-  // planet rules + Do Time clock, as last told by the server
+  // planet rules + War mode clock, as last told by the server
   game: { mode: 'dotime', era: 0, phase: 'play', eraLeft: 0, eraLen: 45, endLeft: 0, eraSeconds: 45, botLevel: C.BOT_LEVEL_DEFAULT, bots: 4, open: 0, chief: 0, disaster: null, mmDead: 0,
     wave: 0, waveSize: 0, waveLevel: 0,   // co-op
     calm: 1, food: 0, vote: 0, yes: 0, no: 0,     // Ploughshares: peace holding this age, food store, the vote,
@@ -226,9 +227,16 @@ const state = {
   loot: new Map(),     // weapons and ammo pouches dropped by slain cavemen
   beasts: new Map(),   // killstreak beasts on the planet
   shrooms: new Map(),  // magic mushrooms on the ground
+  motes: new Map(),    // motes a slain forest monster left (peace mode)
+  perm: { might: 0, hide: 0 },   // gold motes I've kept
   strangers: new Map(),   // Ploughshares: kind strangers bringing food to the hungry
   mammonSaid: 0,       // when the Businessman last spoke (he doesn't get to talk all the time)
   talkNear: false,     // at his podium, where E talks to him
+  penumbra: false,     // at the dark forest's edge, where E picks gear
+  drumming: null,      // at a bonfire's drums: { shop, i } (which drum I'm at)
+  reel: null,          // a fish on the line, being reeled in (startReel)
+  reeled: null,        // ...and the last one: { kind, ms } (how long it took)
+  forestTier: null,    // which ring of the dark forest I'm in (null: not in it)
   talkedAt: -99,       // ...and when he last answered
   mammonBubble: null,  // his last words over his head (fx floater)
   dyingBeasts: [],     // slain ones keeling over before they're removed
@@ -618,6 +626,7 @@ function setRadius(r) {
 function clearWorld() {
   state.world.dispose();
   state.world = null;
+  for (const id of [...state.motes.keys()]) removeMote(id);
   for (const id of [...fishGear.keys()]) dropGear(id);
   for (const pl of state.players.values()) pl.model.dispose();
   state.players.clear();
@@ -643,7 +652,8 @@ function clearWorld() {
 
 // Off the planet, back to the lobby tablet.
 function showLobby() {
-  Object.assign(state, { joined: false, joinMsg: null });
+  Object.assign(state, { joined: false, joinMsg: null, drumming: null });
+  sound.setDuck(false);
   input.enabled = false;
   input.unlock();
   touch?.show(false);
@@ -661,6 +671,10 @@ function showLobby() {
 function askQuit(btn) {
   if (!state.joined) return;
   if (btn.classList.contains('armed')) { quitGame(); return; }
+  armQuit(btn);
+}
+
+function armQuit(btn) {
   btn.dataset.label ??= btn.textContent;
   btn.textContent = 'SURE?';
   btn.classList.add('armed');
@@ -675,6 +689,28 @@ function disarmQuit(btn) {
   if (btn.dataset.label) btn.textContent = btn.dataset.label;
 }
 
+// Installed on a computer, the game has a window of its own: EXIT TO DESKTOP closes it, as the
+// window's ✕ (or Alt+F4) would. It asks first, like QUIT. A browser that won't let a page close its
+// own window gets told which keys will.
+const EXIT_BUTTONS = ['lobby-exit', 'lock-exit', 'settings-exit'];
+const EXIT_KEYS = /Mac/.test(navigator.platform) ? '⌘Q' : 'ALT+F4';
+for (const id of EXIT_BUTTONS) {
+  $(id).classList.toggle('hidden', !installed() || isTouch);
+  $(id).onclick = () => askExit($(id));
+}
+function askExit(btn) {
+  if (!btn.classList.contains('armed')) { armQuit(btn); return; }
+  disarmQuit(btn);
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  window.close();
+  // (still here: it wouldn't)
+  setTimeout(() => {
+    btn.textContent = `PRESS ${EXIT_KEYS} TO CLOSE`;
+    clearTimeout(btn.disarm);
+    btn.disarm = setTimeout(() => { btn.textContent = btn.dataset.label; }, 4000);
+  }, 300);
+}
+
 function quitGame() {
   if (!state.joined) return;
   send({ t: 'quit' });
@@ -683,7 +719,7 @@ function quitGame() {
   toggleCouncil(false, false);
   closePanels();
   closeChat();
-  for (const id of ['lock-quit', 'settings-quit', 't-quit']) disarmQuit($(id));
+  for (const id of ['lock-quit', 'settings-quit', 't-quit', ...EXIT_BUTTONS]) disarmQuit($(id));
   // our caveman goes when the server's pleave for him arrives
   state.myId = 0;
   state.zone = 0;
@@ -708,6 +744,7 @@ const handlers = {
     for (const b of m.beasts || []) addBeast(b, false);
     for (const f of m.fires || []) state.world.setMeat(f.id, f.left);
     for (const s of m.shrooms || []) addShroom(s);
+    for (const mt of m.motes || []) addMote(mt);
     farm.clear();
     for (const c of m.crops || []) farm.addCrop(c);
     for (const b of m.builds || []) farm.addBuild(b);
@@ -919,7 +956,7 @@ const handlers = {
     pl.zone = m.z;
     if (m.id !== state.myId) return;
     state.zone = m.z;
-    closePanels();   // walked away from the counter
+    closePanels(penumbraOf() ? ['gear'] : []);   // walked away from the counter (the penumbra runs over the forest's edge: still there)
     if (!m.z) return;
     const kind = town.shops.get(m.z)?.kind;
     const key = isTouch ? 'TAP' : mouseWord(kind === 'range' ? 'ranged' : 'melee');
@@ -928,12 +965,43 @@ const handlers = {
       range: ['TARGET RANGE', state.practice ? `${isTouch ? 'WEAPONS' : 'E'} · SWAP IT OR HAND IT BACK` : `${isTouch ? 'WEAPONS' : 'E'} · PICK A PRACTICE WEAPON`],
       duel: ['DUEL RING', `${isTouch ? 'WEAPON' : 'E'} PICKS A WEAPON · KNOCK THEM TO 1 HP FOR ${C.SHOPS.duel.win} 🐚`],
       tailor: ['TAILOR', `${isTouch ? 'USE' : 'E'} · HATS AND CAPES`],
-      haunt: ['HAUNTED HOLLOW!', `${carrying() ? `YOUR ${C.duelWeapon(myPlayer().carry).name.toUpperCase()} VS THE MONSTERS` : 'YOUR HOE IS A TORCH IN HERE'} · MONSTERS PAY ${C.SHOPS.haunt.reward} 🐚`],
+      haunt: ['DARK FOREST!', `${carrying() ? `YOUR ${C.duelWeapon(myPlayer().carry).name.toUpperCase()} VS THE MONSTERS` : 'YOUR HOE IS A TORCH IN HERE'} · THE DEEPER, THE WORSE (AND THE MORE 🐚)`],
       pond: ['FISHING POND', `${isTouch ? 'FISH' : 'E'} TO CAST · ${isTouch ? 'REEL' : 'E'} AGAIN WHEN IT BITES`],
       spring: ['HOT SPRING', 'SOAK A WHILE: LIFE COMES BACK'],
       bonfire: ['BONFIRE', `${isTouch ? 'DANCE' : 'E'} TO DANCE · MORE DANCERS, MORE 🐚`],
     }[kind];
     if (hello) hud.center(hello[0], hello[1], 1.8);
+  },
+
+  // the dark forest spread a ring: built again bigger (and the radar shows it)
+  forest(m) {
+    town.regrow(m.id, m.zone, m.rings);
+    if (!state.joined) return;
+    const heart = C.FOREST_TIERS[m.rings - 1];
+    hud.feed(`<span style="color:${SHOP_LOOK.haunt.color}">🌲 THE DARK FOREST SPREADS</span> · ${heart.name} AT ITS HEART`);
+    sound.play('wind');
+  },
+
+  // a vampire vanished and came back right behind somebody
+  blink(m) {
+    const b = state.beasts.get(m.id);
+    if (!b) return;
+    const puff = p => { const up = v3(p); for (let i = 0; i < 3; i++) fx.puff(up.clone().multiplyScalar(R + 0.6 + i * 0.5), { color: '#2a1630', size: 1.1, grow: 2, life: 0.9, vel: up.clone().multiplyScalar(0.6), alpha: 0.7 }); };
+    puff(b.rp);
+    b.snaps.length = 0;
+    b.rp = m.p;
+    b.rf = m.f;
+    puff(m.p);
+    sound.play('magic', distTo(m.p));
+  },
+
+  // a vampire's bite gave it life back
+  bheal(m) {
+    const b = state.beasts.get(m.id);
+    if (!b) return;
+    b.hp = m.hp;
+    b.model.setHp(m.hp);
+    fx.float(v3(b.rp).multiplyScalar(R + b.rh + C.BEASTS[b.kind].height + 0.3), `+${m.n}`, 'heal', { life: 1 });
   },
 
   // fishing at a pond: a cast, a bite, then a catch, or it swam off (too soon), got away (too
@@ -952,30 +1020,66 @@ const handlers = {
     if (m.s === 'bite') {
       if (pl.fish) pl.fish.bit = true;
       if (mine) {
-        hud.center('BITE!', `${isTouch ? 'REEL' : 'E'} · REEL IT IN!`, 1.1);
+        hud.center('BITE!', `${isTouch ? 'REEL' : 'E'} · HOOK IT!`, 1.1);
         sound.play('splash');
         buzz(40);
       }
       return;
     }
+    if (m.s === 'hooked') {
+      if (pl.fish) pl.fish.hooked = true;
+      if (mine) startReel(m.kind);
+      sound.play('splash', distTo(pl.rp));
+      return;
+    }
     pl.fish = null;
+    if (mine) endReel();
     if (m.s === 'got') {
       const f = C.FISH[m.kind];
       state.game.food = m.food;
       pl.model.playSwing(0.05);
       sound.play('splash', distTo(pl.rp));
       if (mine) {
-        const got = [f.shells ? `+${f.shells} 🐚` : '', f.food ? `+${f.food} FOOD FOR THE TRIBE` : ''].filter(Boolean).join(' · ');
-        hud.center(`${f.name}!`, got || 'WELL... IT IS A BOOT', 2);
+        // how long it took, to the millisecond (as timed here, tap by tap), and the best so far
+        const ms = state.reeled?.kind === m.kind ? state.reeled.ms : m.ms;
+        const best = fishBest[m.kind];
+        if (!best || ms < best) {
+          fishBest[m.kind] = ms;
+          try { localStorage.setItem('wir.fishBest', JSON.stringify(fishBest)); } catch { /* (just not kept) */ }
+        }
+        const got = [f.shells ? `+${f.shells} 🐚` : '', f.food ? `+${f.food} FOOD` : ''].filter(Boolean).join(' · ') || 'WELL... IT IS A BOOT';
+        hud.center(`${f.name}!`, `${got} · IN ${ms.toLocaleString('en-US')} MS${!best || ms < best ? (best ? ' · NEW BEST!' : '') : ` · BEST ${best.toLocaleString('en-US')} MS`}`, 2.4);
         if (f.shells) sound.play(f.shells >= 5 ? 'chaching' : 'coins');
       } else if (m.kind === 'golden') {
-        hud.feed(`<span class="streak">${esc(pl.name.toUpperCase())}</span> CAUGHT A GOLDEN FISH!`);
+        hud.feed(`<span class="streak">${esc(pl.name.toUpperCase())}</span> CAUGHT A GOLDEN FISH IN ${m.ms.toLocaleString('en-US')} MS!`);
       }
     } else if (mine && m.s === 'soon') {
       fx.float(over(), 'TOO SOON! IT SWAM OFF', 'ooga', { life: 1.3 });
     } else if (mine && m.s === 'lost') {
       fx.float(over(), 'TOO SLOW! IT GOT AWAY', 'ooga', { life: 1.3 });
+    } else if (mine && m.s === 'snap') {
+      hud.center('SNAP!', 'THE LINE BROKE: IT WAS PULLING', 1.6);
+      sound.play('break');
+    } else if (mine && m.s === 'escaped') {
+      hud.center('IT GOT AWAY!', 'REEL FASTER NEXT TIME', 1.6);
     }
+  },
+
+  // a hit on a bonfire's drums (k: 0 the big one, 1 the small one): mine already sounded
+  drum(m) {
+    if (m.id === state.myId) return;
+    const pl = state.players.get(m.id);
+    if (!pl) return;
+    sound.drum(m.k, distTo(pl.rp));
+    town.drumHit(m.shop, m.k);
+    pl.model.playSwing(0.04);
+  },
+
+  // a shell for playing the drums (n: dancers and drummers there)
+  band(m) {
+    if (m.id !== state.myId) return;
+    fx.float(v3(me.p).multiplyScalar(R + me.h + 2.4), `+1 🐚${m.n > 1 ? ` · ${m.n} IN THE BAND` : ''}`, 'heal', { life: 1.2 });
+    sound.play('coins');
   },
 
   // dancing round a bonfire (on), stopping, and the shells it earns (paid: n dancing)
@@ -1004,6 +1108,7 @@ const handlers = {
     state.practice = pl.practice;
     Object.assign(me, { charging: false, charge: 0, regen: 0 });
     sound.play('pickup');
+    if (m.quiet) return;   // (from the penumbra: its screen said)
     if (pl.practice) hud.center(`${C.RANGED[pl.practice].name.toUpperCase()}!`, 'TAKE IT ANYWHERE · BACK TO THE SHED TO STOP', 2.4);
     else hud.center('HANDED IT BACK', '', 1.4);
   },
@@ -1132,6 +1237,9 @@ const handlers = {
     clearStrangers();
     state.zone = 0;
     state.practice = null;   // (the practice weapons went back with the town, and the duel ring's)
+    state.drumming = null;
+    endReel();
+    for (const id of [...state.motes.keys()]) removeMote(id);   // (they fade with the old world)
     for (const pl of state.players.values()) {
       Object.assign(pl, { zone: 0, practice: null, carry: null, fish: null, dancing: false });
       pl.model.setDancing(false);
@@ -1161,6 +1269,24 @@ const handlers = {
       sound.play('kill');
       sound.speak('tribe strong!', { pitch: 0.3 });
     }
+  },
+
+  // ---- motes: a slain forest monster left one; somebody took one (by), or it faded (by 0)
+  mote(m) {
+    addMote(m);
+    if (state.joined) sound.play('magic', distTo(m.u));
+  },
+
+  unmote(m) {
+    const mt = state.motes.get(m.id);
+    if (!mt) return;
+    const def = C.MOTES.kinds[mt.kind];
+    if (m.by) fx.burst(mt.bob.getWorldPosition(new THREE.Vector3()), { count: 10, color: def.color, speed: 3, size: 0.08, life: 0.6, emissive: true });
+    removeMote(m.id);
+    if (m.by !== state.myId) return;
+    sound.play(def.perm ? 'chaching' : 'magic');
+    // (a buff one: the 'buff' message says what it does)
+    if (def.perm) hud.center(`${def.name}!`, `${def.desc} · ${m.n} OF ${def.max}`, 2.4);
   },
 
   // ---- food: campfire roasts and magic mushrooms
@@ -1197,7 +1323,8 @@ const handlers = {
     if (pl) (pl.buffs ||= {})[m.kind] = until;
     if (m.id === state.myId) {
       me.buffs[m.kind] = until;
-      hud.center(`${def.buff}!`, `${def.name}: ${def.desc} FOR ${m.left} SEC`, 2.2);
+      // (a mushroom, or a mote from the dark forest that does the same)
+      hud.center(`${def.buff}!`, `${m.mote ? C.MOTES.kinds[m.mote].name : def.name}: ${def.desc} FOR ${m.left} SEC`, 2.2);
       sound.speak(pick(['oooh', 'whoa', 'me feel funny', 'ooga!']), { pitch: 0.4 });
       hud.flash(0.4, 'era');
     }
@@ -1230,10 +1357,15 @@ const handlers = {
       fx.float(v3(b.rp).multiplyScalar(R + C.BEASTS[b.kind].height + 0.5), 'ROOOAAARR!', 'ooga', { life: 1.4 });
     } else if (m.a === 'tusk' || m.a === 'trample') sound.play(m.a === 'tusk' ? 'trumpet' : 'stomp', d);
     else if (m.a === 'chomp') sound.play('chomp', d);
-    else if (m.a === 'swipe' && b.kind === 'ghost') {
-      sound.play('wind', d);
-      fx.float(v3(b.rp).multiplyScalar(R + C.BEASTS.ghost.height + 0.3), 'BOO!', 'ooga', { life: 0.9 });
+    else if (m.a === 'swipe' && MONSTER_SWIPE[b.kind]) {
+      const [noise, shout] = MONSTER_SWIPE[b.kind];
+      sound.play(noise, d);
+      if (shout && (b.kind === 'ghost' || Math.random() < 0.3)) fx.float(v3(b.rp).multiplyScalar(R + C.BEASTS[b.kind].height + 0.3), shout, 'ooga', { life: 0.9 });
     } else if (m.a === 'swipe') sound.play('clang', d);
+    else if (m.a === 'pounce' && b.kind === 'werewolf') {
+      sound.play('roar', d);
+      fx.float(v3(b.rp).multiplyScalar(R + C.BEASTS.werewolf.height + 0.3), 'AWOOOO!', 'ooga', { life: 1 });
+    }
     else sound.play(b.kind === 'dog' && m.a === 'pounce' ? 'bark' : 'snarl', d);
   },
 
@@ -1262,7 +1394,7 @@ const handlers = {
       const by = state.players.get(m.by);
       if (state.joined && by) hud.feed(`<span class="${m.by === state.myId ? 'me' : ''}">${esc(by.name)}</span> SLAY ${name}`);
       sound.play('shatter', distTo(b.rp));
-      if (m.by === state.myId) hud.center(`YOU SLAY THE ${b.name.toUpperCase()}!`, `+${C.SHOPS.haunt.reward} 🐚`, 1.6);
+      if (m.by === state.myId) hud.center(`YOU SLAY THE ${b.name.toUpperCase()}!`, `+${C.FOREST_TIERS[b.tier]?.reward ?? 2} 🐚`, 1.6);
     } else if (m.reason === 'slain') {
       const by = state.players.get(m.by);
       if (state.joined) hud.feed(by ? `<span class="${m.by === state.myId ? 'me' : ''}">${esc(by.name)}</span> SLAY ${name}!` : `${name} GO SLEEP`);
@@ -1431,6 +1563,7 @@ const handlers = {
     const gain = m.shells - state.shells;
     state.shells = m.shells;
     state.wardrobe = m.wardrobe || [];
+    if (m.perm) state.perm = m.perm;
     if (gain && state.joined && me.alive) {
       fx.float(v3(me.p).multiplyScalar(R + me.h + 2.6), `${gain > 0 ? '+' : ''}${gain} 🐚`, gain > 0 ? 'heal' : 'ooga', { life: 1.1 });
       if (gain > 0) sound.play('coins');
@@ -1624,7 +1757,7 @@ const handlers = {
     if (v) {
       v.alive = false;
       v.hp = 0;
-      if (m.k !== 'doom') v.d++;
+      if (m.k !== 'doom' && m.k !== 'sleep') v.d++;   // (a nap in peace isn't a death)
       v.streak = 0;
       v.model.setHp(0);
       v.model.die();
@@ -1645,6 +1778,9 @@ const handlers = {
     if (m.v === state.myId) {
       me.alive = false;
       me.deadAt = clock();
+      // knocked out in peace: lie down where the server has me, which is where I'll wake up
+      // (a slide from the blow that it hadn't heard about yet doesn't count)
+      if (m.p) { me.p = m.p; me.kbv = [0, 0, 0]; }
       me.charging = false;
       me.deathText = line;
       sound.speak(pick(['ugh', 'oof', 'ow ow ow']), { pitch: 0.1 });
@@ -1669,6 +1805,7 @@ const handlers = {
     pl.model.place(m.p, m.f, 0);
     if (m.id === state.myId) {
       state.sq = m.sq;
+      if (!me.alive) hud.wake();   // (back from sleep: the eyes open. Not for a new round's fresh start.)
       Object.assign(me, {
         p: m.p, f: m.f, h: 0, vh: 0, kbv: [0, 0, 0], alive: true, hp: PLAYER.maxHp, ammo: rangedDef().ammo,
         wpn: m.wpn, armor: null, stunUntil: 0, slowUntil: 0, charging: false, pitch: 0.32, aim: 0.32, buffs: {},
@@ -1749,6 +1886,7 @@ function killText(m, v, k) {
     case 'boulder': return k ? `${kn} PUSH ${vn} UNDER BIG ROCK` : `BIG ROCK FLATTEN ${vn}`;
     case 'fire': return k ? `${kn} FEED ${vn} TO MOUNTAIN` : `MOUNTAIN FIRE COOK ${vn}`;
     case 'bleed': return k ? `${vn} BLED OUT (THANK ${kn})` : `${vn} BLED OUT`;
+    case 'sleep': return `${m.w ? `${esc(m.w.toUpperCase())} KNOCK OUT` : 'KNOCKED OUT:'} ${vn} · SLEEP IT OFF`;
     case 'dog': case 'mammoth': case 'trex':
       return `${kn}'S ${(m.w || C.BEASTS[m.k].name).toUpperCase()} ${C.BEASTS[m.k].verb} ${vn}`;
     default: return `${vn} GO SLEEP`;
@@ -2077,6 +2215,39 @@ function addShroom(m) {
   state.shrooms.set(m.id, { ...m, u, group, item, ring, capMat, t: Math.random() * 6 });
 }
 
+// ---- motes: glowing wisps bobbing about where a forest monster fell. Walk into one to take it.
+const MOTE_GEO = new THREE.SphereGeometry(0.2, 12, 8);
+function addMote(m) {
+  removeMote(m.id);
+  const def = C.MOTES.kinds[m.kind], gold = !!def.perm;
+  const group = new THREE.Group(), bob = new THREE.Group();
+  const orb = new THREE.Mesh(MOTE_GEO, new THREE.MeshBasicMaterial({ color: def.color }));
+  orb.scale.setScalar(gold ? 1.4 : 1);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDotTexture(), color: def.color, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }));
+  halo.scale.setScalar(gold ? 1.7 : 1.1);
+  bob.add(orb, halo);
+  bob.position.y = 1;
+  group.add(bob);
+  standOn(group, v3(M.norm(m.u)), 0);
+  scene.add(group);
+  state.motes.set(m.id, { id: m.id, kind: m.kind, u: m.u, group, bob });
+}
+
+function removeMote(id) {
+  const m = state.motes.get(id);
+  if (!m) return;
+  m.group.removeFromParent();
+  for (const c of m.bob.children) c.material.dispose();
+  state.motes.delete(id);
+}
+
+function updateMotes(t) {
+  for (const m of state.motes.values()) {
+    m.bob.position.y = 1 + Math.sin(t * 3 + m.id) * 0.18;
+    m.bob.rotation.y = t * 2;
+  }
+}
+
 function removeShroom(id) {
   const s = state.shrooms.get(id);
   if (!s) return;
@@ -2099,6 +2270,95 @@ function updateShrooms(dt) {
       fx.burst(up.clone().multiplyScalar(R + 0.8), { count: 1, color: C.SHROOMS[s.kind].color, speed: 0.6, size: 0.06, life: 1, grav: -0.1, up, emissive: true });
     }
   }
+}
+
+// ---- the bonfire's drums: E at one and you're playing (BOOM: attack button, TAK: throw button);
+// walk off and you've stopped. Everyone hears; the band earns shells like the dancers.
+function drumNear(shop) {
+  if (shop?.kind !== 'bonfire') return null;
+  let best = null, bestD = C.SHOPS.bonfire.drumReach;
+  drumsOf(shop).forEach((d, i) => { const dist = M.arcDist(me.p, d); if (dist < bestD) { bestD = dist; best = i; } });
+  return best;
+}
+function startDrumming(shop, i) {
+  if (myPlayer()?.dancing) send({ t: 'dance', on: 0 });
+  state.drumming = { shop: shop.id, i };
+  hud.center('DRUMS!', isTouch ? 'BOOM · TAK · MOVE TO STOP' : `${mouseWord('melee')} CLICK: BOOM · ${mouseWord('ranged')} CLICK: TAK · WALK TO STOP`, 1.8);
+}
+function stopDrumming() { state.drumming = null; }
+function hitDrum(k) {
+  sound.drum(k);
+  town.drumHit(state.drumming.shop, k);
+  myPlayer()?.model.playSwing(0.04);
+  sendState();
+  send({ t: 'drum', k });
+}
+
+// ---- reeling a fish in, once it's hooked: E (REEL on a phone), tap after tap, each kind its own
+// way (REELS). It happens here, so every tap counts at once; the server hears how it went and
+// checks it. The clock runs from the hook, to the millisecond.
+const fishBest = (() => { try { return JSON.parse(localStorage.getItem('wir.fishBest')) || {}; } catch { return {}; } })();
+const between = ([a, b]) => a + Math.random() * (b - a);
+function startReel(kind) {
+  const fish = C.FISH[kind], how = fish.reel, t = clock();
+  state.reel = { kind, how, start: t, progress: C.REELS.start, strain: 0, pulling: how === 'fighter', phaseUntil: how === 'fighter' ? t + between(C.REELS.fighter.pull) : 0, lastTap: -9, warn: '', warnUntil: 0 };
+  $('reel-name').textContent = `${fish.name}!`;
+  $('reel-how').textContent = fish.how;
+  $('reel-strain-bar').classList.toggle('hidden', how !== 'fighter');
+  $('reel').classList.remove('hidden');
+  hud.prompt(null);
+}
+
+function endReel() {
+  state.reel = null;
+  $('reel').classList.add('hidden');
+}
+
+function reelTap(t) {
+  const r = state.reel, rule = C.REELS[r.how];
+  if (r.how === 'steady' && t - r.lastTap < rule.fast) {
+    r.lastTap = t;
+    Object.assign(r, { warn: 'TOO FAST! STEADY...', warnUntil: t + 0.5 });
+    return;
+  }
+  r.lastTap = t;
+  if (r.how === 'fighter' && r.pulling) {
+    // fighting a fish that's pulling: the line takes the strain
+    r.strain += rule.strain;
+    Object.assign(r, { warn: 'IT PULLS! WAIT!', warnUntil: t + 0.5 });
+    buzz(25);
+    if (r.strain >= 1) reelDone(false, 'snap');
+    return;
+  }
+  r.progress += rule.gain;
+  if (r.progress >= 1) reelDone(true);
+}
+
+// landed (or lost: 'snap', 'escaped'): the server hears, and says what's caught
+function reelDone(landed, why = 'escaped') {
+  const r = state.reel;
+  state.reeled = { kind: r.kind, ms: Math.round((clock() - r.start) * 1000) };
+  send({ t: 'fish', ...(landed ? { landed: 1 } : { lost: why }) });
+  endReel();
+}
+
+function updateReel(t, dt) {
+  const r = state.reel;
+  if (!r) return;
+  const rule = C.REELS[r.how];
+  if (r.how === 'fighter' && t >= r.phaseUntil) {
+    r.pulling = !r.pulling;
+    r.phaseUntil = t + between(r.pulling ? rule.pull : rule.rest);
+  }
+  r.progress -= (r.how === 'fighter' && r.pulling ? rule.pullSlip : rule.slip) * dt;
+  if (rule.ease) r.strain = Math.max(0, r.strain - rule.ease * dt);
+  if (r.progress <= 0) { reelDone(false, 'escaped'); return; }
+  $('reel-fill').style.width = `${Math.min(1, r.progress) * 100}%`;
+  $('reel-strain').style.width = `${Math.min(1, r.strain) * 100}%`;
+  const warned = t < r.warnUntil;
+  $('reel-state').textContent = warned ? r.warn : r.how === 'fighter' ? (r.pulling ? 'IT PULLS... WAIT' : 'IT TIRES! REEL! REEL!') : `${isTouch ? 'REEL' : 'E'}! ${isTouch ? 'REEL' : 'E'}! ${isTouch ? 'REEL' : 'E'}!`;
+  $('reel-state').classList.toggle('bad', warned || (r.how === 'fighter' && r.pulling));
+  $('reel-time').textContent = `${Math.round((t - r.start) * 1000).toLocaleString('en-US')} MS`;
 }
 
 // ---- fishing: a bobber out on the water in front of whoever's fishing, and a line to it from the
@@ -2129,7 +2389,7 @@ function updateFishing(t) {
     }
     const toShore = M.towardDir(s.u, pl.rp);
     const spot = M.moveOnSphere(s.u, toShore, toShore, C.SHOPS.pond.r - 0.9)[0];
-    const dip = pl.fish.bit ? 0.08 + Math.abs(Math.sin(t * 18)) * 0.12 : Math.sin(t * 2.5 + pl.id) * 0.025;
+    const dip = pl.fish.hooked ? 0.22 + Math.abs(Math.sin(t * 9)) * 0.1 : pl.fish.bit ? 0.08 + Math.abs(Math.sin(t * 18)) * 0.12 : Math.sin(t * 2.5 + pl.id) * 0.025;
     g.bob.position.copy(v3(spot)).multiplyScalar(R + 0.1 - dip);
     const tip = v3(pl.rp).multiplyScalar(R + pl.rh + 2.0).addScaledVector(v3(M.towardDir(pl.rp, spot)), 1.0);
     const pos = g.line.geometry.attributes.position;
@@ -2140,7 +2400,7 @@ function updateFishing(t) {
 }
 
 // ====================================================================== the Businessman
-// How fat: the ages so far (Do Time and co-op) plus every bonk on the planet. Forever Stone has
+// How fat: the ages so far (War mode and co-op) plus every bonk on the planet. Forever Stone has
 // no ages, so there it's all bonks. Profit is what the round-end screen and his sign say.
 function mammonGrowth() {
   const g = state.game;
@@ -2223,7 +2483,12 @@ function beastTeam(b) {
   return owner && isAlly(owner) ? 'ally' : 'foe';
 }
 
-const BEAST_CALL = { dog: 'bark', mammoth: 'trumpet', trex: 'roar', ghost: 'wind', skeleton: 'clang' };
+const BEAST_CALL = { dog: 'bark', mammoth: 'trumpet', trex: 'roar', ghost: 'wind', skeleton: 'clang', zombie: 'grunt', bat: 'whiff', vampire: 'magic', demon: 'wind', werewolf: 'snarl' };
+// what a monster's attack sounds like, and what it shouts (now and then)
+const MONSTER_SWIPE = {
+  ghost: ['wind', 'BOO!'], skeleton: ['clang', null], zombie: ['grunt', 'BRAAAINS...'], bat: ['whiff', 'SKREE!'],
+  vampire: ['chomp', 'I VANT YOUR LIFE!'], demon: ['wind', 'SHHH... SLEEP...'], werewolf: ['snarl', 'GRRRAAH!'],
+};
 
 function addBeast(m, fresh = true) {
   removeBeast(m.id, false);
@@ -2231,9 +2496,9 @@ function addBeast(m, fresh = true) {
   const def = C.BEASTS[m.kind];
   const b = {
     id: m.id, kind: m.kind, name: m.name || def.name, owner: m.owner, rp: m.p, rf: m.f, rh: m.h || 0, hp: m.hp, maxHp: m.maxHp,
-    until: clock() + (m.left ?? def.life), snaps: [], speed: 0, monster: !!m.monster,
+    until: clock() + (m.left ?? def.life), snaps: [], speed: 0, monster: !!m.monster, tier: m.tier ?? null,
   };
-  // (a haunted hollow's monsters are nobody's)
+  // (the dark forest's monsters are nobody's)
   b.model = new Beast(m.kind, { label: b.monster ? b.name : `${owner ? owner.name : 'WILD'}'S ${b.name}`, team: beastTeam(b), look: m.look });
   b.model.setHp(m.hp);
   b.model.place(b.rp, b.rf, b.rh);
@@ -2544,15 +2809,142 @@ const landRing = new THREE.Mesh(
 landRing.visible = false;
 scene.add(landRing);
 
+// A shot, from the throwing hand (right of the head, or left for the left-handed). Two kinds, the
+// two ways other third-person games do it:
+// - What flies in a big arc (spears, arrows, stones, tomatoes: lift from LOFTED up) goes the way
+//   I'm looking, raised by the weapon's lift: tip the view down to throw shorter, up to throw
+//   further, and the dotted arc shows where it comes down (Fortnite's and Gears of War's
+//   grenades). It's turned a touch so it comes down in line with the crosshair, not off to the
+//   side where the hand is.
+// - What flies straight and fast (guns, lasers, the crossbow, the bazooka) goes at whatever the
+//   crosshair is on, raised just enough to make up for the drop on the way there (the bow in The
+//   Last of Us). At the sky, out along the line of sight, with the weapon's own lift.
+const LOFTED = 0.15;
 function aimSolution(charge) {
   const def = rangedDef();
   const speed = M.lerp(def.minSpeed, def.maxSpeed, charge);
-  const elev = def.lift - me.pitch;
-  const dir = M.norm(M.add(M.scale(me.f, Math.cos(elev)), M.scale(me.p, Math.sin(elev))));
   const right = M.cross(me.f, me.p);
-  // from the throwing hand: right of the head, or left for the left-handed
   const pos = M.add(M.scale(me.p, R + me.h + 1.65), M.add(M.scale(me.f, 0.25), M.scale(right, settings.get('lefty') ? -0.3 : 0.3)));
+  const dir = def.lift >= LOFTED ? throwDir(def, pos, speed) : shootDir(def, pos, speed);
   return { pos, dir, vel: M.scale(dir, speed) };
+}
+
+// Thrown: up from where I face by the lift less the view's tilt, then turned about the up at my
+// feet until it comes down on the crosshair's line: the great circle through the camera and its
+// line of sight (the planet's middle is on it too, so a point's distance off it is a dot product).
+// A couple of goes, each measuring how far one small turn moves the landing.
+function throwDir(def, pos, speed) {
+  const elev = def.lift - me.pitch;
+  let dir = M.norm(M.add(M.scale(me.f, Math.cos(elev)), M.scale(me.p, Math.sin(elev))));
+  const { pos: cam, look } = cameraRig(clock());
+  const n = M.norm(M.cross(cam, look));
+  const off = d => M.dot(landing(pos, M.scale(d, speed)), n);
+  let o0 = off(dir);
+  for (let i = 0; i < 2 && Math.abs(o0) > 0.05; i++) {
+    const o1 = off(M.rotateAxis(dir, me.p, 0.02));
+    if (Math.abs(o1 - o0) < 1e-6) break;
+    dir = M.rotateAxis(dir, me.p, M.clamp((-o0 * 0.02) / (o1 - o0), -0.3, 0.3));
+    o0 = off(dir);
+  }
+  return dir;
+}
+
+// where a shot comes down on bare ground (or where it's got to after a few seconds, if it hasn't)
+function landing(pos, vel) {
+  let last = pos;
+  const hit = M.traceArc(pos, vel, null, 3.5, PHYS, p => { last = p; });
+  return hit ? hit.pos : last;
+}
+
+// Shot: at the crosshair's target, raised just enough to come down onto it (halving the gap
+// between too high and too low); at the sky, along the line of sight with the weapon's own lift.
+function shootDir(def, pos, speed) {
+  const { p: target, hit } = aimTarget();
+  const at = M.norm(M.sub(target, pos));
+  return loft(at, hit && !def.hitscan ? liftOnto(pos, at, speed, target, def.lift) : def.lift);
+}
+
+// at, turned up by a (radians) in the plane of it and straight up
+function loft(at, a) {
+  const above = M.sub(me.p, M.scale(at, M.dot(me.p, at)));
+  return M.len(above) < 1e-6 ? at : M.norm(M.add(M.scale(at, Math.cos(a)), M.scale(M.norm(above), Math.sin(a))));
+}
+
+function liftOnto(pos, at, speed, target, lift) {
+  let lo = -0.2, hi = Math.max(0.5, lift * 4);
+  if (missBy(pos, at, speed, hi, target) < 0) return lift;   // (out of its reach: as it comes)
+  for (let i = 0; i < 14; i++) {
+    const a = (lo + hi) / 2;
+    if (missBy(pos, at, speed, a, target) > 0) hi = a; else lo = a;
+  }
+  return (lo + hi) / 2;
+}
+
+// how far above (+) or below (-) the target a shot raised by a passes, once it's out that far
+function missBy(pos, at, speed, a, target) {
+  const p = pos.slice(), v = M.scale(loft(at, a), speed);
+  const far = M.angleBetween(me.p, M.norm(target)), high = M.len(target);
+  for (let t = 0; t < 4; t += PHYS) {
+    M.stepProjectile(p, v, PHYS);
+    if (M.angleBetween(me.p, M.norm(p)) >= far) return M.len(p) - high;
+    if (M.len(p) <= R) return -1e3;   // (into the ground first: low)
+  }
+  return 1e3;   // (still going: high)
+}
+
+// What the crosshair is on: the first caveman, beast, range target, tree or rock, or bit of ground
+// along the line of sight through the middle of the screen ({ p, hit: true }), or a point far off
+// along it ({ p, hit: false }: the sky). It looks past what shots go through: friends (and in
+// peace everybody), my own beast and my tribe's; huts, fences, shops and boulders.
+const AIM_FAR = 80;
+function aimTarget() {
+  const { pos, pivot, look } = cameraRig(clock());
+  const d = M.norm(M.sub(look, pos));
+  // (from level with the pivot on: between the camera and the caveman there's nothing to aim at)
+  const s0 = M.dot(M.sub(pivot, pos), d);
+  // the ground, where the line meets the planet
+  const b = M.dot(pos, d), c = M.dot(pos, pos) - R * R, disc = b * b - c;
+  const ground = disc > 0 ? -b - Math.sqrt(disc) : Infinity;
+  const end = Math.min(AIM_FAR, ground > s0 ? ground : AIM_FAR);
+  const people = peaceNow() ? [] : [...state.players.values()].filter(o => o.id !== state.myId && o.alive && !isAlly(o));
+  const beasts = [...state.beasts.values()].filter(bt => beastTeam(bt) === 'foe');
+  let prev = M.madd(pos, d, s0);
+  for (let s = s0 + 0.4; s < end; s += 0.4) {
+    const p = M.madd(pos, d, s);
+    if (M.obstacleAt(p, state.world.obstacles)) return { p, hit: true };
+    const face = town.targetOnPath(prev, p);
+    if (face) return { p: face, hit: true };
+    if (people.some(o => M.hitPlayer(p, o.rp, o.rh, 0.55))) return { p, hit: true };
+    const r = M.len(p);
+    for (const bt of beasts) {
+      const def = C.BEASTS[bt.kind];
+      const hgt = r - R - bt.rh;
+      if (hgt > -0.3 && hgt < def.height && M.arcDist(M.scale(p, 1 / r), bt.rp) < def.radius) return { p, hit: true };
+    }
+    prev = p;
+  }
+  return { p: M.madd(pos, d, end), hit: end < AIM_FAR };
+}
+const aimPoint = () => aimTarget().p;
+
+// A straight shot that can't get to what the crosshair's on from the hand (the curve of the
+// planet in the way, or the edge of a tree) turns the crosshair red, as in Fortnite and PUBG. A
+// few times a second.
+let blockedAt = 0;
+function updateBlocked(t, canShoot) {
+  if (t - blockedAt < 0.15) return;
+  blockedAt = t;
+  const def = rangedDef();
+  let blocked = false;
+  if (canShoot && me.alive && def.lift < LOFTED) {
+    const { p: target, hit } = aimTarget();
+    if (hit) {
+      const { pos, dir, vel } = aimSolution(1);
+      const end = def.hitscan ? traceZap(pos, dir, def.range) : M.traceArc(pos, vel, state.world.obstacles, 3, PHYS)?.pos;
+      blocked = !!end && M.len(M.sub(end, pos)) < M.len(M.sub(target, pos)) - 0.8;
+    }
+  }
+  $('crosshair').classList.toggle('blocked', blocked);
 }
 
 function updateArc() {
@@ -2717,7 +3109,8 @@ const carrying = () => peaceNow() && !!myPlayer()?.carry;
 
 function farmInput(t) {
   // (in the duel ring, or with a weapon kept off its rack, the attack button bonks; with a practice
-  // weapon the throw button throws: updateLocal)
+  // weapon the throw button throws; at the drums they're the drums: updateLocal)
+  if (state.drumming) return;
   const kind = myShop()?.kind;
   if (kind !== 'duel' && kind !== 'haunt' && !carrying() && (input.pressed('KeyF') || input.mousePressed(BUTTON.melee)) && t - state.lastPlant > C.PEACE.plantCd) {
     state.lastPlant = t;
@@ -2740,7 +3133,12 @@ function useShop(shop) {
   else if (shop.kind === 'duel') togglePanel('rack', true);
   else if (shop.kind === 'range') togglePanel('shed', true);
   else if (shop.kind === 'pond') { sendState(); send({ t: 'fish' }); }
-  else if (shop.kind === 'bonfire') { sendState(); send({ t: 'dance', on: myPlayer()?.dancing ? 0 : 1 }); }
+  else if (shop.kind === 'bonfire') {
+    const d = drumNear(shop);
+    if (state.drumming) stopDrumming();
+    else if (d !== null) startDrumming(shop, d);
+    else { sendState(); send({ t: 'dance', on: myPlayer()?.dancing ? 0 : 1 }); }
+  }
 }
 
 // What the prompt says at each shop.
@@ -2751,24 +3149,38 @@ function shopPrompt(shop) {
     case 'tailor': return `${key('E')}TAILOR · HATS AND CAPES`;
     case 'range': return state.practice ? `${key('E')}RANGE SHED · SWAP IT OR HAND IT BACK`
       : `${key('E')}RANGE SHED · PICK A PRACTICE WEAPON · <span class="up">1 🐚 A HIT</span>`;
-    case 'haunt': return `HAUNTED HOLLOW · ${isTouch ? 'BONK' : buttonName('melee')} THE MONSTERS · <span class="up">${C.SHOPS.haunt.reward} 🐚 EACH</span>`;
+    case 'haunt': {
+      const tier = forestTier(shop, me.p), T = C.FOREST_TIERS[tier];
+      return `DARK FOREST · ${forestDepth(shop, tier)}: ${T.name} · ${isTouch ? 'BONK' : buttonName('melee')} THEM · <span class="up">${T.reward} 🐚 EACH</span>`;
+    }
     case 'duel': return `${key('E')}PICK A WEAPON · ${isTouch ? 'BONK' : buttonName('melee')} · DOWN TO 1 HP WINS <span class="up">${C.SHOPS.duel.win} 🐚</span>`;
     case 'pond': {
       const f = myPlayer()?.fish;
-      return !f ? `${key('E')}FISHING POND · CAST A LINE` : f.bit ? `${key('E')}<span class="up">BITE! REEL IT IN!</span>` : 'WAIT FOR A BITE...';
+      return state.reel ? null : !f ? `${key('E')}FISHING POND · CAST A LINE` : f.bit ? `${key('E')}<span class="up">BITE! HOOK IT!</span>` : 'WAIT FOR A BITE...';
     }
     case 'spring': return me.hp < PLAYER.maxHp ? `HOT SPRING · SOAKING <span class="up">+${C.SHOPS.spring.heal} LIFE A SECOND</span>` : 'HOT SPRING · WARM AND WELL';
-    case 'bonfire': return myPlayer()?.dancing ? `DANCING! <span class="up">🐚 ON THE WAY</span> · ${isTouch ? 'MOVE' : 'WALK'} TO STOP`
-      : `${key('E')}BONFIRE · DANCE FOR 🐚 <span class="up">MORE DANCERS, MORE 🐚</span>`;
+    case 'bonfire':
+      if (state.drumming) return `DRUMMING! ${isTouch ? 'BOOM' : mouseWord('melee')} · ${isTouch ? 'TAK' : mouseWord('ranged')} · <span class="up">🐚 FOR THE BAND</span> · ${isTouch ? 'MOVE' : 'WALK'} TO STOP`;
+      if (drumNear(shop) !== null) return `${key('E')}THE DRUMS · PLAY THEM <span class="up">🐚 FOR THE BAND</span>`;
+      return myPlayer()?.dancing ? `DANCING! <span class="up">🐚 ON THE WAY</span> · ${isTouch ? 'MOVE' : 'WALK'} TO STOP`
+        : `${key('E')}BONFIRE · DANCE FOR 🐚 <span class="up">MORE DANCERS, MORE 🐚</span>`;
   }
   return null;
 }
 
+// Which ring of the dark forest p is in, from its edge (0) to its heart (rings - 1), and what to
+// call it. The server's rings are the same.
+function forestTier(s, p) {
+  return M.clamp(Math.floor((zoneOf(s) - M.arcDist(p, s.at)) / C.SHOPS.haunt.ring), 0, (s.rings || 1) - 1);
+}
+const forestDepth = (s, tier) => (tier === (s.rings || 1) - 1 ? 'THE HEART' : tier === 0 ? 'THE EDGE' : 'DEEPER IN');
+
 // What GRAB says on a phone at each place it works.
 function grabLabel(kind) {
   if (state.talkNear) return 'TALK';
-  if (kind === 'pond') { const f = myPlayer()?.fish; return !f ? 'FISH' : f.bit ? 'REEL!' : 'WAIT'; }
-  if (kind === 'bonfire') return myPlayer()?.dancing ? 'STOP' : 'DANCE';
+  if (state.penumbra) return 'GEAR';
+  if (kind === 'pond') { const f = myPlayer()?.fish; return state.reel ? 'REEL!' : !f ? 'FISH' : f.bit ? 'HOOK!' : 'WAIT'; }
+  if (kind === 'bonfire') return state.drumming || myPlayer()?.dancing ? 'STOP' : drumNear(myShop()) !== null ? 'DRUMS' : 'DANCE';
   return { doctor: 'HEAL', tailor: 'SHOP', duel: 'WEAPON', range: 'WEAPONS' }[kind] || 'GRAB';
 }
 
@@ -2778,13 +3190,15 @@ function refreshTailor() {
   const pl = myPlayer();
   if (pl) hud.tailor(state.shells, state.wardrobe, pl.look);
 }
-const PANELS = { tailor: refreshTailor, rack: () => hud.rack(me.wpn?.name, myPlayer()?.carry), shed: () => hud.shed(state.practice) };
+const PANELS = { tailor: refreshTailor, rack: () => hud.rack(me.wpn?.name, myPlayer()?.carry), shed: () => hud.shed(state.practice), gear: openGear };
+const PANEL_CLOSED = { gear: () => gearView.stop() };
 const panelOpen = id => !$(id).classList.contains('hidden');
 const townPanelOpen = () => Object.keys(PANELS).some(panelOpen);
 // relock: back to the game with the mouse (not after Esc, or when the server closed it)
 function togglePanel(id, open = !panelOpen(id), relock = true) {
   if (open === panelOpen(id)) return;
   $(id).classList.toggle('hidden', !open);
+  if (!open) PANEL_CLOSED[id]?.();
   if (open) {
     PANELS[id]();
     input.unlock();
@@ -2792,8 +3206,9 @@ function togglePanel(id, open = !panelOpen(id), relock = true) {
     input.lock();
   }
 }
-function closePanels() {
-  for (const id of Object.keys(PANELS)) togglePanel(id, false, false);
+// keep: panels to leave open
+function closePanels(keep = []) {
+  for (const id of Object.keys(PANELS)) if (!keep.includes(id)) togglePanel(id, false, false);
 }
 for (const id of Object.keys(PANELS)) {
   $(`${id}-close`).onclick = () => togglePanel(id, false);
@@ -2803,6 +3218,56 @@ $('tailor-items').onclick = e => {
   const b = e.target.closest('button[data-item]');
   if (b?.dataset.item) send({ t: 'buy', item: b.dataset.item });
 };
+// ---- the penumbra round the dark forest: pick a melee and a ranged weapon to take in. The screen
+// shows my caveman with both, going at a dummy at their real pace (gear.js), and their numbers.
+const gearView = new GearView($('gear-canvas'), $('gear-floats'), $('gear-doing'));
+const gearPick = { melee: 'club', ranged: 'spear' };
+// the forest whose penumbra I'm in (its edge, and the band of gloom round it), if any
+function penumbraOf() {
+  for (const s of town.shops.values()) {
+    if (s.kind !== 'haunt') continue;
+    const d = M.arcDist(me.p, s.at);
+    if (d > zoneOf(s) - 0.5 && d < zoneOf(s) + C.SHOPS.haunt.penumbra) return s;
+  }
+  return null;
+}
+function openGear() {
+  // (what I've got already, else what I picked last time)
+  gearPick.melee = myPlayer()?.carry || gearPick.melee;
+  gearPick.ranged = state.practice || gearPick.ranged;
+  const list = (keys, label, pick, only) => keys.map(k => `<button data-k="${k}" class="${k === pick ? 'on' : ''}${only?.(k) ? ' only' : ''}">${esc(label(k))}</button>`).join('');
+  $('gear-melee').innerHTML = list(C.DUEL_WEAPONS, k => C.duelWeapon(k).name.toUpperCase(), gearPick.melee);
+  $('gear-ranged').innerHTML = list(C.PRACTICE_WEAPONS, k => C.RANGED[k].name.toUpperCase(), gearPick.ranged, k => C.RANGED[k].peace);
+  $('gear-back').classList.toggle('hidden', !myPlayer()?.carry && !state.practice);
+  showGear();
+  gearView.start();
+}
+function showGear() {
+  const mult = 1 + state.perm.might * C.MOTES.kinds.might.perm;
+  gearView.show(myPlayer()?.look || profileLook || {}, gearPick.melee, gearPick.ranged, mult);
+  const table = (title, { rows, special }) => `<b>${esc(title)}</b><table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>${special.length ? `<div class="special">${special.join(' · ')}</div>` : ''}`;
+  $('gear-melee-stats').innerHTML = table(C.duelWeapon(gearPick.melee).name.toUpperCase(), meleeRows(C.duelWeapon(gearPick.melee), mult));
+  $('gear-ranged-stats').innerHTML = table(C.RANGED[gearPick.ranged].name.toUpperCase(), rangedRows(C.RANGED[gearPick.ranged], mult));
+  for (const [id, pick] of [['gear-melee', gearPick.melee], ['gear-ranged', gearPick.ranged]]) {
+    for (const b of $(id).children) b.classList.toggle('on', b.dataset.k === pick);
+  }
+}
+$('gear-melee').onclick = e => { const b = e.target.closest('button[data-k]'); if (b) { gearPick.melee = b.dataset.k; showGear(); } };
+$('gear-ranged').onclick = e => { const b = e.target.closest('button[data-k]'); if (b) { gearPick.ranged = b.dataset.k; showGear(); } };
+$('gear-take').onclick = () => {
+  sendState();
+  send({ t: 'gear', melee: gearPick.melee, ranged: gearPick.ranged });
+  togglePanel('gear', false);
+  hud.center('GEARED UP!', `${C.duelWeapon(gearPick.melee).name.toUpperCase()} + ${C.RANGED[gearPick.ranged].name.toUpperCase()} · INTO THE DARK`, 2.2);
+  sound.play('pickup');
+};
+$('gear-back').onclick = () => {
+  sendState();
+  send({ t: 'gear', melee: '', ranged: '' });
+  togglePanel('gear', false);
+  hud.center('HANDED THEM BACK', 'THE HOE AGAIN', 1.6);
+};
+
 // the range shed: take one (or hand it back), and off you go
 $('shed-items').onclick = e => {
   const b = e.target.closest('button[data-w]');
@@ -2913,8 +3378,9 @@ function updateLocal(dt, t) {
   const canAct = me.alive && t >= me.stunUntil && input.locked;
   // in peace: shooting only with a practice weapon (anywhere), bonking only in the duel ring
   const shop = myShop();
-  const canShoot = canAct && (fightingNow() || (peaceNow() && !!state.practice));
-  const canBonk = canAct && (fightingNow() || shop?.kind === 'duel' || shop?.kind === 'haunt' || carrying());
+  const canShoot = canAct && !state.drumming && (fightingNow() || (peaceNow() && !!state.practice));
+  updateBlocked(t, canShoot);
+  const canBonk = canAct && !state.drumming && (fightingNow() || shop?.kind === 'duel' || shop?.kind === 'haunt' || carrying());
   const def = rangedDef();
   const prev = me.p;
 
@@ -2935,6 +3401,7 @@ function updateLocal(dt, t) {
       me.danceStop = t;
       send({ t: 'dance', on: 0 });
     }
+    if (dl > 0.1 && state.drumming) stopDrumming();   // (walked off the drums)
     const slowed = t < me.slowUntil;
     const zoom = buffOn(me, 'fast') ? C.BUFF.fast : 1;
     const limp = peaceNow() && me.hp < C.PEACE.limpHp ? C.PEACE.limp : 1;   // hurt in peace: off to the doctor
@@ -2999,9 +3466,20 @@ function updateLocal(dt, t) {
     // ...and with nothing else to use there, at his podium E talks to the Businessman
     state.talkNear = !grab && !shop && nearMammon();
     // E (GRAB on a phone) also works the doctor, the tailor and the duel ring's rack
-    state.grabNear = !!grab || ['doctor', 'tailor', 'duel', 'range', 'pond', 'bonfire'].includes(shop?.kind) || state.talkNear;
+    state.grabNear = !!grab || ['doctor', 'tailor', 'duel', 'range', 'pond', 'bonfire'].includes(shop?.kind) || state.talkNear || !!penumbraOf();
     const shroom = nearestShroom(3.2);
-    if (shop) hud.prompt(shopPrompt(shop));
+    // at the dark forest's edge, in its penumbra: E picks what to take in
+    const pen = !shop || shop.kind === 'haunt' ? penumbraOf() : null;
+    state.penumbra = !!pen;
+    // deeper into the dark forest: it says what lives here
+    const tier = shop?.kind === 'haunt' ? forestTier(shop, me.p) : null;
+    if (tier !== null && state.forestTier !== null && tier > state.forestTier) {
+      const T = C.FOREST_TIERS[tier];
+      hud.center(forestDepth(shop, tier), `${T.name} · ${T.reward} 🐚 EACH`, 1.5);
+    }
+    state.forestTier = tier;
+    if (pen && !state.reel) hud.prompt(`${isTouch ? '' : '<span class="key">E</span>'}THE PENUMBRA · PICK YOUR GEAR FOR THE DARK FOREST`);
+    else if (shop) hud.prompt(shopPrompt(shop));
     else if (grab?.meat) hud.prompt(`<span class="key">E</span>EAT ROAST MEAT <span class="up">+${C.MEAT.heal} LIFE</span>`);
     else if (grab?.armor) hud.armorPrompt(grab.armor, me.armor);
     else if (grab) hud.pickupPrompt(grab.pk, me.wpn);
@@ -3011,7 +3489,17 @@ function updateLocal(dt, t) {
       hud.prompt(`<span style="color:${d.color}">${d.name}</span><span class="cmp">${d.buff}: ${d.desc} FOR ${d.secs} SEC · WALK OVER IT TO EAT</span>`);
     } else hud.prompt(null);
     if (grab && canAct && input.pressed('KeyE')) send({ t: 'grab' });
-    if (shop && canAct && input.pressed('KeyE')) useShop(shop);
+    updateReel(t, dt);
+    if (state.reel && canAct && input.pressed('KeyE')) reelTap(t);
+    else if (pen && canAct && input.pressed('KeyE')) togglePanel('gear', true);
+    else if (shop && canAct && input.pressed('KeyE')) useShop(shop);
+    if (state.drumming && shop?.id !== state.drumming.shop) stopDrumming();
+    if (state.drumming && canAct) {
+      if (input.pressed('KeyF') || input.mousePressed(BUTTON.melee)) hitDrum(0);
+      if (input.mousePressed(BUTTON.ranged)) hitDrum(1);
+    }
+    // by the bonfire's drums, everything else goes quieter
+    sound.setDuck(shop?.kind === 'bonfire');
     if (state.talkNear && canAct && input.pressed('KeyE')) mammonTalk();
 
     for (let i = 0; i < C.EMOTES.length; i++) {
@@ -3415,24 +3903,32 @@ function updatePlayers(dt, t, renderT) {
 
 const SUN_HINT = M.norm([0.45, 0.3, 0.84]);
 
+// Where the camera sits and what it looks at, before any shake. It orbits a pivot above and right
+// of the head so the caveman sits lower-left, clear of the crosshair (left of it and lower-right
+// for the left-handed, so the throwing hand stays near it). The crosshair is the middle of the
+// screen: the line from pos through look (aimPoint follows it).
+function cameraRig(t) {
+  const up = me.p, fw = me.f;
+  const right = M.cross(fw, up);
+  const head = M.scale(up, R + me.h + 1.75);
+  const deadFor = me.alive ? 0 : t - me.deadAt;
+  const dist = 6.2 + Math.min(5, deadFor * 2.5);
+  const ph = me.pitch;
+  const back = M.add(M.scale(fw, -Math.cos(ph)), M.scale(up, Math.sin(ph)));
+  const pivot = M.add(head, M.add(M.scale(right, settings.get('lefty') ? -1.15 : 1.15), M.scale(up, 0.55)));
+  let pos = M.madd(pivot, back, dist);
+  if (M.len(pos) < R + 0.6) pos = M.scale(M.norm(pos), R + 0.6);
+  return { pos, pivot, look: M.madd(pivot, back, -4) };
+}
+
 function updateCamera(dt, t) {
   let focus, up;
   const pl = myPlayer();
   if (state.joined && pl) {
     up = v3(me.p);
-    const fw = v3(me.f);
-    const right = new THREE.Vector3().crossVectors(fw, up);
-    const head = up.clone().multiplyScalar(R + me.h + 1.75);
-    const deadFor = me.alive ? 0 : t - me.deadAt;
-    const dist = 6.2 + Math.min(5, deadFor * 2.5);
-    const ph = me.pitch;
-    const back = fw.clone().multiplyScalar(-Math.cos(ph)).addScaledVector(up, Math.sin(ph));
-    // orbit a pivot above and right of the head so the caveman sits lower-left, clear of the
-    // crosshair (left of it and lower-right for the left-handed, so the throwing hand stays near it)
-    const pivot = head.clone().addScaledVector(right, settings.get('lefty') ? -1.15 : 1.15).addScaledVector(up, 0.55);
-    const pos = pivot.clone().addScaledVector(back, dist);
-    if (pos.length() < R + 0.6) pos.setLength(R + 0.6);
-    const look = pivot.clone().addScaledVector(back, -4);
+    const rig = cameraRig(t);
+    const pos = v3(rig.pos);
+    const look = v3(rig.look);
     if (fx.shake > 0 && settings.get('shake') > 0) {
       const s = fx.shake * 0.35 * (settings.get('shake') / 100);
       pos.x += (Math.random() - 0.5) * s;
@@ -3496,7 +3992,7 @@ function updateHud(dt, t) {
   updateBeastHud(t);
   const buffs = Object.entries(me.buffs).filter(([, until]) => until > t).map(([kind, until]) => ({ kind, left: Math.ceil(until - t) }));
   hud.setStatus({ stun: t < me.stunUntil, slow: t < me.slowUntil, bleed: mine && mine.flags & 16, limp: peaceNow() && me.alive && me.hp < C.PEACE.limpHp,
-    hungry: peaceNow() && me.alive && me.hp < 70 && me.hp >= C.PEACE.limpHp, buffs });
+    hungry: peaceNow() && me.alive && me.hp < 70 && me.hp >= C.PEACE.limpHp, buffs, perm: peaceNow() ? state.perm : null });
   hud.eruptWarning(t < state.eruptUntil);
   hud.scoreboard(state.players.values(), state.myId, input.down('Tab'), state.game.chief);
   // weapon stats only while the scores are up (Tab, or ☰ on a phone)
@@ -3512,17 +4008,17 @@ function updateHud(dt, t) {
   const notes = [];
   if (practicing) notes.push(shopKind === 'range'
     ? `${isTouch ? 'WEAPONS' : 'E'} · SWAP THE ${C.RANGED[state.practice].name.toUpperCase()} OR HAND IT BACK`
-    : `PRACTICE: ${C.RANGED[state.practice].name.toUpperCase()} · GO BACK TO THE RANGE SHED TO STOP`);
+    : `PRACTICE: ${C.RANGED[state.practice].name.toUpperCase()} · BACK TO A RANGE SHED (OR THE PENUMBRA) TO STOP`);
   if (carrying()) {
     const kept = C.duelWeapon(myPlayer().carry).name.toUpperCase();
     notes.push(shopKind === 'duel' ? `${isTouch ? 'WEAPON' : 'E'} · SWAP THE ${kept} OR HAND IT BACK`
-      : `KEPT: ${kept} · HAND IT BACK AT THE DUEL RING TO PLANT AGAIN`);
+      : `KEPT: ${kept} · HAND IT BACK AT THE DUEL RING (OR THE PENUMBRA) TO PLANT AGAIN`);
   }
   hud.practiceNote(notes.join('\n') || null);
   hud.vote(state.game, state.myVote);
   const councilOpen = !$('council').classList.contains('hidden');
   $('lock-hint').classList.toggle('hidden', input.locked || !me.alive || councilOpen || settingsOpen() || townPanelOpen());
-  if ($('lock-hint').classList.contains('hidden')) disarmQuit($('lock-quit'));
+  if ($('lock-hint').classList.contains('hidden')) { disarmQuit($('lock-quit')); disarmQuit($('lock-exit')); }
   if (touch) {
     const def = rangedDef();
     const peace = peaceNow();
@@ -3534,17 +4030,17 @@ function updateHud(dt, t) {
       chat: canChat() || chatOpen(),
       grabLabel: grabLabel(shopKind),
       chief: state.game.chief === state.myId,
-      throwLabel: building ? 'BUILD' : THROW_LABEL[def.proj] || 'THROW',
+      throwLabel: state.drumming ? 'TAK' : building ? 'BUILD' : THROW_LABEL[def.proj] || 'THROW',
       ammo: building ? C.BUILDS[C.BUILD_ORDER[state.buildKind]].cost : me.ammo,
       charge: me.charging && !def.auto ? me.charge : 0,
-      verb: peace && !carrying() && shopKind !== 'duel' && shopKind !== 'haunt' ? 'PLANT' : 'BONK',   // one word that always means melee (weapon verbs like ZAP clash with the throw button)
+      verb: state.drumming ? 'BOOM' : peace && !carrying() && shopKind !== 'duel' && shopKind !== 'haunt' ? 'PLANT' : 'BONK',   // one word that always means melee (weapon verbs like ZAP clash with the throw button)
       cooldown: me.wpn ? (t - me.lastSwing) / me.wpn.cd : 1,
     });
   }
 
   if (!me.alive) {
-    const left = Math.max(0, PLAYER.respawn - (t - me.deadAt));
-    const waiting = state.game.phase !== 'play';   // no getting up during the disaster or the victory screen
+    const left = Math.max(0, (peaceNow() ? C.PEACE.sleep : PLAYER.respawn) - (t - me.deadAt));
+    const waiting = state.game.phase !== 'play' && !peaceNow();   // no getting up during the disaster or the victory screen
     let line;
     if (coop) {
       // co-op: down until the tribe clears the wave
@@ -3584,13 +4080,15 @@ function updateHud(dt, t) {
     for (const a of state.armorDrops.values()) items.push({ p: a.u, color: C.ARMORS[a.armor.type]?.color || '#fff', kind: 'armor' });
     for (const l of state.loot.values()) if (l.wpn) items.push({ p: l.u, color: C.TIER_COLORS[l.wpn.tier], kind: 'loot' });
     for (const s of state.shrooms.values()) items.push({ p: s.u, color: C.SHROOMS[s.kind].color, kind: 'shroom' });
+    for (const mt of state.motes.values()) items.push({ p: mt.u, color: C.MOTES.kinds[mt.kind].color, kind: 'loot' });
     for (const b of state.beasts.values()) items.push({ p: b.rp, color: beastTeam(b) === 'foe' ? '#ff4b4b' : '#5ef08a', kind: 'beast' });
     for (const sh of town.shops.values()) items.push({ p: sh.at, color: SHOP_LOOK[sh.kind].color, kind: 'shop' });
     for (const st of state.strangers.values()) items.push({ p: st.rp, color: '#9dff8a', kind: 'player' });
     // co-op: friends green, bots red. Otherwise everyone's a target: humans red, bots orange.
     const dotColor = p => (coop ? (p.bot ? '#ff4b4b' : '#5ef08a') : p.bot ? '#ff9a3c' : '#ff4b4b');
     for (const p of state.players.values()) if (p.id !== state.myId && p.alive) items.push({ p: p.rp, color: dotColor(p), kind: 'player' });
-    hud.radar(me, items);
+    const areas = [...town.shops.values()].filter(sh => sh.kind === 'haunt').map(sh => ({ p: sh.at, r: zoneOf(sh), rings: sh.rings || 1 }));
+    hud.radar(me, items, areas);
   }
 }
 
@@ -3717,6 +4215,7 @@ function toggleSettings(open = !settingsOpen()) {
     input.unlock();
   } else {
     disarmQuit($('settings-quit'));
+    disarmQuit($('settings-exit'));
     if (state.joined && !state.settingsFromPause && (me.alive || isTouch) && $('council').classList.contains('hidden')) input.lock();
   }
 }
@@ -3916,6 +4415,7 @@ function frame() {
     farm.update();
     town.update(camera.position);
     updateFishing(clock());
+    updateMotes(clock());
     updateMammon(dt);
     updateDisaster(dt);
     updateDoom(dt);
@@ -3935,7 +4435,7 @@ function frame() {
 }
 
 // ?debug exposes internals for poking at the game from the console
-if (new URLSearchParams(location.search).has('debug')) window.__ss = { state, me, input, tilt, settings, fx, hud, sound, camera, scene, renderer, M, C, handlers, farm, town };
+if (new URLSearchParams(location.search).has('debug')) window.__ss = { state, me, input, tilt, settings, fx, hud, sound, camera, scene, renderer, M, C, handlers, farm, town, aim: { aimSolution, aimPoint, cameraRig } };
 
 initLobby();
 settings.onChange(applySetting);   // applies every saved setting now, then each change as it happens

@@ -8,12 +8,12 @@
   },
   "env": {
     "MODE": {
-      "description": "Mode every new rock (lobby) starts in: dotime (stone age to the end of the world, with armor), plough (Peace mode: no war, farming, fishing, dancing and a town), classic (Forever Stone) or coop (Tribe vs Bots: all humans against waves of bots). Each rock's chief can change it.",
+      "description": "Mode every new rock (lobby) starts in: dotime (War mode: stone age to the end of the world, with armor), plough (Peace mode: no war, farming, fishing, dancing and a town), classic (Forever Stone) or coop (Tribe vs Bots: all humans against waves of bots). Each rock's chief can change it.",
       "value": "dotime",
       "required": false
     },
     "ERA_SECONDS": {
-      "description": "Seconds in each Do Time age. After the last one, a random natural disaster ends the round.",
+      "description": "Seconds in each War mode age. After the last one, a random natural disaster ends the round.",
       "value": "45",
       "required": false
     },

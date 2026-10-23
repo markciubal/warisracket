@@ -1,4 +1,4 @@
-import { TIER_COLORS, PLAYER, ARMORS, ERAS, MODES, DISASTERS, SHROOMS, BUILDS, CLOTHES, DUEL_WEAPONS, duelWeapon, RANGED, PRACTICE_WEAPONS } from '/shared/constants.js';
+import { TIER_COLORS, PLAYER, ARMORS, ERAS, MODES, DISASTERS, SHROOMS, BUILDS, CLOTHES, DUEL_WEAPONS, duelWeapon, RANGED, PRACTICE_WEAPONS, MOTES } from '/shared/constants.js';
 import * as M from '/shared/math.js';
 
 const $ = id => document.getElementById(id);
@@ -227,6 +227,8 @@ export class Hud {
     this.lastPracticeNote = text;
     $('practice-note').classList.toggle('hidden', !text);
     if (text) $('practice-note').textContent = text;
+    // (the prompt sits above it, however many lines it is)
+    document.body.style.setProperty('--notes', text ? text.split('\n').length : 0);
   }
 
   // The vote to keep farming: open while game.vote; mine: 'yes' | 'no' | null.
@@ -347,9 +349,10 @@ export class Hud {
 
   setCooldown(frac) { this.wcCd.style.width = `${Math.max(0, 1 - frac) * 100}%`; }
 
-  // buffs: [{ kind, left }] from magic mushrooms, shown with their seconds left
-  setStatus({ stun, slow, bleed, limp, hungry, buffs = [] }) {
-    const key = `${stun ? 1 : 0}${slow ? 1 : 0}${bleed ? 1 : 0}${limp ? 1 : 0}${hungry ? 1 : 0}${buffs.map(b => b.kind + b.left).join()}`;
+  // buffs: [{ kind, left }] from magic mushrooms (and motes), shown with their seconds left.
+  // perm: gold motes kept ({ might, hide }), in peace mode
+  setStatus({ stun, slow, bleed, limp, hungry, buffs = [], perm = null }) {
+    const key = `${stun ? 1 : 0}${slow ? 1 : 0}${bleed ? 1 : 0}${limp ? 1 : 0}${hungry ? 1 : 0}${buffs.map(b => b.kind + b.left).join()}${perm ? `${perm.might}${perm.hide}` : ''}`;
     if (key === this.lastStatus) return;
     this.lastStatus = key;
     this.statusEl.innerHTML = [
@@ -359,6 +362,8 @@ export class Hud {
       slow && '<span class="status slow">SLOWED</span>',
       bleed && '<span class="status bleed">BLEEDING</span>',
       ...buffs.map(b => `<span class="status buff" style="background:${SHROOMS[b.kind].color}">${SHROOMS[b.kind].buff} ${b.left}</span>`),
+      perm?.might && `<span class="status buff" style="background:${MOTES.kinds.might.color}">MIGHT ×${perm.might}</span>`,
+      perm?.hide && `<span class="status buff" style="background:${MOTES.kinds.hide.color}">HIDE ×${perm.hide}</span>`,
     ].filter(Boolean).join('');
   }
 
@@ -426,13 +431,36 @@ export class Hud {
   }
 
   // items: { p: unit vec, color, kind: 'player'|'boulder'|'pickup'|'volcano'|'danger'|'armor' }
-  radar(me, items, range = 42) {
+  // areas: places that are ground (the dark forest): { p: its middle, r: how far it reaches, rings }
+  radar(me, items, areas = [], range = 42) {
     const g = this.radarCtx, S = 180, cx = S / 2, rad = S / 2 - 8;
     g.clearRect(0, 0, S, S);
     g.strokeStyle = 'rgba(255,240,200,0.18)';
     g.lineWidth = 1;
     for (const k of [0.33, 0.66, 1]) { g.beginPath(); g.arc(cx, cx, rad * k, 0, Math.PI * 2); g.stroke(); }
     const right = M.cross(me.f, me.p);
+    // the dark forest: a dark patch, darker ring by ring toward its heart (kept inside the radar:
+    // past its edge only the near side shows)
+    g.save();
+    g.beginPath();
+    g.arc(cx, cx, rad, 0, Math.PI * 2);
+    g.clip();
+    for (const a of areas) {
+      const d = M.arcDist(me.p, a.p);
+      const dir = d < 0.01 ? me.f : M.towardDir(me.p, a.p);
+      const x = cx + M.dot(dir, right) * (d / range) * rad;
+      const y = cx - M.dot(dir, me.f) * (d / range) * rad;
+      for (let i = 0; i < a.rings; i++) {
+        g.beginPath();
+        g.arc(x, y, ((a.r * (a.rings - i)) / a.rings / range) * rad, 0, Math.PI * 2);
+        g.fillStyle = i ? 'rgba(30, 10, 50, 0.3)' : 'rgba(70, 40, 110, 0.45)';
+        g.fill();
+        g.strokeStyle = 'rgba(190, 150, 255, 0.6)';
+        g.lineWidth = 1;
+        g.stroke();
+      }
+    }
+    g.restore();
     for (const it of items) {
       const d = M.arcDist(me.p, it.p);
       if (d < 0.01) continue;
@@ -501,6 +529,30 @@ export class Hud {
       $('death-by').innerHTML = by;
       $('death-timer').textContent = timer;
     }
+  }
+
+  // Waking up: the eyelids open, a different way each time, never longer than half a second.
+  // Each way: [ms, [when (0 to 1), how open (0 shut, 1 wide)]...]. Returns which it was.
+  wake() {
+    const ways = {
+      snap: [280, [[0, 0], [1, 1]]],
+      double: [480, [[0, 0], [0.35, 1], [0.5, 0.05], [1, 1]]],
+      groggy: [500, [[0, 0], [0.4, 0.45], [0.6, 0.15], [1, 1]]],
+      flutter: [450, [[0, 0], [0.2, 0.8], [0.3, 0.4], [0.45, 0.95], [0.55, 0.6], [1, 1]]],
+      squint: [420, [[0, 0], [0.45, 0.22], [0.7, 0.25], [1, 1]]],
+    };
+    const names = Object.keys(ways);
+    const name = names[Math.floor(Math.random() * names.length)];
+    const [ms, steps] = ways[name];
+    const el = $('wake');
+    el.dataset.way = name;
+    el.classList.remove('hidden');
+    for (const [id, sign] of [['wake-top', -1], ['wake-bottom', 1]]) {
+      $(id).animate(steps.map(([offset, open]) => ({ offset, transform: `translateY(${sign * open * 110}%)` })), { duration: ms, easing: 'ease-in-out', fill: 'forwards' });
+    }
+    clearTimeout(this.wakeT);
+    this.wakeT = setTimeout(() => el.classList.add('hidden'), ms);
+    return name;
   }
 
   flash(amount, kind = 'hurt') {

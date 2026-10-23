@@ -344,6 +344,7 @@ function bake(parts) {
 
 const alongZ = (z, sx = 1) => o => { o.rotation.x = Math.PI / 2; o.position.z = z; o.scale.x = sx; };
 const backwardZ = (z, ry) => o => { o.rotation.x = -Math.PI / 2; o.rotation.y = ry; o.position.z = z; };
+const forwardZ = (z, ry) => o => { o.rotation.x = Math.PI / 2; o.rotation.y = ry; o.position.z = z; };
 
 let projMat;
 const PROJ_GEOS = {};
@@ -358,8 +359,9 @@ const PROJ_PARTS = {
   arrow: () => [
     [new THREE.CylinderGeometry(0.017, 0.017, 1.0, 5), '#a8743c', alongZ(-0.6)],
     [new THREE.ConeGeometry(0.04, 0.14, 4), '#8d8a83', alongZ(-0.07, 0.5)],
-    // flattened fins spun around the shaft (Ry spins about the fin's own axis before Rx lays it back)
-    ...[0, 2.1, 4.2].map(a => [new THREE.ConeGeometry(0.045, 0.22, 3).scale(1, 1, 0.15), a ? '#f3e7c8' : '#c8402a', backwardZ(-1.0, a)]),
+    // flattened fins spun around the shaft (Ry spins about the fin's own axis before Rx lays it
+    // along), widest at the back and tapering toward the head, like real fletching
+    ...[0, 2.1, 4.2].map(a => [new THREE.ConeGeometry(0.045, 0.22, 3).scale(1, 1, 0.15), a ? '#f3e7c8' : '#c8402a', forwardZ(-0.99, a)]),
   ],
 };
 

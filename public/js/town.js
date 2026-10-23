@@ -1,12 +1,12 @@
 // Peace mode: the town that opens up as the planet grows. Doctors, target ranges, a duel ring, a
-// tailor, haunted hollows, fishing ponds, hot springs and bonfires (SHOPS). Shops keep their size as the planet
+// tailor, the dark forest, fishing ponds, hot springs and bonfires (SHOPS). Shops keep their size as the planet
 // grows under them: each part knows where it goes (shared/layout.js for the range, so the server
 // agrees), and relayout() puts everything back after every change of size.
 import * as THREE from 'three';
 import { R, SHOPS, weaponOfType } from '/shared/constants.js';
 import * as M from '/shared/math.js';
 import { shopLayout } from '/shared/layout.js';
-import { mat, lambert, shadows, placeOnSphere } from './util.js';
+import { mat, lambert, shadows, placeOnSphere, mergeChildren } from './util.js';
 import { buildWeapon } from './weapons.js';
 import { softDotTexture } from './textures.js';
 
@@ -17,11 +17,27 @@ export const SHOP_LOOK = {
   range:  { color: '#ffd34d', icon: '🎯', sign: 'TARGETS', sub: '1 🐚 A HIT' },
   duel:   { color: '#ff9a3d', icon: '⚔️', sign: 'DUEL RING', sub: 'NOBODY GOES BELOW 1 HP' },
   tailor: { color: '#c58cff', icon: '🎩', sign: 'TAILOR', sub: 'HATS · CAPES' },
-  haunt:  { color: '#a07cff', icon: '👻', sign: 'HAUNTED', sub: 'MONSTERS · 2 🐚 EACH' },
+  haunt:  { color: '#a07cff', icon: '🌲', sign: 'DARK FOREST', sub: 'THE DEEPER, THE WORSE' },
   pond:   { color: '#4fb3ff', icon: '🎣', sign: 'FISHING', sub: 'FISH FOR 🐚 AND FOOD' },
   spring: { color: '#7fe3d0', icon: '♨️', sign: 'HOT SPRING', sub: 'SOAK TO HEAL' },
   bonfire: { color: '#ff7a2f', icon: '🔥', sign: 'BONFIRE', sub: 'DANCE FOR 🐚' },
 };
+
+// A shop's circle: the dark forest's grows as it spreads (the server says how far).
+export const zoneOf = s => s.zone ?? SHOPS[s.kind].zone;
+
+// Where a bonfire's drums stand, on the planet (the server works it out the same way).
+export function drumsOf(s) {
+  const def = SHOPS.bonfire, side = M.cross(s.u, s.f);
+  return def.drums.map(a => {
+    const dir = M.add(M.scale(s.f, Math.cos(a)), M.scale(side, Math.sin(a)));
+    return M.moveOnSphere(s.u, dir, dir, def.zone - def.drumAt)[0];
+  });
+}
+
+// The same "random" every time for the same seed: a forest's trees stay where they are when it's
+// built again bigger.
+const seeded = seed => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 
 function part(g, geo, material, x = 0, y = 0, z = 0) {
   const m = new THREE.Mesh(geo, material);
@@ -244,45 +260,93 @@ const CURVED = {
     });
     g.add(standAt(rack, zone - 1.1, 0, Math.PI));
   },
-  // a haunted hollow: dark mist on the ground, dead trees round the edge, crooked gravestones, and
-  // wisps of green light drifting about (s.wisps)
+  // The dark forest: dark ground, darker ring by ring toward the heart, each ring's edge faintly
+  // lit; a wood of dead trees and black pines; gravestones round the edge, bones further in; a ring
+  // of standing stones round a glowing altar at the heart; and wisps of green light drifting about
+  // (s.wisps). Built again bigger each time it spreads: the trees of each ring stay where they were
+  // (seeded by the ring, counted from the middle).
   haunt(g, s) {
-    const zone = SHOPS.haunt.zone;
-    const mist = g.add(groundDisk(zone, 0, groundMat('#231a33', 0.75))).children.at(-1);
-    mist.position.y = 0.02;
-    const edge = g.add(groundDisk(zone, zone - 0.3, groundMat('#7c5cc4', 0.45))).children.at(-1);
-    edge.position.y = 0.03;
-    const bark = mat('#2b2420', { flatShading: true });
-    for (let i = 0; i < 6; i++) {
-      const tree = new THREE.Group();
-      const trunk = part(tree, new THREE.CylinderGeometry(0.1, 0.24, 3.4, 6), bark, 0, 1.7, 0);
-      trunk.rotation.z = 0.1 * (i % 2 ? 1 : -1);
-      for (let k = 0; k < 4; k++) {
-        const br = part(tree, new THREE.CylinderGeometry(0.025, 0.07, 1.3, 4), bark, 0, 2.1 + k * 0.38, 0);
-        const a = k * 2.2 + i;
-        br.position.x = Math.cos(a) * 0.35;
-        br.position.z = Math.sin(a) * 0.35;
-        br.rotation.set(Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9);
+    const w = SHOPS.haunt.ring, zone = zoneOf(s), rings = s.rings || Math.max(1, Math.round(zone / w));
+    const ground = (r, inner, color, opacity, y) => { g.add(groundDisk(r, inner, groundMat(color, opacity))).children.at(-1).position.y = y; };
+    // the penumbra round it: gloom, not quite forest yet (E there: the gear screen)
+    ground(zone + SHOPS.haunt.penumbra, zone, '#2d2638', 0.34, 0.015);
+    ground(zone + SHOPS.haunt.penumbra, zone + SHOPS.haunt.penumbra - 0.12, '#a08cc8', 0.35, 0.04);
+    ground(zone, 0, '#231a33', 0.72, 0.02);
+    for (let k = 1; k < rings; k++) ground(zone - k * w, 0, '#0e0816', 0.28, 0.02 + k * 0.004);
+    for (let k = 0; k < rings; k++) ground(zone - k * w, zone - k * w - 0.22, '#7c5cc4', 0.42, 0.05);
+    // the wood: merged into a few meshes, one per material
+    const wood = new THREE.Group();
+    const bark = mat('#2b2420', { flatShading: true }), pine = mat('#18241d', { flatShading: true });
+    const stone = mat('#7d7a86', { flatShading: true }), moss = mat('#4f6b3a', { flatShading: true }), bone = mat('#d9d0b8', { flatShading: true });
+    const bake = (obj, d, a, yaw) => {   // stand obj on the curve, and move its pieces into the wood
+      standAt(obj, d, a, yaw);
+      obj.updateMatrix();
+      for (const c of [...obj.children]) {
+        c.updateMatrix();
+        c.matrix.premultiply(obj.matrix);
+        c.matrix.decompose(c.position, c.quaternion, c.scale);
+        wood.add(c);
       }
-      g.add(standAt(tree, zone - 0.9 - (i % 2) * 1.1, i * 1.05 + 0.5, i));
+    };
+    for (let j = 0; j < rings; j++) {
+      const rnd = seeded(s.id * 97 + j * 13 + 7);
+      const lo = j ? j * w : 2.8, hi = (j + 1) * w - 0.3;   // (the heart's middle is the stone circle)
+      const edge = j === rings - 1, n = Math.round((2 * j + 1) * 4.5);
+      for (let i = 0; i < n; i++) {
+        const d = lo + rnd() * (hi - lo), a = rnd() * Math.PI * 2, h = 2.4 + rnd() * 1.8;
+        const tree = new THREE.Group();
+        if (rnd() < 0.55) {
+          // dead: a crooked trunk and bare branches
+          part(tree, new THREE.CylinderGeometry(0.08, 0.22, h, 6), bark, 0, h / 2, 0).rotation.z = (rnd() - 0.5) * 0.25;
+          for (let k = 0; k < 4; k++) {
+            const br = part(tree, new THREE.CylinderGeometry(0.025, 0.07, 1.1, 4), bark, 0, h * 0.55 + k * 0.32, 0);
+            const ba = k * 2.2 + rnd() * 2;
+            br.position.x = Math.cos(ba) * 0.32;
+            br.position.z = Math.sin(ba) * 0.32;
+            br.rotation.set(Math.sin(ba) * 0.95, 0, -Math.cos(ba) * 0.95);
+          }
+        } else {
+          // a black pine
+          part(tree, new THREE.CylinderGeometry(0.08, 0.12, 0.8, 5), bark, 0, 0.4, 0);
+          for (let k = 0; k < 3; k++) part(tree, new THREE.ConeGeometry(0.95 - k * 0.24, h * 0.42, 7), pine, 0, 0.75 + k * h * 0.22, 0);
+        }
+        bake(tree, d, a, rnd() * 6);
+      }
+      // crooked gravestones round the edge, bones lying about further in
+      for (let i = 0; i < (edge ? 6 + j * 2 : j * 2); i++) {
+        const d = lo + rnd() * (hi - lo), a = rnd() * Math.PI * 2;
+        const thing = new THREE.Group();
+        if (edge) {
+          part(thing, new THREE.BoxGeometry(0.5, 0.62, 0.14), stone, 0, 0.31, 0).rotation.z = (rnd() - 0.5) * 0.3;
+          part(thing, new THREE.CylinderGeometry(0.25, 0.25, 0.14, 12), stone, 0, 0.62, 0).rotation.x = Math.PI / 2;
+          part(thing, new THREE.BoxGeometry(0.56, 0.06, 0.18), moss, 0, 0.03, 0);
+        } else {
+          part(thing, new THREE.CylinderGeometry(0.04, 0.04, 0.6, 5), bone, 0, 0.05, 0).rotation.z = Math.PI / 2;
+          part(thing, new THREE.SphereGeometry(0.13, 7, 5), bone, 0.12, 0.1, 0.25);
+        }
+        bake(thing, d, a, rnd() * 6);
+      }
     }
-    const stone = mat('#7d7a86', { flatShading: true }), moss = mat('#4f6b3a', { flatShading: true });
-    for (let i = 0; i < 7; i++) {
-      const grave = new THREE.Group();
-      part(grave, new THREE.BoxGeometry(0.5, 0.62, 0.14), stone, 0, 0.31, 0);
-      part(grave, new THREE.CylinderGeometry(0.25, 0.25, 0.14, 12), stone, 0, 0.62, 0).rotation.x = Math.PI / 2;
-      part(grave, new THREE.BoxGeometry(0.56, 0.06, 0.18), moss, 0, 0.03, 0);
-      standAt(grave, 1.6 + ((i * 1.9) % (zone - 3)), i * 0.9 + 0.3, Math.PI + (i % 3 - 1) * 0.3);
-      grave.rotateZ((i % 3 - 1) * 0.14);   // crooked
-      g.add(grave);
+    // the heart: standing stones round a glowing altar
+    for (let i = 0; i < 6; i++) {
+      const st = new THREE.Group();
+      part(st, new THREE.BoxGeometry(0.42, 1.6, 0.3), stone, 0, 0.8, 0).rotation.z = (i % 2 ? 1 : -1) * 0.06;
+      bake(st, 2.1, (i / 6) * Math.PI * 2, (i / 6) * Math.PI * 2);
     }
+    const altar = new THREE.Group();
+    part(altar, new THREE.BoxGeometry(1.1, 0.5, 0.7), stone, 0, 0.25, 0);
+    bake(altar, 0.01, 0, 0);
+    mergeChildren(wood);
+    g.add(wood);
+    const glow = g.add(groundDisk(1.4, 0, groundMat('#7dff6a', 0.18))).children.at(-1);
+    glow.position.y = 0.06;
     s.wisps = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3 + rings * 2; i++) {
       const wisp = new THREE.Group();
       wisp.add(new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), new THREE.MeshBasicMaterial({ color: '#b8ff9a' })));
       wisp.add(new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), new THREE.MeshBasicMaterial({ color: '#7dff6a', transparent: true, opacity: 0.22, depthWrite: false })));
       g.add(wisp);
-      s.wisps.push({ obj: wisp, a: i * 1.6, d: 1.5 + i * 1.2, ph: i * 1.7 });
+      s.wisps.push({ obj: wisp, a: i * 1.6, d: 1 + ((i * 2.3) % Math.max(1, zone - 1.5)), ph: i * 1.7 });
     }
   },
   // a fishing pond: deep water you can't walk into (r), a sandy bank all round to stand on and
@@ -371,12 +435,17 @@ const CURVED = {
       part(seat, new THREE.CylinderGeometry(0.2, 0.22, 1.5, 8), wood, 0, 0.2, 0).rotation.z = Math.PI / 2;
       g.add(standAt(seat, zone - 0.45, i * (Math.PI / 2) + 0.4, Math.PI / 2));
     }
-    for (const a of [1.2, 4.3]) {
-      const drum = new THREE.Group();
-      part(drum, new THREE.CylinderGeometry(0.3, 0.26, 0.7, 12), mat('#8b5a2b'), 0, 0.35, 0);
-      part(drum, new THREE.CylinderGeometry(0.31, 0.31, 0.04, 12), mat('#e8dcc0'), 0, 0.72, 0);
-      g.add(standAt(drum, zone - 1.1, a));
-    }
+    // the drums (a big one and a small one: town.drumHit makes them jump)
+    s.drums = SHOPS.bonfire.drums.map((a, i) => {
+      const drum = new THREE.Group(), skin = new THREE.Group();
+      const big = i === 0 ? 1 : 0.75;
+      part(drum, new THREE.CylinderGeometry(0.3 * big, 0.26 * big, 0.7 * big, 12), mat('#8b5a2b'), 0, 0.35 * big, 0);
+      part(skin, new THREE.CylinderGeometry(0.31 * big, 0.31 * big, 0.04, 12), mat('#e8dcc0'), 0, 0, 0);
+      skin.position.y = 0.72 * big;
+      drum.add(skin);
+      g.add(standAt(drum, zone - SHOPS.bonfire.drumAt, a));
+      return { skin, hitAt: -9 };
+    });
     // sparks, drifting up (update)
     s.sparks = [];
     for (let i = 0; i < 6; i++) {
@@ -415,7 +484,7 @@ export class Town {
   // m: { id, kind, u, f }
   add(m) {
     if (this.shops.has(m.id) || !SHOPS[m.kind]) return;
-    const s = { id: m.id, kind: m.kind, u: M.norm(m.u), f: M.tangent(M.norm(m.u), m.f), parts: [], targets: [], born: clock(), builtR: R };
+    const s = { id: m.id, kind: m.kind, u: M.norm(m.u), f: M.tangent(M.norm(m.u), m.f), parts: [], targets: [], born: clock(), builtR: R, zone: m.zone, rings: m.rings };
     this.layout(s);
     const def = SHOPS[m.kind], look = SHOP_LOOK[m.kind];
     // (where things go, as functions: worked out again on every relayout)
@@ -442,7 +511,7 @@ export class Town {
     if (m.kind === 'range') this.buildRange(s);
     // the sign out front, and the icon up high
     const big = !!CURVED[m.kind];
-    const signAt = big ? () => M.moveOnSphere(s.u, s.f, s.f, def.zone + 0.6)[0]
+    const signAt = big ? () => M.moveOnSphere(s.u, s.f, s.f, zoneOf(s) + 0.6)[0]
       : m.kind === 'range' ? beside(-2.4, 0.2) : m.kind === 'tailor' ? beside(-2.0, 2.3) : beside(-2.3, 1.4);
     this.put(s, shadows(signBoard(m.kind), true, false), on(signAt, 1.6));
     const icon = this.put(s, iconSprite(m.kind), on(middle, big ? 4 : 5));
@@ -508,8 +577,29 @@ export class Town {
 
   // The shop whose zone p (unit vector) is in, if any. Same test as the server's.
   zoneAt(p) {
-    for (const s of this.shops.values()) if (M.arcDist(p, s.at) < SHOPS[s.kind].zone) return s;
+    for (const s of this.shops.values()) if (M.arcDist(p, s.at) < zoneOf(s)) return s;
     return null;
+  }
+
+  // a drum at a bonfire was hit (i: which)
+  drumHit(shopId, i) {
+    const d = this.shops.get(shopId)?.drums?.[i];
+    if (d) d.hitAt = clock();
+  }
+
+  // The dark forest spread: built again for its new size (the trees it had stay where they were).
+  regrow(id, zone, rings) {
+    const s = this.shops.get(id);
+    if (!s) return;
+    Object.assign(s, { zone, rings });
+    for (const p of s.parts) {
+      if (p.remake) {
+        dispose(p.obj);
+        p.obj = p.remake();
+        this.group.add(p.obj);
+      }
+      p.place(p.obj);
+    }
   }
 
   solids() { return this.solidList; }
@@ -583,6 +673,12 @@ export class Town {
         fl.scale.set(1 + Math.sin(t * 11 + i) * 0.08, 1 + Math.sin(t * 13 + i * 2) * 0.18 + Math.random() * 0.08, 1 + Math.cos(t * 9 + i) * 0.08);
         fl.rotation.y += 0.02 * (1 + i);
       });
+      // a drum just hit: its skin jumps
+      for (const d of s.drums || []) {
+        const e = t - d.hitAt;
+        d.skin.position.y = d.skin.userData.y ??= d.skin.position.y;
+        if (e < 0.25) d.skin.position.y = d.skin.userData.y - 0.06 * Math.sin((e / 0.25) * Math.PI);
+      }
       for (const sp of s.sparks || []) {
         const k = (t * 0.5 + sp.ph) % 1;
         sp.obj.position.set(Math.cos(sp.a + k * 3) * 0.4 * k, 1.2 + k * 3.2, Math.sin(sp.a + k * 3) * 0.4 * k);

@@ -66,6 +66,15 @@
 
     <!-- Ploughshares: while you've got a practice weapon from a range shed -->
     <div id="practice-note" class="hidden"></div>
+    <!-- reeling a fish in: how far in it is, the strain on the line (a fighter), what to do, the clock -->
+    <div id="reel" class="hidden stone">
+      <div id="reel-name"></div>
+      <div id="reel-how"></div>
+      <div class="reel-bar"><i id="reel-fill"></i></div>
+      <div class="reel-bar strain hidden" id="reel-strain-bar"><i id="reel-strain"></i></div>
+      <div id="reel-state"></div>
+      <div id="reel-time"></div>
+    </div>
 
     <div id="crosshair"></div>
     <div id="center-msg"></div>
@@ -165,6 +174,34 @@
       <button id="lock-rock" class="minor hidden" title="This rock's code, link and QR code, to bring friends in">▦ ROCK</button>
       <button id="lock-settings" class="minor">⚙ SETTINGS (O)</button>
       <button id="lock-quit" class="minor quit">✕ QUIT</button>
+      <button id="lock-exit" class="minor quit hidden" title="Close War is Racket (the same as the window's ✕)">⏻ EXIT TO DESKTOP</button>
+    </div>
+  </div>
+
+  <!-- peace mode: the penumbra round the dark forest (E there): what to take in. Your caveman with
+       both weapons going at a dummy at their real pace, and their numbers -->
+  <div id="gear" class="hidden">
+    <div class="tablet panel">
+      <div class="panel-head">
+        <h1>FOREST GEAR</h1>
+        <button class="close-x" id="gear-x" title="Close (Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body">
+        <p class="rules-note">ONE TO BONK, ONE TO THROW OR SHOOT. YOURS TO KEEP, ANYWHERE IN THE PEACE, UNTIL YOU HAND THEM BACK HERE.</p>
+        <div class="gear-top">
+          <div id="gear-view"><canvas id="gear-canvas"></canvas><div id="gear-floats"></div><div id="gear-doing"></div></div>
+          <div class="gear-stats"><div id="gear-melee-stats"></div><div id="gear-ranged-stats"></div></div>
+        </div>
+        <label>MELEE</label>
+        <div id="gear-melee" class="gear-list"></div>
+        <label>RANGED</label>
+        <div id="gear-ranged" class="gear-list"></div>
+      </div>
+      <div class="row gear-buttons">
+        <button id="gear-back" class="minor">✋ HAND BACK</button>
+        <button id="gear-close" class="minor">DONE</button>
+        <button id="gear-take">TAKE THEM IN</button>
+      </div>
     </div>
   </div>
 
@@ -187,6 +224,9 @@
       </div>
     </div>
   </div>
+
+  <!-- waking up: eyelids opening (hud.wake) -->
+  <div id="wake" class="hidden"><i id="wake-top"></i><i id="wake-bottom"></i></div>
 
   <div id="death" class="hidden">
     <h1>YOU GO SLEEP</h1>
@@ -276,6 +316,7 @@
       <div class="row settings-buttons">
         <button id="settings-reset" class="minor">RESET ALL</button>
         <button id="settings-quit" class="minor quit hidden">✕ QUIT GAME</button>
+        <button id="settings-exit" class="minor quit hidden" title="Close War is Racket (the same as the window's ✕)">⏻ EXIT TO DESKTOP</button>
         <button id="settings-close">BACK</button>
       </div>
     </div>
@@ -360,6 +401,7 @@
           <div class="row lobby-foot">
             <button id="open-settings" class="minor">⚙ SETTINGS</button>
             <button id="get-app" class="minor hidden" title="Install War is Racket: it opens like an app, and plays offline">⬇ GET THE APP</button>
+            <button id="lobby-exit" class="minor quit hidden" title="Close War is Racket (the same as the window's ✕)">⏻ EXIT TO DESKTOP</button>
           </div>
           <div class="rules-note hidden" id="app-hint"></div>
           <details class="fold how">

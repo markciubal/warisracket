@@ -4,7 +4,7 @@ Multiplayer caveman spear-throwing on a tiny planet. Ooga booga.
 
 You run around a small sphere wearing an animal pelt, throwing spears that arc under the
 planet's gravity, bonking other cavemen with a random melee weapon, and dodging rolling
-boulders and lava bombs from the volcano at the north pole. In **Do Time** mode history
+boulders and lava bombs from the volcano at the north pole. In **War mode** history
 marches on: spears, bows, swords, muskets, guns, lasers, 45 seconds each, until a random
 natural disaster (a meteor, the volcano exploding, a giant flood or a sudden ice age) wipes
 the planet clean and life starts over in the Stone Age.
@@ -24,9 +24,9 @@ The rules every new rock starts with can come from flags or environment variable
 table under Heroku):
 
 ```
-node server.js --mode=classic         # Forever Stone instead of Do Time
+node server.js --mode=classic         # Forever Stone instead of War mode
 node server.js --bots=6 --bot-level=10 # fill to 6 cavemen with level 10 (Sabertooth) bots
-node server.js --era-seconds=20       # quick Do Time rounds (20 seconds per age)
+node server.js --era-seconds=20       # quick War mode rounds (20 seconds per age)
 npm run nobots                        # humans only
 PORT=8080 node server.js              # different port (PowerShell: $env:PORT=8080; node server.js)
 ```
@@ -36,13 +36,13 @@ Once people are playing, each rock's **chief** changes its rules in-game (see Pl
 ## Rocks (lobbies)
 
 One server runs any number of separate games at once. Each one is a **rock**: its own planet,
-cavemen, bots, Do Time clock, chief and rules, found by a 4-letter code. A rock is **public**
+cavemen, bots, War mode clock, chief and rules, found by a 4-letter code. A rock is **public**
 (anyone can find it and join) or **private** (only people with its code or link).
 
 - **QUICK PLAY** puts you on the busiest public rock that has room, so you play with whoever
   else is on. If there isn't one, it makes a new public rock for the next person to find.
 - **OPEN ROCKS** lists every public rock, busiest first: its code, mode, the age (or wave, or
-  peace), whose rock it is (the chief) and how many people are on it, e.g. `KPTX · DO TIME ·
+  peace), whose rock it is (the chief) and how many people are on it, e.g. `KPTX · WAR MODE ·
   ZAP AGE · CHIEF THAG · 3/12`. The list keeps itself up to date; tap one to go there.
 - **MAKE NEW ROCK** rolls a fresh code (no vowels, so it never spells anything). The
   **PUBLIC / PRIVATE** switch next to it picks which (it remembers your pick). The address bar
@@ -70,9 +70,13 @@ cavemen, bots, Do Time clock, chief and rules, found by a 4-letter code. A rock 
 War is Racket installs like an app and plays with no internet, against bots.
 
 - **⬇ GET THE APP** shows at the bottom of the lobby when the browser can install it (Chrome,
-  Edge, Android). One tap puts it on the home screen or desktop, and it opens full screen like
-  any app. On an iPhone or iPad the button says how instead: in Safari, Share → *Add to Home
-  Screen*.
+  Edge, Android). One tap puts it on the home screen or desktop, and it opens like any app. On an
+  iPhone or iPad the button says how instead: in Safari, Share → *Add to Home Screen*.
+- On a computer the app opens in a window of its own, with the usual title bar (**F11** for full
+  screen and back). **⏻ EXIT TO DESKTOP** (in the lobby, on the pause screen and in settings,
+  only in the installed app) closes it: press it twice, like QUIT. If the browser won't let the
+  game close its own window, the button says to press **Alt+F4** (**⌘Q** on a Mac). On phones
+  the game goes full screen when you start playing.
 - **PLAY OFFLINE** (under JOIN ROCK) puts you on your own rock in the browser: you and the bots,
   no server and no link to share. **GO ONLINE** goes back to the server's rocks.
 - If there's no signal, or the server can't be reached, when the page opens, the game goes
@@ -115,8 +119,8 @@ Settings (optional), e.g. `heroku config:set BOT_LEVEL=7 ERA_SECONDS=120`:
 
 | Config var | Flag | Default | What it does |
 | --- | --- | --- | --- |
-| `MODE` | `--mode` | `dotime` | `dotime`, `plough` (Peace mode), `classic` (Forever Stone) or `coop` (Tribe vs Bots) |
-| `ERA_SECONDS` | `--era-seconds` | 45 | Length of each Do Time age |
+| `MODE` | `--mode` | `dotime` | `dotime` (War mode), `plough` (Peace mode), `classic` (Forever Stone) or `coop` (Tribe vs Bots) |
+| `ERA_SECONDS` | `--era-seconds` | 45 | Length of each War mode age |
 | `PEACE_SECONDS` | `--peace-seconds` | 180 | Peace mode: time before each vote to keep going |
 | `BOT_LEVEL` | `--bot-level` | 1 | Bot brains, 1–10: 1 wanders around and lags, 5 is a fair fight, 10 barely misses |
 | `BOTS` | `--bots` | 4 | Bots fill the planet up to this many cavemen (0–10). 0 = humans only |
@@ -162,11 +166,11 @@ your router or use a tunnel such as `cloudflared tunnel --url http://localhost:3
 | Input | Action |
 | --- | --- |
 | WASD / arrows | Run |
-| Mouse | Turn and aim (click the game to capture the mouse, Esc frees it) |
+| Mouse | Turn and aim (click the game to capture the mouse, Esc frees it). Bullets, lasers, crossbow bolts and rockets go to whatever is under the crosshair, near or far (the crosshair turns red if something's in the way of your hand). Spears, arrows, stones and tomatoes fly in a curve: look up to throw further (up to a point: higher than that is a lob), down to throw shorter, and the dotted arc shows where it lands, in line with the crosshair |
 | Left mouse / F | Bonk with your melee weapon (right mouse when left-handed) |
 | Hold right mouse | Charge a spear, draw a bow or steady a musket (a dotted arc shows where it lands), then release. Guns and lasers fire while held (left mouse when left-handed) |
 | Space | Jump (you can hop over boulders if you time it) |
-| E | Swap weapons at a glowing totem, put on armor, (when hurt) eat the roast at a campfire, or talk business with the Businessman at his podium. In peace mode, use the town: the doctor, the range shed, the duel rack, the tailor, cast and reel in at a pond, dance at the bonfire |
+| E | Swap weapons at a glowing totem, put on armor, (when hurt) eat the roast at a campfire, or talk business with the Businessman at his podium. In peace mode, use the town: the doctor, the range shed, the duel rack, the tailor, cast, hook and reel in at a pond (tap E fast to reel), dance or play the drums at the bonfire, pick gear in the Dark Forest's penumbra |
 | Q | Killstreak beast: call it, then aim and Q again to send it |
 | 1–6 | Grunt: OOGA!, BOOGA!, UNGA BUNGA!, ME SMASH!, ME HUNGRY., WAR IS RACKET! |
 | Enter | In peace mode: talk, one syllable per word |
@@ -251,8 +255,10 @@ The controls are the usual phone-game ones: a thumbstick on the left, drag on th
 - On Android the game goes full screen and stays sideways. On iPhone, use Share → *Add to Home
   Screen* and start it from there for full screen.
 - Phones start on LOW graphics. Android phones buzz when you get hit or bonk someone.
+- Double-tapping or pinching never zooms the page, and the game keeps its size when the
+  keyboard comes and goes (on iPhones and iPads too).
 
-## Do Time mode
+## War mode
 
 History marches through six ages, **45 seconds each**. The banner at the top shows the age
 and the countdown to the next one.
@@ -300,8 +306,9 @@ With the default `ERA_SECONDS=45` a whole round is 4½ minutes plus the finale.
 
 ## Peace mode
 
-**No war at all.** Every round starts in **PEACE TIME**: weapons are hoes, **nobody can die**,
-and the whole town opens up within seconds, so everything below is there to do from the start:
+**No war at all.** Every round starts in **PEACE TIME**: weapons are hoes, **nobody gets killed**
+(knocked out, you just **go to sleep** for 10 seconds and wake up on the same spot), and the
+whole town opens up within seconds, so everything below is there to do from the start:
 
 - **Plant**: the attack button (left click / F, PLANT on phones) puts a seed in the ground just
   in front of you: wheat, corn or pumpkin. Crops grow (15 to 30 s) and sway when they're ripe.
@@ -319,14 +326,15 @@ and the whole town opens up within seconds, so everything below is there to do f
 
 As a round starts **the planet grows** (radius 30 to 40, over 5 seconds), and the town opens
 up on the new ground straight after, near wherever people are: a **doctor**, a **target range**,
-a **duel ring**, a **tailor**, a **haunted hollow**, a **fishing pond**, a **hot spring** and a
-**bonfire**, then another range and another pond. Each has a floating sign and shows on the
-radar as a square; stand in its circle to use it.
+a **duel ring**, a **tailor**, a **fishing pond**, a **hot spring** and a **bonfire**, then another
+range and another pond, and somewhere out of town the **Dark Forest** takes root. Each has a
+floating sign and shows on the radar as a square (the forest as a dark green patch, its true
+size); stand in its circle to use it.
 
 **Every time the tribe votes to keep farming, the planet grows again**: 10 more each time (40, 50,
-60...), up to 80, with a new haunted hollow, another doctor, another bonfire and another hot
-spring on the new ground. The shops keep their size as it grows under them. A new round starts
-back at the usual 30.
+60...), up to 80, with another pond, another doctor, another bonfire and another hot spring on the
+new ground, and room for the forest to spread further. The shops keep their size as it grows
+under them. A new round starts back at the usual 30.
 
 - **Shells** 🐚 are the money. Everyone gets 3 when a peace starts (they're shown under your
   health) and earns more: **1 for every crop you pick** (the food still goes to the tribe), 1 for
@@ -346,48 +354,96 @@ back at the usual 30.
 - **Duel ring**: inside the ropes your hoe becomes a padded **practice club**, and you can bonk
   anyone else in the ring. **E** (WEAPON on phones) opens the **weapon rack**: pick any weapon of
   any age (a Dino Femur, a Longsword, a Glow Stick...), and **it's yours to keep**: take it out of
-  the ring and anywhere in the peace (into a haunted hollow, say), until you hand it back at the
+  the ring and anywhere in the peace (into the Dark Forest, say), until you hand it back at the
   rack (**✋ HAND IT BACK**) or the peace ends. A note on screen says what you've got and where it
   goes back. Your hands are full while you carry it, so it's no planting until you hand it back,
   and out of the ring it only swings at the air (and at monsters). Bots grab whatever's on the
-  rack. **Nobody goes below 1 HP**: knocking someone down to 1 wins the bout and 3 shells, and
-  the loser had better see the doctor.
-- **Haunted hollow**: a dark place of dead trees, crooked gravestones and drifting wisps, where
-  **ghosts and skeletons** roam. They never leave the hollow, but they go for anyone who comes in.
-  Inside, your hoe becomes a **torch**; practice weapons work on them too (a bazooka does nicely).
-  Every monster slain pays **2 shells**, and another rises in its place a while later. They can
-  knock you down to 1 HP, never further.
+  rack. **Nobody goes below 1 HP in a duel**: knocking someone down to 1 wins the bout and 3
+  shells, and the loser had better see the doctor.
+- **The Dark Forest**: one a round, a wood of dead trees, crooked gravestones and drifting wisps
+  that starts small (two rings across) and **grows a ring at a time** (every minute) out from the
+  same spot, as far as the planet has room for, up to four rings. The deeper you go, the worse it
+  gets, each kind of monster keeping to its own ring:
+
+  | Ring | Who lives there | Each one pays |
+  |---|---|---|
+  | The edge | **Skeletons** (quick, rattly) and **zombies** (slow and tough; a bite slows you down) | 2 🐚 |
+  | Deeper in | **Ghosts** (a spook stuns you) and **bats** (small, fast, nip nip nip) | 3 🐚 |
+  | Deeper still | **Vampires** (a bite drinks your life back into them, and they pop up behind you) and **sleep demons**: tall, black, stooped, arms down to their knees, and a pair of googly eyes rattling about in their heads. Their long arms reach a long way, and a grab **freezes you stiff** for a moment | 5 🐚 |
+  | The heart | **Werewolves**: big, fast, and they leap at you from far off | 10 🐚 |
+
+  The screen says when you've gone a ring deeper (and who's in it), and the forest shows on the
+  radar as a dark patch. They never leave their ring, but they go for anyone who comes in, and
+  another comes back a while after one's slain. Inside, your hoe becomes a **torch**; practice and
+  rack weapons work on them too (a bazooka does nicely). If they knock you out, you go to sleep
+  for 10 seconds where you fell (see below).
+- **The penumbra**: the grey band right round the forest's edge. **E** there (GEAR on phones)
+  opens the **gear screen**: pick a **melee weapon** (anything on the duel ring's rack) and a
+  **ranged one** (anything in a range shed) to take in. It shows your own caveman holding both,
+  going at a straw dummy at each weapon's **real attack speed** (practice numbers fly off it),
+  next to their stats: damage, how often it swings or shoots, reach, knockback, sweep, run speed,
+  shot speed, ammo and anything special (crits, bleeds, blasts...), counting any gold might you've
+  got. **TAKE THEM** and they're yours to keep, the same as a
+  rack or range pick (hand them back at the penumbra, the ring or a range shed).
+- **Motes**: a slain monster sometimes leaves a glowing **mote** behind (more often the deeper it
+  was; a werewolf always does). Walk into one to take it before it fades (30 s). The offensive
+  ones: **FURY** (hit harder, 20 s) and **SWIFT** (quicker, 20 s); the defensive ones: **WARD**
+  (take less, 20 s) and **MEND** (life comes back, 10 s). Now and then one is **gold**, and gold
+  ones you keep **for good** while you're on the rock, up to five of each: **GOLD MIGHT** (hit 6%
+  harder) and **GOLD HIDE** (take 6% less). They show as chips under your health, and they only
+  count in peace.
 - **Tailor**: **E** (SHOP on phones) opens the counter: straw hat (2), flower crown (3), top hat
   (5), gold crown (10), red or blue cape (3), gold cape (8). Everyone sees what you wear, it stays
   on in later rounds, and anything you've bought you can put back on for free (or take off).
 - **Fishing pond**: stand on the sandy bank and press **E** (FISH on phones) to cast: a red
   bobber goes out on the water. Wait. When a fish bites the bobber dips, the screen says
-  **BITE!**, and you have about a second to press **E** again (REEL!) and reel it in. Too soon and
-  it swims off; too slow and it gets away. What bites: a **minnow** (1 shell, 1 food for the
-  tribe), a **trout** (2 and 2), a **big pike** (3 shells, 4 food), now and then a **golden fish**
-  (10 shells, and everyone hears about it), or an **old boot**.
+  **BITE!**, and you have about a second to press **E** again (HOOK! on phones) to hook it. Too
+  soon and it swims off; too slow and it gets away. Then **reel it in**: tap **E** (REEL! on
+  phones) over and over to fill the bar before the fish pulls it back down, and every kind fights
+  its own way:
+
+  | Fish | How to reel it | Worth |
+  |---|---|---|
+  | **Minnow** | A few taps and it's out | 1 🐚, 1 food for the tribe |
+  | **Trout** | Steady taps: tap too fast and the reel slips, tap too slow and it swims back | 2 🐚, 2 food |
+  | **Big pike** | A fighter: it pulls, then tires, then pulls. Reel while it tires; tap while it pulls and the line strains, and too much strain **snaps** it | 3 🐚, 4 food |
+  | **Golden fish** | Pulls back hard all the time: mash as fast as you can | 10 🐚, and everyone hears about it |
+  | **Old boot** | Heavy, but it doesn't fight: just keep tapping | Nothing |
+
+  The clock runs from the hook, and when it's out the screen says how long it took **to the
+  millisecond**, with your best for that kind of fish (kept in your browser). Leave a line out too
+  long and they give up on you.
 - **Hot spring**: a steaming pool in a ring of stones. Stand in it and your life comes back,
   **3 a second**. Free, but slower than the doctor.
 - **Bonfire**: a big fire in a dance circle, with log seats and drums. **E** (DANCE on phones)
   and you dance; walking off stops it. Dancers earn shells, and the more dance together the
   quicker: a shell every 8 seconds alone, every 4 with two, every 2 with four, up to five
   dancers. Everyone sees you dance.
+- **The drums**: walk up to one of the bonfire's two drums and **E** (DRUMS on phones) to play
+  them: the attack button (left click / F, **BOOM** on phones) hits the big low one and the throw
+  button (right click, **TAK**) the small high one. Everyone nearby hears what you play, and a
+  drummer counts for the band the same as a dancer (keep playing to keep earning). Walk off to
+  stop. While you're at the bonfire **everything else goes quieter, to half**: the music, the
+  sounds, the speech. The drums don't.
 - **It's still a dangerous world.** The volcano erupts again, boulders still roll, and now and
   then a **sky rock** falls near somebody (a red ring shows where, and the feed says LOOK UP!).
-  They hurt, but in peace nothing takes you below 1 HP. Below 40 HP you **limp** (walk slower)
-  until the doctor fixes you up.
+  They hurt. Below 40 HP you **limp** (walk slower) until the doctor fixes you up.
+- **Going to sleep**: in peace, whatever knocks you out (a monster, a sky rock, a boulder, the
+  volcano) only puts you to sleep. You lie where you fell for **10 seconds** (a countdown says
+  so), then wake up **on the same spot**, blinking (a quick snap, a double blink, a groggy one, a
+  flutter or a squint, never more than half a second), with your gear still on you. Being knocked
+  out doesn't count as a death on the scoreboard. (A duel still stops at 1, and so does hunger.)
 - **Hunger**: in peace your life slowly runs down, a point every 1.5 seconds (**HUNGRY** under
   your health), never below 1. But just as it's about to run down to 1, **a stranger** in a
   hooded cloak walks over from somewhere nearby with food in hand, gives you +60 life with a kind
-  word, and wanders off again (no shells asked). The same goes for anyone knocked down to 1 by
-  anything else (a monster, a sky rock, a duel): a stranger always comes. The Businessman can't
-  stand it.
+  word, and wanders off again (no shells asked). The same goes for anyone a lost duel leaves at
+  1: a stranger always comes. The Businessman can't stand it.
 
 Bots use the town too: they see the doctor when they're hurt and can pay (and soak in a hot spring
 when they can't), buy hats when they're rich, take practice weapons to the ranges, duel each other
-in the ring, go fishing (they're not always quick enough) and dance round the bonfire, where a
-crowd draws a crowd. (They don't go looking for monsters, but one that wanders into a hollow gets
-a fright.)
+in the ring, go fishing (they're not always quick enough on the hook, and the fighters and golden
+fish get away from them more often than not) and dance round the bonfire, where a crowd draws a
+crowd. (They don't go looking for monsters, but one that wanders into the forest gets a fright.)
 
 ### Peace chat
 
@@ -425,7 +481,7 @@ Every human on the planet is one tribe, fighting waves of bots together.
   to 10. Wave 1 bots use the chosen **bot brains**, and every 2 waves they get a level smarter.
   Bot fill isn't used.
 - **Ages move with the waves**: a new age every 2 waves (bows on wave 3, swords on wave 5, and
-  so on up to lasers), with the same gear changes as Do Time. There's no end-of-the-world
+  so on up to lasers), with the same gear changes as War mode. There's no end-of-the-world
   disaster.
 - **Falling down**: if you're knocked out mid-wave you stay down. When the last bot of the wave
   falls, **WAVE DONE**: the fallen wake up next to a friend, everyone still standing heals to
@@ -438,7 +494,7 @@ Every human on the planet is one tribe, fighting waves of bots together.
 The human who's been on the planet longest is the **chief** (feather headdress, marked in the
 scoreboard). The chief opens the **tribe council** with C to change:
 
-- **Mode**: Do Time, Peace mode, Forever Stone or Tribe vs Bots (co-op). Changing it starts a new round.
+- **Mode**: War mode, Peace mode, Forever Stone or Tribe vs Bots (co-op). Changing it starts a new round.
 - **Rock is**: public (in everyone's OPEN ROCKS list) or private (code or link only).
 - **Bot brains**, from 1 to 10:
 
@@ -575,7 +631,7 @@ tribe is wiped, he raises a glass of champagne.
 pick live in the lobby, then your caveman's once you're playing. Everyone sees their own
 match, so nobody gets to picture the profiteer as somebody else.
 
-He gets fatter as the round goes on (with the ages in Do Time and co-op, and with every bonk),
+He gets fatter as the round goes on (with the ages in War mode and co-op, and with every bonk),
 and picks up his trimmings as he swells: a gold watch chain, his hat, a **monocle**, gold
 **chains** with a medallion, a cigar, and money bags. At the very end his suit turns to gold
 and his eyes glow red. He turns to watch you and laughs. He gloats in a gold speech bubble
@@ -590,7 +646,7 @@ going ("PROFIT SO FAR: 0 SHINY ROCKS. DISAPPOINTING. BONK HARDER."). In peace mo
 has 10 sour ones instead ("CABBAGE NOT GO BOOM. CABBAGE BAD INVESTMENT."), and while the world
 ends he gets in a last few ("ME SHORTED THE PLANET."). Only you see and hear his answer.
 
-**The end of the world gets him too.** When the Do Time finale starts he says "ME HAVE
+**The end of the world gets him too.** When the War mode finale starts he says "ME HAVE
 BUNKER." It doesn't help. About 5.5 s in, one of the falling rocks, lava bombs or ice chunks
 lands right on his podium (or the flood reaches him). He jolts with his eyes crossed out and
 his hat flying off, says **"BURY ME WITH MY MONEY."**, and goes over onto his back with his legs
@@ -633,7 +689,7 @@ Feathered (run faster) · Ancient, Lucky (crits) · **Ooga's** (gold glow, bette
 Procfile, app.json   Heroku process type and app manifest (one web dyno)
 server.js            HTTP static server + WebSocket front door: makes rocks (lobbies) by code,
                      puts each socket on its rock, ticks every rock on one clock
-room.js              One rock's game: projectiles, hits, armor, Do Time clock, rules, hazards, bots
+room.js              One rock's game: projectiles, hits, armor, War mode clock, rules, hazards, bots
 shared/constants.js  Tuning: ages, ranged weapons, armor, bot levels, melee weapons, names
 shared/math.js       Sphere-surface movement, collisions, projectile physics
 shared/chat.js       Peace mode: the chat's one-syllable rule (syllable counter), its tidying, and the examples
@@ -645,16 +701,17 @@ public/js/world.js   Planet, volcano, trees, huts, skeletons, campfires, sky, pt
 public/js/caveman.js Caveman model and animation (spear and bow poses, armor, headdress)
 public/js/weapons.js Weapon, sword, bow, arrow, spear and armor models
 public/js/fx.js      Particles, smoke, ground decals, floating text
-public/js/audio.js   Synthesized sound effects, tribal drums, speech grunts
+public/js/audio.js   Synthesized sound effects, tribal drums, speech grunts, the bonfire drums (and everything else at half by them)
 public/js/hud.js     HUD, era banner, radar, scoreboard, round-end screen
 public/js/input.js   Keyboard and pointer-locked mouse (touch controls feed the same state)
 public/js/touch.js   Phone controls: thumbstick, buttons, drag-to-aim, tilt aiming
 public/js/settings.js Player settings (sound, controls, screen) and the settings panel
-public/js/beasts.js  Killstreak beast models and animation: attack dogs, mammoth, T-Rex; and the haunted hollows' ghosts and skeletons
+public/js/beasts.js  Killstreak beast models and animation: attack dogs, mammoth, T-Rex; and the Dark Forest's skeletons, zombies, ghosts, bats, vampires, sleep demons (googly eyes and all) and werewolves
 public/js/mammon.js  The Businessman: model, outfits per age, disaster gear, fattening stages,
                      coin heap and profit sign
 public/js/farm.js    Peace mode: crops growing and the fences, huts and stone heads built in peace
-public/js/town.js    Peace mode: the doctor, ranges, duel ring, tailor, hollows, ponds, hot springs and bonfires
+public/js/town.js    Peace mode: the doctor, ranges, duel ring, tailor, the Dark Forest, ponds, hot springs and bonfires (and their drums)
+public/js/gear.js    Peace mode: the penumbra's gear screen, your caveman trying both weapons on a dummy, and their stats
 node_modules/qrcode-generator  The rock's QR code (served at /qr/, and kept for offline like three.js)
 public/js/offline.js Playing offline: stands in for the WebSocket, talking to offline-worker.js
 public/js/offline-worker.js  room.js running in the browser: your own rock, you and the bots
@@ -664,7 +721,7 @@ public/fonts/        The two fonts, kept here (not Google Fonts) so they work of
 ```
 
 The client is authoritative over its own movement. The server owns projectiles, damage,
-health, armor, ammo, the Do Time clock, boulders, the volcano and the bots. Everything runs at 60 Hz
+health, armor, ammo, the War mode clock, boulders, the volcano and the bots. Everything runs at 60 Hz
 on the server, and snapshots go out at 20 Hz with a server timestamp. Clients draw other cavemen 120 ms
 behind the server's clock and interpolate between snapshots, which hides internet jitter. Your
 own shots and movement are predicted locally, so they feel instant even with lag. Attacks carry

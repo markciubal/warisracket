@@ -1,5 +1,5 @@
 // One rock (lobby): a whole planet and everything on it. server.js makes one per lobby code
-// and ticks them all; each has its own players, projectiles, hazards, Do Time clock, chief and
+// and ticks them all; each has its own players, projectiles, hazards, War mode clock, chief and
 // bots, and only ever talks to its own sockets. Clients own their own movement; the room owns
 // projectiles, hits, health, armor, hazards, the era clock and the bots.
 import * as C from './shared/constants.js';
@@ -36,7 +36,7 @@ export function cleanRules(r, base) {
   };
 }
 
-// rules: cleanRules() output. maxPlayers: human cap on this planet. eraSeconds: Do Time age length.
+// rules: cleanRules() output. maxPlayers: human cap on this planet. eraSeconds: War mode age length.
 // peaceSeconds: Ploughshares farming time before each vote.
 export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }) {
   const MAX_PLAYERS = maxPlayers;
@@ -69,6 +69,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   const votes = new Map();        // human id -> keep farming?
   const shops = [];               // the town that grows in a long peace: { id, kind, u, f, at, targets }
   const strangers = new Map();    // ...and kind strangers bringing food to the hungry
+  const motes = new Map();        // ...and motes a slain forest monster left: id -> { id, kind, u, until }
   let nextId = 1;
 
   // Planet rules. The chief (longest-present human) can change mode and bots in-game.
@@ -180,6 +181,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     for (let i = 0; i < 40; i++) {
       const u = M.randomUnit();
       if (u[1] > 0.75 || !isClear(u, PLAYER.radius + 0.8)) continue;
+      if (shops.some(s => s.kind === 'haunt' && M.arcDist(u, s.u) < s.zone + 2)) continue;   // (not in the dark forest)
       let score = 999;
       for (const pl of players.values()) if (pl.alive) score = Math.min(score, M.arcDist(u, pl.p));
       for (const b of boulders) score = Math.min(score, M.arcDist(u, b.p) * 2);
@@ -197,8 +199,12 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   }
 
   function sendMe(pl) {
-    if (pl.client) send(pl.client, { t: 'me', ammo: pl.ammo, shells: pl.shells, wardrobe: pl.wardrobe });
+    if (pl.client) send(pl.client, { t: 'me', ammo: pl.ammo, shells: pl.shells, wardrobe: pl.wardrobe, perm: pl.perm });
   }
+
+  // Gold motes kept: in peace mode, hits land harder (might) and hurt less (hide).
+  const mightOf = pl => (peaceful() && pl?.perm ? 1 + pl.perm.might * C.MOTES.kinds.might.perm : 1);
+  const hideOf = pl => (peaceful() && pl?.perm ? 1 - pl.perm.hide * C.MOTES.kinds.hide.perm : 1);
 
   function gameInfo(t = now()) {
     const left = until => (until === Infinity ? 0 : Math.max(0, Math.round((until - t) * 10) / 10));
@@ -241,7 +247,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   const publicPlayer = pl => ({
     id: pl.id, name: pl.name, look: pl.look, bot: pl.bot, p: rnd(pl.p, 4), f: rnd(pl.f, 4), h: pl.h,
     hp: pl.hp, alive: pl.alive, wpn: pl.weapon, armor: pl.armor, k: pl.kills, d: pl.deaths, zone: pl.zone, practice: pl.practice || null, carry: pl.carry || null,
-    dancing: pl.dancing ? 1 : 0, fish: pl.fish ? { shop: pl.fish.shop, bit: pl.fish.bit ? 1 : 0 } : null,
+    dancing: pl.dancing ? 1 : 0, fish: pl.fish ? { shop: pl.fish.shop, bit: pl.fish.bit ? 1 : 0, hooked: pl.fish.hooked ? 1 : 0 } : null,
     buffs: Object.fromEntries(Object.entries(pl.buffs || {}).map(([k, until]) => [k, Math.max(0, Math.round((until - now()) * 10) / 10)]).filter(([, left]) => left > 0)),
   });
 
@@ -265,6 +271,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       beasts: [...beasts.values()].map(publicBeast),
       fires: fires.map(publicFire),
       shrooms: [...shrooms.values()].map(publicShroom),
+      motes: [...motes.values()].map(m => ({ id: m.id, kind: m.kind, u: rnd(m.u, 4) })),
       doom: game.phase === 'doom' ? doomInfo() : null,
       crops: [...crops.values()].map(publicCrop),
       builds: [...builds.values()].map(publicBuild),
@@ -373,10 +380,16 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
         if (pl) practice(pl, m.w ? String(m.w) : null);
         break;
       case 'fish':
-        if (pl) fishing(pl, t);
+        if (pl) fishing(pl, t, m);
         break;
       case 'dance':
         if (pl) setDance(pl, m.on);
+        break;
+      case 'drum':
+        if (pl) drum(pl, m.k, t);
+        break;
+      case 'gear':
+        if (pl) pickGear(pl, m);
         break;
       case 'duelwpn':
         if (pl) pickDuelWeapon(pl, String(m.type ?? ''));
@@ -419,8 +432,10 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       duelPick: 'practice',                  // ...what they take off the duel ring's rack
       carry: null,                           // ...and kept, to take anywhere in the peace (null: the hoe out of the ring)
       practice: null,                        // ...the practice weapon from a range shed, if any
-      fish: null,                            // ...a line in a pond: { shop, biteAt, bit }
+      fish: null,                            // ...a line in a pond: { shop, biteAt, bit, hooked, kind, hookedAt }
+      perm: { might: 0, hide: 0 },           // ...gold motes kept (peace mode: harder hits, less hurt)
       dancing: false, danceAt: null, danceAcc: 0,   // ...round a bonfire (from where), and the shell coming
+      drumAt: -99, drumHits: [],             // ...on its drums: the last hit, and the last second's
       soakAt: 0,                             // ...next bit of life back in a hot spring
       hungerAt: 0, strangerId: 0,            // ...next hunger tick, and the stranger coming with food
     };
@@ -441,7 +456,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     });
     pl.sq++;
     if (announce) {
-      pl.weapon = newWeapon();
+      pl.weapon = peaceful() && pl.carry ? C.duelWeapon(pl.carry) : newWeapon();   // (a weapon kept off the rack stays yours)
       broadcast({ t: 'respawn', id: pl.id, sq: pl.sq, p: rnd(pl.p, 4), f: rnd(pl.f, 4), wpn: pl.weapon });
     }
     sendMe(pl);
@@ -538,10 +553,12 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
 
   function damage(v, amount, info) {
     if (!v.alive || !(fighting() || peaceful())) return;
-    // In peace only hazards and duels hurt, and nothing goes below 1 HP: at 1 you're done.
-    if (peaceful() && v.hp <= 1) return;
     const t = now();
     const att = info.attacker || null;
+    // In peace a duel stops at 1 HP (the bout's won); anything else (monsters, hazards) can knock
+    // you out, and you sleep it off (sleep).
+    const duel = peaceful() && att && att !== v && !info.beast && inRing(v);
+    if (duel && v.hp <= 1) return;
     // Ploughshares: anybody hurting anybody (not hazards, not yourself) breaks this age's peace,
     // and a bot fights back against whoever hurt it
     if (att && att !== v) {
@@ -552,6 +569,8 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     if (info.kind !== 'bleed' && info.kind !== 'doom') {
       if (att && att !== v && !info.beast && buffed(att, 'strong', t)) amount *= C.BUFF.strong;
       if (buffed(v, 'tough', t)) amount *= C.BUFF.tough;
+      if (att && att !== v && !info.beast) amount *= mightOf(att);
+      amount *= hideOf(v);
     }
     // Armor soaks its share of every hit (not bleeding) until it runs out.
     let absorbed = 0;
@@ -561,7 +580,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       amount -= absorbed;
     }
     let d = Math.max(1, Math.round(amount));
-    if (peaceful()) d = Math.min(d, v.hp - 1);
+    if (duel) d = Math.min(d, v.hp - 1);
     v.hp -= d;
     if (att && att !== v) { v.lastHitBy = att.id; v.lastHitAt = t; }
     if (info.stun) v.stunUntil = Math.max(v.stunUntil, t + info.stun);
@@ -579,8 +598,21 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       v.armor = null;
       broadcast({ t: 'armor', id: v.id, armor: null, broke: 1 });
     }
-    if (peaceful()) { if (v.hp <= 1 && att && att !== v) duelWon(att, v); return; }
+    if (peaceful()) {
+      if (duel && v.hp <= 1) duelWon(att, v);
+      else if (v.hp <= 0) sleep(v, info, t);
+      return;
+    }
     if (v.hp <= 0) kill(v, info, t);
+  }
+
+  // Knocked out in peace: down where you fell, and up there again PEACE.sleep seconds later. No
+  // death, nobody's kill.
+  function sleep(v, info, t) {
+    Object.assign(v, { alive: false, hp: 0, charging: false, respawnAt: t + C.PEACE.sleep, sleepAt: [v.p.slice(), v.f.slice()], zone: 0 });
+    if (v.fish) endFishing(v, 'off');
+    if (v.dancing) setDance(v, false);
+    broadcast({ t: 'die', v: v.id, a: 0, k: 'sleep', w: info.wname || '', vb: '', hs: 0, p: rnd(v.p, 4) });   // (p: where I'll wake)
   }
 
   function kill(v, info, t) {
@@ -729,7 +761,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
 
   const publicBeast = b => ({
     id: b.id, kind: b.kind, look: b.look, name: b.name, owner: b.owner, p: rnd(b.p, 4), f: rnd(b.f, 4), h: b.h, hp: Math.round(b.hp), maxHp: b.maxHp,
-    left: b.monster ? 0 : Math.round((b.until - now()) * 10) / 10, monster: b.monster ? 1 : 0,
+    left: b.monster ? 0 : Math.round((b.until - now()) * 10) / 10, monster: b.monster ? 1 : 0, tier: b.tier ?? null,
   });
 
   // Earned on a streak. One waiting slot: a bigger beast replaces a smaller one, never the reverse.
@@ -803,10 +835,11 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     if (owner && owner.beastId === b.id) owner.beastId = 0;
     if (reason !== 'round') broadcast({ t: 'beastgone', id: b.id, reason, by: by ? by.id : 0 });
     if (reason === 'slain' && by) by.kills++;
-    // a monster slain: the hero gets paid, and another turns up in its hollow in a while
+    // a monster slain: the hero gets paid (more, deeper in), and another turns up in its ring later
     if (b.monster && reason === 'slain') {
-      if (by) payShells(by, C.SHOPS.haunt.reward);
-      b.home.nextSpawn = Math.max(b.home.nextSpawn, now() + C.SHOPS.haunt.respawn);
+      if (by) payShells(by, C.FOREST_TIERS[b.tier].reward);
+      dropMote(b);
+      b.home.nextSpawn[b.tier] = Math.max(b.home.nextSpawn[b.tier] || 0, now() + C.SHOPS.haunt.respawn);
     }
   }
 
@@ -817,7 +850,20 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     const def = C.BEASTS[b.kind];
     damage(pl, info.dmg, {
       attacker: players.get(b.owner) || null, kind: b.kind, wname: b.name, beast: true,
-      kb: info.kb, stun: info.stun, pos: M.scale(pl.p, R + pl.h + 1.2),
+      kb: info.kb, stun: info.stun, slow: info.slow, pos: M.scale(pl.p, R + pl.h + 1.2),
+    });
+  }
+
+  // A leap at whoever's a few strides off (the attack dog, a werewolf): up, and whoever's where
+  // it comes down gets it.
+  function pounce(b, def, windup, t) {
+    b.cd.pounce = t + def.pounce.cd;
+    b.vh = 8;
+    b.lunge = t + 0.45;
+    windup('pounce', 0.4, () => {
+      for (const pl of beastVictims(b, 1.8, 140)) {
+        beastHits(b, pl, { dmg: def.pounce.dmg, stun: def.pounce.stun, kb: M.scale(b.f, def.pounce.kb) });
+      }
     });
   }
 
@@ -885,6 +931,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       if (move) move = beastSteer(b, move, def, t);
       else b.stuckFrom = null;
       const speed = def.speed * (t < b.lunge ? 1.9 : 1);
+      const d0 = b.monster ? M.arcDist(b.p, b.home.u) : 0;
       let disp = move ? M.scale(M.tangent(b.p, move), speed * DT) : [0, 0, 0];
       disp = M.madd(disp, b.kbv, DT);
       b.kbv = M.scale(b.kbv, Math.exp(-DT * 4));
@@ -892,6 +939,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
       b.moving = dl > 1e-4;
       if (dl > 1e-6) [b.p, b.f] = M.moveOnSphere(b.p, b.f, M.scale(disp, 1 / dl), dl);
       [b.p, b.f] = M.collideObstacles(b.p, b.f, solidsFor(def), def.radius * 0.8);
+      if (b.monster) keepToRing(b, d0);
       const face = target ? M.towardDir(b.p, target.p) : move;
       if (face) {
         const k = 1 - Math.exp(-DT * (b.kind === 'dog' ? 10 : 5));
@@ -947,14 +995,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     if (b.kind === 'dog') {
       // leap at anyone a few strides away, bite anyone close
       if (target && b.h <= 0 && ready('pounce') && dist > 2.5 && dist < def.pounce.range) {
-        b.cd.pounce = t + def.pounce.cd;
-        b.vh = 8;
-        b.lunge = t + 0.45;
-        windup('pounce', 0.4, () => {
-          for (const pl of beastVictims(b, 1.8, 140)) {
-            beastHits(b, pl, { dmg: def.pounce.dmg, stun: def.pounce.stun, kb: M.scale(b.f, def.pounce.kb) });
-          }
-        });
+        pounce(b, def, windup, t);
       } else if (target && ready('bite') && dist < def.bite.range) {
         b.cd.bite = t + def.bite.cd;
         windup('bite', 0.15, () => {
@@ -980,12 +1021,30 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
         });
       }
     } else if (def.swipe) {
-      // a monster: one swipe at whoever's in front of it
-      if (target && ready('swipe') && dist < def.swipe.range) {
+      // a monster: a swipe at whoever's in front of it. A werewolf leaps from a few strides off; a
+      // vampire vanishes and comes back right behind you; a vampire's bite gives it life back.
+      if (def.pounce && target && b.h <= 0 && ready('pounce') && dist > 2.5 && dist < def.pounce.range) {
+        pounce(b, def, windup, t);
+      } else if (def.blink && target && ready('blink') && dist > 3.5 && dist < def.blink.range) {
+        b.cd.blink = t + def.blink.cd;
+        windup('blink', 0.3, () => {
+          if (!target.alive) return;
+          const back = M.scale(target.f, -1);
+          const to = M.moveOnSphere(target.p, back, back, 1.6)[0];
+          if (!isClear(to, def.radius) || !inReach(b, to)) return;
+          b.p = to;
+          b.f = M.towardDir(to, target.p);
+          broadcast({ t: 'blink', id: b.id, p: rnd(b.p, 4), f: rnd(b.f, 4) });
+        });
+      } else if (target && ready('swipe') && dist < def.swipe.range) {
         b.cd.swipe = t + def.swipe.cd;
         windup('swipe', 0.35, () => {
           for (const pl of beastVictims(b, def.swipe.range, 120).slice(0, 1)) {
-            beastHits(b, pl, { dmg: def.swipe.dmg, stun: def.swipe.stun, kb: M.scale(M.awayDir(pl.p, b.p), def.swipe.kb) });
+            beastHits(b, pl, { dmg: def.swipe.dmg, stun: def.swipe.stun, slow: def.swipe.slow, kb: M.scale(M.awayDir(pl.p, b.p), def.swipe.kb) });
+            if (def.swipe.drain && b.hp < b.maxHp) {
+              b.hp = Math.min(b.maxHp, b.hp + def.swipe.dmg);
+              broadcast({ t: 'bheal', id: b.id, hp: Math.round(b.hp), n: def.swipe.dmg });
+            }
           }
         });
       }
@@ -1011,6 +1070,8 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   function damageBeast(b, amount, att, pos = null) {
     if (!beasts.has(b.id) || !(fighting() || (b.monster && peaceful()))) return;
     if (att && (att.id === b.owner || allies(players.get(b.owner), att))) return;
+    // (on a monster, a BIG STRONG mushroom or a fury mote, and gold might, count too)
+    if (b.monster && att) amount *= (buffed(att, 'strong', now()) ? C.BUFF.strong : 1) * mightOf(att);
     const d = Math.max(1, Math.round(amount));
     b.hp -= d;
     broadcast({ t: 'bdmg', id: b.id, d, hp: Math.max(0, b.hp), a: att ? att.id : 0, pos: pos && rnd(pos, 2) });
@@ -1058,7 +1119,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     }
   }
 
-  // ------------------------------------------------------------------ Do Time clock
+  // ------------------------------------------------------------------ War mode clock
   function stepGame(t) {
     if (coop()) { stepCoop(t); return; }
     if (!timed()) return;
@@ -1226,7 +1287,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     log('peace');
   }
   // (what nobody is doing at the start of a peace, or a round: fishing, dancing, soaking)
-  const TOWN_IDLE = { fish: null, dancing: false, danceAt: null, danceAcc: 0, soakAt: 0 };
+  const TOWN_IDLE = { fish: null, dancing: false, danceAt: null, danceAcc: 0, soakAt: 0, drumAt: -99 };
 
   function stepPeace(t) {
     stepTown(t);
@@ -1300,18 +1361,23 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   const atRange = pl => peaceful() && shopById(pl.zone)?.kind === 'range';
   const inRing = pl => peaceful() && shopById(pl.zone)?.kind === 'duel';
   const inHaunt = pl => peaceful() && shopById(pl.zone)?.kind === 'haunt';
-  const zoneAt = p => shops.find(s => M.arcDist(p, s.at) < C.SHOPS[s.kind].zone) || null;
+  // (a shop's circle: the dark forest's grows as it spreads)
+  const zoneOf = s => s.zone ?? C.SHOPS[s.kind].zone;
+  const zoneAt = p => shops.find(s => M.arcDist(p, s.at) < zoneOf(s)) || null;
   const payShells = (pl, n) => { pl.shells = M.clamp(pl.shells + n, 0, C.PEACE.maxShells); sendMe(pl); };
   const publicShop = s => ({
     id: s.id, kind: s.kind, u: rnd(s.u, 4), f: rnd(s.f, 3), at: rnd(s.at, 4),
     targets: s.targets ? s.targets.map(tg => ({ u: rnd(tg.u, 4) })) : null,
+    ...(s.rings ? { zone: s.zone, rings: s.rings } : {}),
   });
 
   // Is u (give or take `margin`) on a shop, inside the ring, or in the range's line of fire?
-  function townAt(u, margin) {
+  // claim: for a new shop, which keeps out of all the dark forest will ever spread to as well.
+  function townAt(u, margin, claim = false) {
     for (const s of shops) {
       const def = C.SHOPS[s.kind];
-      if (M.arcDist(u, s.u) < (C.AREA_SHOPS.has(s.kind) ? def.zone : def.r) + margin) return true;
+      const reach = s.kind === 'haunt' ? (claim ? s.claim : s.zone) : C.AREA_SHOPS.has(s.kind) ? zoneOf(s) : def.r;
+      if (M.arcDist(u, s.u) < reach + margin) return true;
       if (s.kind === 'range' && M.arcDist(u, s.lane) < def.downrange / 2 + 1 + margin) return true;
     }
     return false;
@@ -1323,7 +1389,15 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   function shopSpot(kind, u, f) {
     const def = C.SHOPS[kind];
     // (and its circle well clear of the Businessman's podium, where E talks to him)
-    const free = (p, m) => isClear(p, m) && buildsClear(p, m) && !townAt(p, m) && p[1] < 0.6 && M.arcDist(p, C.MAMMON.at) > 8 + m;
+    const free = (p, m) => isClear(p, m) && buildsClear(p, m) && !townAt(p, m, true) && p[1] < 0.6 && M.arcDist(p, C.MAMMON.at) > 8 + m;
+    if (kind === 'haunt') {
+      // the dark forest: room for all it'll spread to (the trees and rocks already there are
+      // welcome in a forest), and well away from the volcano
+      // (every place's whole circle out of it, not just its building)
+      const claim = forestClaim();
+      const roomy = !townAt(u, claim, true) && shops.every(s => M.arcDist(u, s.u) > claim + zoneOf(s));
+      return isClear(u, 2) && buildsClear(u, claim) && roomy && u[1] < 0.3 && M.arcDist(u, C.MAMMON.at) > 8 + claim ? { u, f, at: u, claim } : null;
+    }
     if (kind !== 'range') return free(u, def.zone + 2) ? { u, f, at: u } : null;
     const { at, lane, targets } = shopLayout(kind, u, f);
     if (!free(u, def.zone + 1.5) || !free(lane, def.downrange / 2 + 1) || targets.some(p => !free(p, 2))) return null;
@@ -1347,6 +1421,10 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     }
     if (!best) { log(`no room for a ${def.name}`); return; }
     const s = { id: nextId++, kind, ...best, nextSpawn: t };
+    if (kind === 'haunt') {
+      const rings = C.SHOPS.haunt.startRings;
+      Object.assign(s, { rings, zone: rings * C.SHOPS.haunt.ring, nextSpawn: [], spreadAt: t + C.SHOPS.haunt.spreadEvery });
+    }
     shops.push(s);
     // the buildings, the booth and the target posts are solid; the ring you just walk into
     if (def.r) buildSolids.push({ u: s.u, r: def.r });
@@ -1427,31 +1505,67 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     broadcast({ t: 'zone', id: pl.id, z: id });
   }
 
-  // ------------------------------------------------------------------ Ploughshares: haunted hollows
-  // Monsters are beasts that belong to nobody (monster: their hollow's id). They roam their hollow,
-  // go for whoever comes in, and never leave. Slain, they pay; another comes along later.
+  // ------------------------------------------------------------------ peace: the dark forest
+  // One a round. It starts as a couple of rings and spreads a ring at a time, as far as the
+  // planet's size allows (forestMost: one ring more after each growth spurt). Its monsters are
+  // beasts that belong to nobody (monster: the forest's id), each kind in its own ring (tier: from
+  // the edge in, FOREST_TIERS), so the deeper you go, the worse it gets. They go for whoever comes
+  // into their ring and never leave it. Slain, they pay; another comes along later.
+  const forestMost = () => Math.min(C.FOREST_TIERS.length, 3 + Math.floor((game.radius - C.PEACE.grownR + 0.01) / C.PEACE.growStep));
+  // what a new forest keeps clear for itself (others keep out): everything it can ever spread to,
+  // and the penumbra round that (E there picks gear, so no place's circle can be in it)
+  const forestClaim = () => C.FOREST_TIERS.length * C.SHOPS.haunt.ring + C.SHOPS.haunt.penumbra + 1;
+  // a tier's ring, as distances from the forest's middle
+  function ringOf(s, tier) {
+    const w = C.SHOPS.haunt.ring;
+    return { outer: s.zone - tier * w, inner: Math.max(0, s.zone - (tier + 1) * w) };
+  }
+
   function stepHaunts(t) {
     for (const s of shops) {
-      if (s.kind !== 'haunt' || t < s.nextSpawn) continue;
-      let n = 0;
-      for (const b of beasts.values()) if (b.monster === s.id) n++;
-      if (n >= C.SHOPS.haunt.monsters) continue;
-      s.nextSpawn = t + 1.5;   // (the rest follow one at a time)
-      spawnMonster(s, t);
+      if (s.kind !== 'haunt') continue;
+      if (t >= s.spreadAt) {
+        s.spreadAt = t + C.SHOPS.haunt.spreadEvery;
+        if (s.rings < forestMost()) spreadForest(s);
+      }
+      for (let tier = 0; tier < s.rings; tier++) {
+        if (t < (s.nextSpawn[tier] || 0)) continue;
+        let n = 0;
+        for (const b of beasts.values()) if (b.monster === s.id && b.tier === tier) n++;
+        if (n >= C.FOREST_TIERS[tier].count) continue;
+        s.nextSpawn[tier] = t + 1.5;   // (the rest follow one at a time)
+        spawnMonster(s, tier);
+      }
     }
   }
 
-  function spawnMonster(s, t) {
-    const kind = C.MONSTERS[Math.floor(Math.random() * C.MONSTERS.length)];
-    const def = C.BEASTS[kind];
-    let p = s.u;
-    for (let i = 0; i < 20; i++) {
-      const dir = M.randomTangent(s.u);
-      const u = M.moveOnSphere(s.u, dir, dir, rand(0, C.SHOPS.haunt.zone - 1.5))[0];
-      if (isClear(u, def.radius) && buildsClear(u, def.radius)) { p = u; break; }
+  // A ring further out. Every ring moves out one (the skeletons to the new edge, and so on in), so
+  // the heart is a new ring, home to something worse.
+  function spreadForest(s) {
+    s.rings++;
+    s.zone = s.rings * C.SHOPS.haunt.ring;
+    // the crops it creeps over are lost to it
+    for (const c of [...crops.values()]) {
+      if (M.arcDist(c.u, s.u) < s.zone) { crops.delete(c.id); broadcast({ t: 'harvest', id: c.id, by: 0, n: 0, food: game.food }); }
     }
+    broadcast({ t: 'forest', id: s.id, zone: s.zone, rings: s.rings });
+    log(`the dark forest spreads (${s.rings} rings: ${C.FOREST_TIERS[s.rings - 1].name.toLowerCase()} at the heart)`);
+  }
+
+  function spawnMonster(s, tier) {
+    const kinds = C.FOREST_TIERS[tier].kinds;
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    const def = C.BEASTS[kind];
+    const { inner, outer } = ringOf(s, tier);
+    let p = null;
+    for (let i = 0; i < 20 && !p; i++) {
+      const dir = M.randomTangent(s.u);
+      const u = M.moveOnSphere(s.u, dir, dir, rand(inner + 0.5, Math.max(inner + 0.6, outer - 0.5)))[0];
+      if (isClear(u, def.radius) && buildsClear(u, def.radius)) p = u;
+    }
+    p ||= M.moveOnSphere(s.u, s.f, s.f, (inner + outer) / 2)[0];
     const b = {
-      id: nextId++, kind, look: null, name: def.name, owner: 0, monster: s.id, home: s, p, f: M.randomTangent(p), h: 0, vh: 0,
+      id: nextId++, kind, look: null, name: def.name, owner: 0, monster: s.id, home: s, tier, p, f: M.randomTangent(p), h: 0, vh: 0,
       hp: def.hp, maxHp: def.hp, until: Infinity, think: 0, target: 0, cmdTarget: 0, cmdPoint: null, cmdUntil: 0,
       cd: {}, hitCd: new Map(), lunge: 0, pending: [], kbv: [0, 0, 0], moving: false, roam: null, roamUntil: 0,
     };
@@ -1459,28 +1573,54 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     broadcast({ t: 'beast', ...publicBeast(b) });
   }
 
-  // whoever's in its hollow and close enough to notice
+  // whoever's in its ring (or just over its edges, but not out of the forest) and close enough to notice
+  // How far from the forest's middle a monster goes: its ring, and a little way either side to go
+  // after someone (but no further out than the forest's edge)
+  function ringReach(b) {
+    const { inner, outer } = ringOf(b.home, b.tier);
+    return { lo: Math.max(0, inner - 1.5), hi: Math.min(outer + 1.5, b.home.zone + 0.5) };
+  }
+  function inReach(b, p) {
+    const { lo, hi } = ringReach(b), d = M.arcDist(p, b.home.u);
+    return d >= lo && d <= hi;
+  }
+
   function monsterTarget(b) {
-    const def = C.BEASTS[b.kind], zone = C.SHOPS.haunt.zone;
+    const def = C.BEASTS[b.kind];
     let best = null, bestD = def.sense;
     for (const pl of players.values()) {
-      if (!pl.alive || M.arcDist(pl.p, b.home.u) > zone + 0.5) continue;
+      if (!pl.alive || !inReach(b, pl.p)) continue;
       const d = M.arcDist(b.p, pl.p);
       if (d < bestD) { bestD = d; best = pl; }
     }
     return best ? best.id : 0;
   }
 
-  // nobody to chase: drift about the hollow (and back in, if it's strayed to the edge)
+  // nobody to chase: drift about its ring, round the way it's facing (not across the middle,
+  // through everyone else's), and back into it if it's strayed out (or the ring moved out)
   function monsterRoam(b, t) {
-    const zone = C.SHOPS.haunt.zone;
-    if (M.arcDist(b.p, b.home.u) > zone - 0.5) return b.home.u;
+    const s = b.home, { inner, outer } = ringOf(s, b.tier);
+    const d = M.arcDist(b.p, s.u);
+    const out = d > 0.01 ? M.towardDir(s.u, b.p) : M.randomTangent(s.u);
+    if (d > outer - 0.3 || (inner > 0 && d < inner + 0.3)) return M.moveOnSphere(s.u, out, out, (inner + outer) / 2)[0];
     if (!b.roam || t > b.roamUntil || M.arcDist(b.p, b.roam) < 1.2) {
-      const dir = M.randomTangent(b.home.u);
-      b.roam = M.moveOnSphere(b.home.u, dir, dir, rand(0, zone - 1.5))[0];
+      const dir = M.rotateAxis(out, s.u, rand(-0.8, 0.8));
+      b.roam = M.moveOnSphere(s.u, dir, dir, rand(inner + 0.4, Math.max(inner + 0.5, outer - 0.4)))[0];
       b.roamUntil = t + rand(3, 6);
     }
     return b.roam;
+  }
+
+  // However it's steered round trees or knocked about, a monster gets no further out of its reach
+  // than it was (d0: how far from the middle it was before this step). A spreading forest moves the
+  // rings out from under them: they walk after theirs.
+  function keepToRing(b, d0) {
+    const { lo, hi } = ringReach(b), s = b.home, d = M.arcDist(b.p, s.u);
+    const to = d > hi ? Math.min(d, Math.max(hi, d0)) : d < lo ? Math.max(d, Math.min(lo, d0)) : d;
+    if (to === d) return;
+    const out = d > 0.01 ? M.towardDir(s.u, b.p) : M.randomTangent(s.u);
+    b.p = M.moveOnSphere(s.u, out, out, to)[0];
+    b.f = M.tangent(b.p, b.f);
   }
 
   // Does the step from a to b go in through the face of a target at the range (a disk standing
@@ -1655,11 +1795,21 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     if (!b.fish) {
       ai.reelAt = 0;
       if (t >= (ai.castAt || 0)) fishing(b, t);
+    } else if (b.fish.hooked) {
+      // reeling it in, in its own time: landed, or lost now and then (the tricky ones more often)
+      if (t >= ai.landAt) {
+        fishing(b, t, ai.landOk ? { landed: 1 } : { lost: 'escaped' });
+        ai.castAt = t + rand(1, 3);
+      }
     } else if (b.fish.bit) {
       ai.reelAt ||= t + rand(0.25, 1.6);
       if (t >= ai.reelAt) {
-        fishing(b, t);
-        ai.castAt = t + rand(1, 3);
+        fishing(b, t);   // (hooks it, if it was quick enough)
+        if (b.fish?.hooked) {
+          const reel = C.REELS[C.FISH[b.fish.kind].reel];
+          ai.landAt = t + (reel.minMs / 1000) * rand(1.4, 2.6);
+          ai.landOk = Math.random() >= reel.botFail;
+        } else ai.castAt = t + rand(1, 3);
       }
     }
   }
@@ -1679,23 +1829,40 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   // ------------------------------------------------------------------ peace: pond, spring, bonfire
   const atShop = (pl, kind) => peaceful() && shopById(pl.zone)?.kind === kind;
 
-  // E on a pond's bank casts. E again once a fish bites reels it in (shells for the catcher, food
-  // for the tribe); too soon and it swims off, too late (stepFishing) and it gets away.
-  function fishing(pl, t) {
+  // E on a pond's bank casts. E again once a fish bites hooks it; too soon and it swims off, too
+  // late (stepFishing) and it gets away. Hooked, it has to be reeled in, tap after tap, its own way
+  // (REELS). That happens on the fisher's own screen, so it answers every tap at once; then it
+  // says how it went: m.landed (shells for the catcher, food for the tribe, if it wasn't quicker
+  // than anyone could), or m.lost ('snap': the line broke; else it swam off).
+  function fishing(pl, t, m = {}) {
     if (!pl.alive || !atShop(pl, 'pond')) return;
     const f = pl.fish;
+    if (f?.hooked) {
+      if (m.landed) landFish(pl, t);
+      else if (m.lost) endFishing(pl, m.lost === 'snap' ? 'snap' : 'escaped');
+      return;
+    }
+    if (m.landed || m.lost) return;   // (about a fish that's already gone)
     if (!f) {
       pl.fish = { shop: pl.zone, biteAt: t + randIn(C.SHOPS.pond.wait), bit: false };
       broadcast({ t: 'fish', id: pl.id, s: 'cast', shop: pl.zone });
     } else if (!f.bit) {
       endFishing(pl, 'soon');
     } else {
-      const kind = C.pickFish(), fish = C.FISH[kind];
-      pl.fish = null;
-      payShells(pl, fish.shells);
-      game.food += fish.food;
-      broadcast({ t: 'fish', id: pl.id, s: 'got', kind, food: game.food });
+      Object.assign(f, { hooked: true, kind: C.pickFish(), hookedAt: t });
+      broadcast({ t: 'fish', id: pl.id, s: 'hooked', kind: f.kind });
     }
+  }
+
+  // Reeled all the way in. ms: how long it took, from the hook.
+  function landFish(pl, t) {
+    const f = pl.fish, fish = C.FISH[f.kind];
+    const ms = Math.round((t - f.hookedAt) * 1000);
+    if (ms < C.REELS[fish.reel].minMs - 150) { endFishing(pl, 'escaped'); return; }   // (nobody reels that fast)
+    pl.fish = null;
+    payShells(pl, fish.shells);
+    game.food += fish.food;
+    broadcast({ t: 'fish', id: pl.id, s: 'got', kind: f.kind, ms, food: game.food });
   }
 
   function endFishing(pl, why) {
@@ -1706,7 +1873,9 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
   function stepFishing(pl, t) {
     const f = pl.fish;
     if (!f) return;
-    if (!f.bit && t >= f.biteAt) {
+    if (f.hooked) {
+      if (t - f.hookedAt > C.SHOPS.pond.giveUp) endFishing(pl, 'escaped');   // (nobody's reeling)
+    } else if (!f.bit && t >= f.biteAt) {
       f.bit = true;
       broadcast({ t: 'fish', id: pl.id, s: 'bite' });
     } else if (f.bit && t > f.biteAt + C.SHOPS.pond.window + 0.3) {   // (+ a little for the lag)
@@ -1730,19 +1899,83 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     broadcast({ t: 'dance', id: pl.id, on: on ? 1 : 0 });
   }
 
-  // Everyone dancing round a fire earns shells, quicker the more of them there are.
+  // ------------------------------------------------------------------ peace: motes
+  // A slain monster sometimes leaves a mote (more often, and gold more often, deeper in): half the
+  // time offensive, half defensive.
+  function dropMote(b) {
+    const M_ = C.MOTES;
+    if (Math.random() >= M_.chance[b.tier]) return;
+    const side = Math.random() < 0.5 ? 'off' : 'def';
+    const gold = Math.random() < M_.gold[b.tier];
+    const kinds = Object.keys(M_.kinds).filter(k => M_.kinds[k].side === side && !!M_.kinds[k].perm === gold);
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    // (it pops out and hangs there a moment before it can be taken, so it's seen)
+    const m = { id: nextId++, kind, u: b.p.slice(), until: now() + M_.life, readyAt: now() + 0.6 };
+    motes.set(m.id, m);
+    broadcast({ t: 'mote', id: m.id, kind, u: rnd(m.u, 4) });
+  }
+
+  // Walking into one takes it; left lying, it fades.
+  function stepMotes(t) {
+    for (const m of [...motes.values()]) {
+      if (t >= m.until) { motes.delete(m.id); broadcast({ t: 'unmote', id: m.id, by: 0 }); continue; }
+      if (t < m.readyAt) continue;
+      for (const pl of players.values()) {
+        if (!pl.alive || pl.h > 1.5 || M.arcDist(pl.p, m.u) > C.MOTES.reach) continue;
+        takeMote(pl, m, t);
+        break;
+      }
+    }
+  }
+
+  function takeMote(pl, m, t) {
+    const def = C.MOTES.kinds[m.kind];
+    motes.delete(m.id);
+    let n = 0;
+    if (def.perm) {
+      n = pl.perm[m.kind] = Math.min(def.max, pl.perm[m.kind] + 1);
+      sendMe(pl);
+    } else {
+      pl.buffs[def.buff] = t + def.secs;
+      broadcast({ t: 'buff', id: pl.id, kind: def.buff, left: def.secs, mote: m.kind });
+    }
+    broadcast({ t: 'unmote', id: m.id, by: pl.id, n });
+  }
+
+  // Where a bonfire's drums stand (the town draws them in the same places).
+  function drumsOf(s) {
+    const def = C.SHOPS.bonfire, side = M.cross(s.u, s.f);
+    return def.drums.map(a => {
+      const dir = M.add(M.scale(s.f, Math.cos(a)), M.scale(side, Math.sin(a)));
+      return M.moveOnSphere(s.u, dir, dir, def.zone - def.drumAt)[0];
+    });
+  }
+
+  // A hit on a bonfire's drums (k 0: the big one, 1: the small one), from someone standing at one.
+  // Everyone hears it; ten a second at most.
+  function drum(pl, k, t) {
+    const s = shopById(pl.zone);
+    if (!pl.alive || !atShop(pl, 'bonfire') || !drumsOf(s).some(d => M.arcDist(pl.p, d) < C.SHOPS.bonfire.drumReach + 0.5)) return;
+    pl.drumHits = pl.drumHits.filter(h => t - h < 1);
+    if (pl.drumHits.length >= 10) return;
+    pl.drumHits.push(t);
+    pl.drumAt = t;
+    broadcast({ t: 'drum', id: pl.id, k: k ? 1 : 0, shop: s.id });
+  }
+
+  // Everyone dancing (or drumming) round a fire earns shells, quicker the more of them there are.
   function stepBonfires() {
-    const def = C.SHOPS.bonfire;
+    const def = C.SHOPS.bonfire, t = now();
     for (const s of shops) {
       if (s.kind !== 'bonfire') continue;
-      const dancers = [...players.values()].filter(p => p.dancing && p.zone === s.id);
+      const dancers = [...players.values()].filter(p => p.zone === s.id && (p.dancing || t - p.drumAt < 2));
       const rate = Math.min(dancers.length, def.crowd) / def.every;   // shells a second, each
       for (const p of dancers) {
         p.danceAcc += rate * DT;
         if (p.danceAcc < 1) continue;
         p.danceAcc -= 1;
         payShells(p, 1);
-        broadcast({ t: 'dance', id: p.id, on: 1, paid: 1, n: dancers.length });
+        broadcast(p.dancing ? { t: 'dance', id: p.id, on: 1, paid: 1, n: dancers.length } : { t: 'band', id: p.id, n: dancers.length });
       }
     }
   }
@@ -1844,14 +2077,32 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     setPractice(pl, w);
   }
 
-  function setPractice(pl, w) {
+  // quiet: (from the penumbra) the screen there already says so
+  function setPractice(pl, w, quiet = false) {
     if ((pl.practice || null) === w) return;
     pl.practice = w;
     pl.ammo = rangedDef(pl).ammo;   // a full load of whatever's in hand now
     pl.regen = 0;
     pl.lastThrow = -99;
     sendMe(pl);
-    broadcast({ t: 'practice', id: pl.id, w });
+    broadcast({ t: 'practice', id: pl.id, w, ...(quiet ? { quiet: 1 } : {}) });
+  }
+
+  // The penumbra: the band of gloom round the dark forest's edge.
+  const inPenumbra = pl => peaceful() && shops.some(s => s.kind === 'haunt' && M.arcDist(pl.p, s.u) > s.zone - 0.5 && M.arcDist(pl.p, s.u) < s.zone + C.SHOPS.haunt.penumbra + 0.5);
+
+  // Gear picked in the penumbra: a melee weapon off the duel ring's rack and a ranged one from a
+  // range shed, both kept (as if picked there), or handed back (''), at once.
+  function pickGear(pl, m) {
+    if (!pl.alive || !inPenumbra(pl)) return;
+    const melee = String(m.melee ?? ''), ranged = String(m.ranged ?? '');
+    if ((melee && !C.DUEL_WEAPONS.includes(melee)) || (ranged && !C.PRACTICE_WEAPONS.includes(ranged))) return;
+    pl.carry = melee || null;
+    pl.duelPick = melee || 'practice';
+    const here = shopById(pl.zone)?.kind;
+    pl.weapon = melee ? C.duelWeapon(melee) : here === 'haunt' ? C.makeTorch() : here === 'duel' ? C.duelWeapon('practice') : C.makeTool();
+    broadcast({ t: 'wpn', id: pl.id, wpn: pl.weapon, carry: pl.carry, era: 1 });
+    setPractice(pl, ranged || null, true);
   }
 
   function openVote(t) {
@@ -1891,7 +2142,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     return goal;
   }
 
-  // The world ended (Do Time), the whole tribe is down (co-op, where only the humans are ranked),
+  // The world ended (War mode), the whole tribe is down (co-op, where only the humans are ranked),
   // or the tribe voted to stop farming (Ploughshares: ranked by food picked, then things built).
   function endRound(t) {
     const harvestFest = peaceful();
@@ -2016,6 +2267,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     // ...and so is the town, and the planet is back to its usual size
     shops.length = 0;
     strangers.clear();
+    motes.clear();
     Object.assign(game, { radius: C.PLANET_R, growFrom: C.PLANET_R, growTo: C.PLANET_R, openings: [] });
     C.setPlanetRadius(game.radius);
     armorDrops.clear();
@@ -2825,7 +3077,10 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     for (const pl of players.values()) {
       if (!pl.alive) {
         // nobody climbs out of the rubble mid-apocalypse; the new round wakes everyone
-        if (t >= pl.respawnAt && (game.phase === 'play' || peaceful())) spawnPlayer(pl);
+        if (t >= pl.respawnAt && (game.phase === 'play' || peaceful())) {
+          spawnPlayer(pl, true, peaceful() ? pl.sleepAt : null);   // (knocked out in peace: up where you fell)
+          pl.sleepAt = null;
+        }
         continue;
       }
       if (pl.bot) botThink(pl, t);
@@ -2838,6 +3093,7 @@ export function createRoom(code, { rules, maxPlayers, eraSeconds, peaceSeconds }
     stepBeasts(t);
     stepFood(t);
     if (strangers.size) stepStrangers(t);
+    if (motes.size) stepMotes(t);
     expireLoot(t);
     stepBoulders(t);
     stepVolcano(t);

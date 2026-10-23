@@ -15,6 +15,7 @@ export class Sound {
     this.muted = false;
     this.musicOn = true;
     this.vol = { master: 1, sfx: 1, music: 1, voice: 1 };   // 0..1, from the settings panel
+    this.duck = 1;       // everything but the drums: 0.5 by the bonfire's drums (setDuck)
     this.lastSpeech = 0;
     // on the planet (playing)? Off it, in the lobby, there are only the drums: the bots fighting
     // in the background stay quiet
@@ -37,7 +38,32 @@ export class Sound {
     };
     glide(this.master.gain, this.muted ? 0 : 0.8 * this.vol.master);
     glide(this.sfx.gain, this.vol.sfx);
+    glide(this.drums.gain, this.vol.sfx);
     glide(this.music.gain, this.musicOn ? 0.32 * this.vol.music : 0);
+  }
+
+  // By the drums: everything else (music, sounds, voices) at half, so the drumming comes through.
+  setDuck(on) {
+    const v = on ? 0.5 : 1;
+    if (v === this.duck) return;
+    this.duck = v;
+    if (!this.ctx) return;
+    if (this.ctx.state !== 'running') { this.ducked.gain.value = v; return; }
+    this.ducked.gain.cancelScheduledValues(this.ctx.currentTime);
+    this.ducked.gain.setTargetAtTime(v, this.ctx.currentTime, 0.15);
+  }
+
+  // A drum at the bonfire: k 0 the big one (BOOM), 1 the small one (TAK). Never ducked.
+  drum(k, dist = 0) {
+    if (!this.ctx || this.muted || !this.inWorld) return;
+    const v = Math.max(0.06, 1 - dist / 45);
+    if (k === 0) {
+      this.tone({ f0: 130, f1: 48, dur: 0.38, vol: 0.95 * v, out: this.drums });
+      this.noise({ dur: 0.06, vol: 0.25 * v, f0: 900, f1: 200, q: 1, out: this.drums });
+    } else {
+      this.tone({ f0: 330, f1: 210, dur: 0.16, vol: 0.55 * v, out: this.drums });
+      this.noise({ dur: 0.04, vol: 0.3 * v, f0: 3200, type: 'highpass', out: this.drums });
+    }
   }
 
   // Music from the moment the page opens, lobby included. The sound is set up right away; browsers
@@ -60,12 +86,20 @@ export class Sound {
     this.master = ctx.createGain();
     this.master.gain.value = this.muted ? 0 : 0.8 * this.vol.master;
     this.master.connect(ctx.destination);
+    // everything but the drums people play goes through `ducked`, which drops to half by the drums
+    // (setDuck), so you hear yourself play
+    this.ducked = ctx.createGain();
+    this.ducked.gain.value = this.duck;
+    this.ducked.connect(this.master);
     this.sfx = ctx.createGain();
     this.sfx.gain.value = this.vol.sfx;
-    this.sfx.connect(this.master);
+    this.sfx.connect(this.ducked);
     this.music = ctx.createGain();
     this.music.gain.value = this.musicOn ? 0.32 * this.vol.music : 0;
-    this.music.connect(this.master);
+    this.music.connect(this.ducked);
+    this.drums = ctx.createGain();
+    this.drums.gain.value = this.vol.sfx;
+    this.drums.connect(this.master);
 
     const len = ctx.sampleRate * 2;
     this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -350,7 +384,7 @@ export class Sound {
     u.pitch = pitch;
     u.rate = 0.85;
     // speech skips the WebAudio graph, so it takes the volume sliders directly
-    u.volume = Math.max(0.2, 1 - dist / 40) * this.vol.voice * this.vol.master;
+    u.volume = Math.max(0.2, 1 - dist / 40) * this.vol.voice * this.vol.master * this.duck;
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
   }

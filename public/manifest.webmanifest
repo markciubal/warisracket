@@ -3,7 +3,7 @@
   "short_name": "War is Racket",
   "description": "Throw spear. Bonk friend. Ooga booga.",
   "start_url": "/",
-  "display": "fullscreen",
+  "display": "standalone",
   "orientation": "landscape",
   "background_color": "#140f1f",
   "theme_color": "#140f1f",
@@ -31,9 +31,5 @@
     }
   ],
   "id": "/",
-  "scope": "/",
-  "display_override": [
-    "fullscreen",
-    "standalone"
-  ]
+  "scope": "/"
 }

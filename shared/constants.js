@@ -60,8 +60,8 @@ export const RANGED = {
 // The range shed's rack (Ploughshares): every age's ranged weapon, and the ones you only get there.
 export const PRACTICE_WEAPONS = ['spear', 'bow', 'longbow', 'musket', 'gun', 'laser', 'slingshot', 'crossbow', 'tomato', 'bazooka'];
 
-// ---------------------------------------------------------------- Do Time eras
-// In Do Time mode a round walks through these in order; Forever Stone stays in the first.
+// ---------------------------------------------------------------- War mode eras
+// In War mode a round walks through these in order; Forever Stone stays in the first.
 // regear: when it begins, a new melee weapon from the era's pool lands at every caveman's feet
 // (they keep their own unless they take it; bots just swap).
 // After the last one a random natural disaster (DISASTERS below) ends the round.
@@ -113,7 +113,7 @@ export const DOTIME = {
   armorLife: 60,
 };
 
-export const MODES = { dotime: 'DO TIME', plough: 'PEACE MODE', classic: 'FOREVER STONE', coop: 'TRIBE VS BOTS' };
+export const MODES = { dotime: 'WAR MODE', plough: 'PEACE MODE', classic: 'FOREVER STONE', coop: 'TRIBE VS BOTS' };
 
 // Peace mode (the 'plough' mode: swords into ploughshares): no war at all. Every round starts in
 // peace: weapons are hoes, nobody can die, and the tribe farms (plant, harvest into a shared food
@@ -151,6 +151,9 @@ export const PEACE = {
   // Hunger: life runs down a point this often (never below 1). When it's about to run down to 1,
   // or anything else has knocked you down to 1, a stranger turns up with food (STRANGER).
   hungerEvery: 1.5,
+  // Nobody dies in peace, but a monster, a sky rock or the volcano can knock you out: you sleep
+  // where you fell, and get up there, good as new, this many seconds later.
+  sleep: 10,
 };
 
 // Kind strangers of the peace: one walks over from somewhere nearby, hands the hungry caveman
@@ -172,41 +175,95 @@ export const STRANGER = {
 //   duel:   a ring where you can bonk each other (pick any weapon off the rack, DUEL_WEAPONS), but
 //           nobody goes below 1 HP; knocking someone down to 1 wins the bout.
 //   tailor: E to buy hats and capes (CLOTHES).
-//   haunt:  a spooky hollow where monsters (BEASTS with monster: true) roam and never leave. Your
-//           hoe is a torch in there; each one slain pays `reward` shells, and another comes
-//           `respawn` seconds later, up to `monsters` at once.
+//   haunt:  the DARK FOREST, one a round: rings of `ring` across, `startRings` to begin with,
+//           spreading a ring every `spreadEvery` seconds as far as the planet allows (more after
+//           each growth spurt). Monsters (BEASTS with monster: true) live in it, each kind in its
+//           own ring, the worst at the heart (FOREST_TIERS). Your hoe is a torch in there; a slain
+//           monster pays its ring's reward, and another comes `respawn` seconds later. Round its
+//           edge, `penumbra` wide, is the PENUMBRA: E there to pick a melee weapon (any on the
+//           duel ring's rack) and a ranged one (any in a range shed) to take in, and keep.
 //   pond:   fishing. The water (r) is solid; stand on the bank (zone) and E casts. A fish bites
-//           some time in `wait` seconds later: E within `window` seconds reels it in (FISH), too
-//           soon scares it off, too late and it gets away.
+//           some time in `wait` seconds later: E within `window` seconds hooks it (FISH), too
+//           soon scares it off, too late and it gets away. Then it has to be reeled in, tap after
+//           tap, each kind its own way (REELS); `giveUp` seconds and it's off.
 //   spring: a hot spring to soak in: `heal` life every `every` seconds while you stand in it.
 //   bonfire: a dance circle round a big fire (r is the fire). E dances (moving stops); each
 //           dancer earns a shell every `every` seconds alone, quicker the more dance together
-//           (divided by the dancers, up to `crowd` of them).
+//           (divided by the dancers, up to `crowd` of them). Two drums stand round the edge (at
+//           angles `drums` round from its front, `drumAt` in from the edge): E within `drumReach`
+//           of one plays them (a big BOOM and a small TAK), and drummers earn like dancers.
 export const SHOPS = {
   doctor:  { name: 'DOCTOR',       r: 1.7, zone: 3.6, fee: 1 },
   range:   { name: 'TARGET RANGE', r: 1.0, zone: 3.2, targets: 3, downrange: 9, spread: 2.6, targetR: 0.75, targetH: 1.35, payGap: 1 },
   duel:    { name: 'DUEL RING',    r: 0,   zone: 5.5, win: 3 },
   tailor:  { name: 'TAILOR',       r: 1.7, zone: 3.6 },
-  haunt:   { name: 'HAUNTED HOLLOW', r: 0, zone: 7, monsters: 3, respawn: 10, reward: 2 },
-  pond:    { name: 'FISHING POND', r: 2.3, zone: 4.2, wait: [2.5, 7], window: 1.1 },
+  haunt:   { name: 'DARK FOREST',  r: 0, zone: 8, ring: 4, startRings: 2, spreadEvery: 60, respawn: 8, penumbra: 3.5 },
+  pond:    { name: 'FISHING POND', r: 2.3, zone: 4.2, wait: [2.5, 7], window: 1.1, giveUp: 30 },
   spring:  { name: 'HOT SPRING',   r: 0,   zone: 3.0, heal: 3, every: 1 },
-  bonfire: { name: 'BONFIRE',      r: 0.9, zone: 4.6, every: 8, crowd: 5 },
+  bonfire: { name: 'BONFIRE',      r: 0.9, zone: 4.6, every: 8, crowd: 5, drums: [1.2, 4.3], drumAt: 1.1, drumReach: 1.9 },
 };
-// Shops whose zone is ground you walk on (a ring, a hollow, a bank, a pool, a dance circle):
+// Shops whose zone is ground you walk on (a ring, a forest, a bank, a pool, a dance circle):
 // nothing gets planted or built on it.
 export const AREA_SHOPS = new Set(['duel', 'haunt', 'pond', 'spring', 'bonfire']);
 // [kind, seconds after the planet has finished growing]: the whole town, all at once
-export const SHOP_OPENINGS = [['doctor', 0], ['range', 0.5], ['duel', 1], ['tailor', 1.5], ['haunt', 2], ['pond', 2.5], ['spring', 3], ['bonfire', 3.5], ['range', 6], ['pond', 9]];
-// ...and after each later growth spurt, on the new ground
-export const EXPANSION_OPENINGS = [['haunt', 3], ['doctor', 9], ['bonfire', 14], ['spring', 20]];
+// (the forest first, to claim room for all it'll spread to)
+export const SHOP_OPENINGS = [['haunt', 0], ['doctor', 0.3], ['range', 0.6], ['duel', 1], ['tailor', 1.5], ['pond', 2], ['spring', 2.5], ['bonfire', 3], ['range', 6], ['pond', 9]];
+// ...and after each later growth spurt, on the new ground (the forest just spreads further)
+export const EXPANSION_OPENINGS = [['pond', 3], ['doctor', 9], ['bonfire', 14], ['spring', 20]];
+// The dark forest's rings, from the edge in: who lives in each (so many at once) and what each
+// one slain pays. The heart is the deepest ring it has spread to so far: as it spreads, the
+// skeletons move out to the new edge and something worse moves into the middle.
+export const FOREST_TIERS = [
+  { name: 'SKELETONS AND ZOMBIES', kinds: ['skeleton', 'zombie'], count: 4, reward: 2 },
+  { name: 'GHOSTS AND BATS', kinds: ['ghost', 'bat'], count: 3, reward: 3 },
+  { name: 'VAMPIRES AND SLEEP DEMONS', kinds: ['vampire', 'demon'], count: 3, reward: 5 },
+  { name: 'WEREWOLVES', kinds: ['werewolf'], count: 1, reward: 10 },
+];
+// Motes: what a slain forest monster sometimes leaves behind, a glowing wisp to walk into.
+// chance: of one, by the monster's ring (edge .. heart); gold: of those, how many are gold.
+// Offensive (side 'off') and defensive ('def') ones give a buff for a while (buff: a SHROOMS
+// buff, the same as the mushrooms'); gold ones are kept for good (perm: how much each one adds,
+// up to `max` of them) for as long as you're on the rock, and count in peace mode. life: seconds
+// one lies there before it fades. reach: how close to walk to take it.
+export const MOTES = {
+  chance: [0.35, 0.5, 0.7, 1],
+  gold: [0.04, 0.06, 0.12, 0.3],
+  life: 30,
+  reach: 1.3,
+  kinds: {
+    fury:  { name: 'FURY MOTE',  side: 'off', color: '#ff4a3a', buff: 'strong', secs: 20 },
+    swift: { name: 'SWIFT MOTE', side: 'off', color: '#ff9a2a', buff: 'quick', secs: 20 },
+    ward:  { name: 'WARD MOTE',  side: 'def', color: '#4aa8ff', buff: 'tough', secs: 20 },
+    mend:  { name: 'MEND MOTE',  side: 'def', color: '#5ef08a', buff: 'regrow', secs: 10 },
+    might: { name: 'GOLD MIGHT', side: 'off', color: '#ffd34d', perm: 0.06, max: 5, desc: 'HIT 6% HARDER, FOR GOOD' },
+    hide:  { name: 'GOLD HIDE',  side: 'def', color: '#ffe9a8', perm: 0.06, max: 5, desc: 'TAKE 6% LESS, FOR GOOD' },
+  },
+};
+
 // What bites at the pond. w: how often (out of all of them). shells: what it's worth. food: what
-// it adds to the tribe's store.
+// it adds to the tribe's store. reel: how it has to be reeled in (REELS), and how: what the
+// screen says about it once it's hooked.
 export const FISH = {
-  minnow: { name: 'MINNOW',      w: 44, shells: 1,  food: 1 },
-  trout:  { name: 'TROUT',       w: 30, shells: 2,  food: 2 },
-  pike:   { name: 'BIG PIKE',    w: 16, shells: 3,  food: 4 },
-  golden: { name: 'GOLDEN FISH', w: 6,  shells: 10, food: 0 },
-  boot:   { name: 'OLD BOOT',    w: 4,  shells: 0,  food: 0 },
+  minnow: { name: 'MINNOW',      w: 40, shells: 1,  food: 1, reel: 'quick',   how: 'A TIDDLER! A FEW TAPS' },
+  trout:  { name: 'TROUT',       w: 28, shells: 2,  food: 2, reel: 'steady',  how: 'STEADY TAPS. NOT TOO FAST!' },
+  pike:   { name: 'BIG PIKE',    w: 16, shells: 3,  food: 4, reel: 'fighter', how: 'A FIGHTER! REEL WHEN IT TIRES, WAIT WHEN IT PULLS' },
+  golden: { name: 'GOLDEN FISH', w: 6,  shells: 10, food: 0, reel: 'frenzy',  how: 'IT WANTS AWAY! MASH AS FAST AS YOU CAN' },
+  boot:   { name: 'OLD BOOT',    w: 10, shells: 0,  food: 0, reel: 'heavy',   how: 'HEAVY. KEEP TAPPING' },
+};
+// Reeling in, once a fish is hooked: E (REEL on a phone), tap after tap. The line starts `start` of
+// the way in. gain: how far in a good tap brings it. slip: how far it swims back out a second (all
+// the way out: it got away). steady: taps closer than `fast` seconds are too fast, and do nothing.
+// fighter: it pulls for `pull` seconds, then tires for `rest`, over and over; a tap while it pulls
+// strains the line (`strain` a tap, easing off `ease` a second; all the way: it snaps), and it
+// swims back `pullSlip` a second. minMs: the quickest it can honestly be done (the server checks).
+// botFail: how often a bot loses one.
+export const REELS = {
+  start: 0.15,
+  quick:   { gain: 0.25, slip: 0,    minMs: 300,  botFail: 0 },
+  steady:  { gain: 0.1,  slip: 0.06, fast: 0.16, minMs: 1300, botFail: 0.2 },
+  fighter: { gain: 0.06, slip: 0.02, pull: [1.2, 2.2], rest: [0.9, 1.5], strain: 0.34, ease: 0.5, pullSlip: 0.1, minMs: 1800, botFail: 0.35 },
+  frenzy:  { gain: 0.07, slip: 0.35, minMs: 1000, botFail: 0.5 },
+  heavy:   { gain: 0.07, slip: 0,    minMs: 1000, botFail: 0 },
 };
 export function pickFish() {
   let r = Math.random() * Object.values(FISH).reduce((n, f) => n + f.w, 0);
@@ -680,15 +737,39 @@ export const BEASTS = {
     verb: 'EAT', desc: 'RARE! CHOMP. ROAR MAKE EVERYBODY FREEZE.',
     chomp: { range: 5.4, dmg: 72, kb: 16, cd: 1.7, arc: 80 }, roar: { range: 15, stun: 1.1, cd: 9 },
   },
-  // The monsters of a haunted hollow (Ploughshares): nobody's, they never leave their hollow, and
-  // they go for whoever comes in. swipe: their one attack.
+  // The monsters of the dark forest (peace mode): nobody's, each keeps to its ring of the forest
+  // (FOREST_TIERS), and they go for whoever comes in. swipe: their attack (slow: seconds it slows
+  // you; drain: it gets the life back). A werewolf also pounces; a vampire blinks behind you; a
+  // sleep demon's long arms reach a long way, and its grab freezes you stiff (stun).
+  skeleton: {
+    name: 'Skeleton', icon: '💀', rank: 0, hp: 90, radius: 0.6, height: 2.1, speed: 6.5, sense: 10, monster: true,
+    verb: 'RATTLE', desc: 'CLACK CLACK.', swipe: { range: 2.2, dmg: 16, kb: 7, cd: 1.1 },
+  },
+  zombie: {
+    name: 'Zombie', icon: '🧟', rank: 0, hp: 140, radius: 0.65, height: 2.1, speed: 3.2, sense: 9, monster: true,
+    verb: 'GNAW', desc: 'SLOW. HUNGRY. BITE MAKE YOU SLOW TOO.', swipe: { range: 2.0, dmg: 14, slow: 2.5, kb: 3, cd: 1.6 },
+  },
   ghost: {
     name: 'Ghost', icon: '👻', rank: 0, hp: 60, radius: 0.7, height: 2.3, speed: 5.5, sense: 10, monster: true,
     verb: 'SPOOK', desc: 'BOO.', swipe: { range: 2.0, dmg: 12, stun: 0.5, kb: 5, cd: 1.4 },
   },
-  skeleton: {
-    name: 'Skeleton', icon: '💀', rank: 0, hp: 90, radius: 0.6, height: 2.1, speed: 6.5, sense: 10, monster: true,
-    verb: 'RATTLE', desc: 'CLACK CLACK.', swipe: { range: 2.2, dmg: 16, kb: 7, cd: 1.1 },
+  bat: {
+    name: 'Bat', icon: '🦇', rank: 0, hp: 28, radius: 0.45, height: 2.6, speed: 10, sense: 12, monster: true,
+    verb: 'NIP', desc: 'SMALL. FAST. NIP NIP NIP.', swipe: { range: 1.8, dmg: 6, kb: 2, cd: 0.6 },
+  },
+  vampire: {
+    name: 'Vampire', icon: '🧛', rank: 0, hp: 160, radius: 0.6, height: 2.3, speed: 7.5, sense: 13, monster: true,
+    verb: 'BITE', desc: 'DRINK YOUR LIFE. POP UP BEHIND YOU.', swipe: { range: 2.2, dmg: 22, kb: 6, cd: 1.2, drain: true },
+    blink: { range: 12, cd: 7 },
+  },
+  demon: {
+    name: 'Sleep Demon', icon: '👤', rank: 0, hp: 170, radius: 0.6, height: 3.6, speed: 5.5, sense: 14, monster: true,
+    verb: 'GRAB', desc: 'TALL. BLACK. BIG SILLY EYES. ONE GRAB AND YOU CAN NOT MOVE.', swipe: { range: 3.0, dmg: 16, stun: 1.2, kb: 1, cd: 1.8 },
+  },
+  werewolf: {
+    name: 'Werewolf', icon: '🐺', rank: 0, hp: 260, radius: 0.9, height: 2.8, speed: 9.5, sense: 15, monster: true,
+    verb: 'MAUL', desc: 'BIG. FAST. LEAP FROM FAR.', swipe: { range: 2.6, dmg: 26, kb: 9, cd: 1.0 },
+    pounce: { range: 8, dmg: 32, stun: 0.5, kb: 12, cd: 3.5 },
   },
 };
 export const MONSTERS = Object.keys(BEASTS).filter(k => BEASTS[k].monster);

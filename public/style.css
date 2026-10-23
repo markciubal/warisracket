@@ -325,6 +325,8 @@ button:disabled { filter: grayscale(0.8) brightness(0.8); cursor: wait; }
   transition: transform 0.25s, background 0.25s;
 }
 #crosshair.hit { animation: hitmark 0.3s; }
+/* a straight shot can't get there from the hand (the planet's curve, a tree): red */
+#crosshair.blocked { background: #ff5a36; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5), 0 0 6px #ff5a36; }
 @keyframes hitmark { 0% { transform: scale(2.6); background: #ff5a36; } }
 
 #center-msg {
@@ -356,6 +358,7 @@ button:disabled { filter: grayscale(0.8) brightness(0.8); cursor: wait; }
   text-align: center;
   white-space: nowrap;
 }
+body:not(.touch) #prompt { bottom: calc(112px + var(--notes, 0) * 24px); }   /* (above the practice note) */
 #prompt .key {
   display: inline-block;
   padding: 0 8px;
@@ -504,7 +507,7 @@ body.details #wc-stats { display: grid; grid-template-columns: 74px 1fr 38px; ga
 #scoreboard .hint { margin-top: 10px; text-align: center; font-size: 12px; color: #2b241d; }
 
 /* ---------------------------------------------------------------- round end & council */
-#roundend, #council, #settings, #tailor, #rack, #shed {
+#roundend, #council, #settings, #tailor, #rack, #shed, #gear {
   position: fixed;
   inset: 0;
   display: flex;
@@ -514,7 +517,29 @@ body.details #wc-stats { display: grid; grid-template-columns: 74px 1fr 38px; ga
   background: radial-gradient(ellipse at center, rgba(20, 12, 30, 0.25), rgba(10, 6, 18, 0.7));
 }
 #roundend { z-index: 15; pointer-events: none; }
-#council, #tailor, #rack, #shed { z-index: 22; }
+#council, #tailor, #rack, #shed, #gear { z-index: 22; }
+/* the penumbra's gear screen: the look on the left, the numbers on the right, the picks below */
+#gear .tablet { width: min(720px, 100%); }
+.gear-top { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; }
+#gear-view { position: relative; flex: 1 1 300px; min-height: 210px; background: radial-gradient(ellipse at 50% 30%, #4a3f5c, #1e1726); border: 3px solid #4a2408; border-radius: 12px; overflow: hidden; }
+#gear-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#gear-floats { position: absolute; inset: 0; pointer-events: none; }
+.gear-float { position: absolute; transform: translate(-50%, -50%); font-size: 22px; color: #ffdf6b; text-shadow: 0 2px 0 #000, 0 0 6px rgba(0, 0, 0, 0.6); animation: gearFloat 0.9s ease-out forwards; }
+.gear-float.crit { color: #ff5a36; font-size: 28px; }
+@keyframes gearFloat { from { opacity: 1; margin-top: 0; } to { opacity: 0; margin-top: -46px; } }
+#gear-doing { position: absolute; left: 8px; right: 8px; bottom: 6px; font-size: 11px; color: #f3e7c8; text-shadow: 0 1px 0 #000; text-align: center; }
+.gear-stats { flex: 1 1 220px; display: grid; gap: 8px; font-size: 12px; }
+.gear-stats b { display: block; font-weight: 400; font-size: 15px; color: #f7d58b; text-shadow: 0 2px 0 #3a1f08; }
+.gear-stats table { width: 100%; border-collapse: collapse; }
+.gear-stats td { padding: 1px 4px; color: #2b241d; }
+.gear-stats td:last-child { text-align: right; color: #2a1608; }
+.gear-stats .special { color: #7a1408; font-size: 11px; }
+.gear-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 5px; margin-bottom: 6px; }
+.gear-list button { font-size: 12px; padding: 4px 6px; background: linear-gradient(#e9dcbc, #c9b48c); }
+.gear-list button.on { background: linear-gradient(#ffc061, #ff8a1f); }
+.gear-list button.only { box-shadow: inset 0 0 0 2px #7dff6a, 0 3px 0 #4a2408; }
+.gear-buttons { margin-top: 10px; gap: 8px; }
+.gear-buttons button { flex: 1; }
 
 /* ---------------------------------------------------------------- panels (council, settings) */
 /* title (with its ✕) and the bottom buttons stay put; only the middle scrolls on short screens */
@@ -715,6 +740,17 @@ body:not(.peace) #purse { display: none; }
 .rack-item.only { background: linear-gradient(#9fd86a, #5f9a32); }
 .rack-item.stop { background: linear-gradient(#e8dcc0, #b9a888); }
 /* while you've got a practice weapon: take it back to the shed to stop */
+/* reeling a fish in */
+#reel { position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%); width: min(320px, 80vw); padding: 8px 12px 6px; text-align: center; pointer-events: none; }
+#reel-name { font-family: var(--font-carve); font-size: 20px; color: #f7d58b; text-shadow: 0 2px 0 #3a1f08; }
+#reel-how { font-size: 11px; color: #2b241d; margin: 2px 0 6px; }
+.reel-bar { height: 12px; margin: 4px 0; background: #2a1d12; border: 2px solid #1b130c; border-radius: 7px; overflow: hidden; }
+.reel-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #4fb3ff, #9fe0ff); }
+.reel-bar.strain i { background: linear-gradient(90deg, #ffb347, #ff3d1f); }
+#reel-state { font-size: 15px; color: #2a1608; }
+#reel-state.bad { color: #a8201a; }
+#reel-time { font-size: 12px; color: #3a2d20; letter-spacing: 0.08em; }
+body.touch #reel { bottom: auto; top: calc(120px + var(--st)); }
 #practice-note { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); padding: 4px 12px 2px; font-size: 13px; color: #ffe9a8; background: rgba(20, 12, 6, 0.62); border: 2px solid rgba(255, 211, 77, 0.5); border-radius: 10px; text-shadow: 0 1px 0 #000; white-space: pre; text-align: center; pointer-events: none; }   /* (one line each: a practice weapon, a kept duel weapon) */
 body.touch #practice-note { top: calc(84px + var(--st)); bottom: auto; font-size: 11px; }
 /* the range shed's own ammo: stones, tomatoes, rockets */
@@ -836,6 +872,11 @@ body.touch #chat-form { position: fixed; top: calc(84px + var(--st)); left: 50%;
   cursor: pointer;
 }
 
+/* waking up: two eyelids, a little curved, that open (hud.wake moves them) */
+#wake { position: fixed; inset: 0; z-index: 9; pointer-events: none; overflow: hidden; }
+#wake i { position: absolute; left: -10%; width: 120%; height: 56%; background: #07040b; box-shadow: 0 0 40px 30px #07040b; }
+#wake-top { top: 0; border-radius: 0 0 50% 50% / 0 0 22% 22%; }
+#wake-bottom { bottom: 0; border-radius: 50% 50% 0 0 / 22% 22% 0 0; }
 #death {
   position: fixed;
   inset: 0;
