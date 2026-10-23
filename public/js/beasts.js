@@ -432,7 +432,8 @@ const TEAM_COLOR = { mine: '#ffd34d', ally: '#8dff9a', foe: '#ff8a7a' };
 
 export class Beast {
   // look: which dog (BEASTS.dog.looks), for the dog
-  constructor(kind, { label, team = 'foe', look = null }) {
+  // maxHp: its most life (the dark forest's monsters have more, or less, than def.hp: MONSTERS)
+  constructor(kind, { label, team = 'foe', look = null, maxHp = null }) {
     this.kind = kind;
     this.def = BEASTS[kind];
     Object.assign(this, BUILD[kind](look));
@@ -448,7 +449,8 @@ export class Beast {
     this.spawnT = 0;
     this.label = label;
     this.team = team;
-    this.hp = this.def.hp;
+    this.maxHp = maxHp || this.def.hp;
+    this.hp = this.maxHp;
 
     this.tagCanvas = document.createElement('canvas');
     this.tagCanvas.width = 320;
@@ -475,7 +477,7 @@ export class Beast {
     const label = `${this.def.icon} ${this.label}`.toUpperCase();
     g.strokeText(label, 160, 32, 310);
     g.fillText(label, 160, 32, 310);
-    const frac = Math.max(0, this.hp) / this.def.hp;
+    const frac = Math.min(1, Math.max(0, this.hp) / this.maxHp);
     g.fillStyle = 'rgba(20,12,6,0.85)';
     g.fillRect(30, 46, 260, 20);
     g.fillStyle = frac > 0.5 ? '#ffb52e' : frac > 0.25 ? '#ff7a2a' : '#ff3d1f';

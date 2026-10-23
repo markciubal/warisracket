@@ -23,8 +23,8 @@ const ERA_SECONDS = Math.max(10, Number(arg('era-seconds') ?? process.env.ERA_SE
 const PEACE_SECONDS = Math.max(20, Number(arg('peace-seconds') ?? process.env.PEACE_SECONDS) || C.PEACE.seconds);
 // what every new rock starts with, until its chief changes it
 const START_RULES = cleanRules(
-  { mode: arg('mode') ?? process.env.MODE, botLevel: arg('bot-level') ?? process.env.BOT_LEVEL, bots: arg('bots') ?? process.env.BOTS },
-  { mode: 'dotime', botLevel: C.BOT_LEVEL_DEFAULT, bots: 4, open: 0 },
+  { mode: arg('mode') ?? process.env.MODE, botLevel: arg('bot-level') ?? process.env.BOT_LEVEL, bots: arg('bots') ?? process.env.BOTS, monsters: arg('monsters') ?? process.env.MONSTERS },
+  { mode: 'dotime', botLevel: C.BOT_LEVEL_DEFAULT, bots: 4, monsters: C.MONSTER_LEVEL_DEFAULT, open: 0 },
 );
 const HEARTBEAT_MS = 20000;   // below Heroku's 55 s idle cutoff; also reaps half-open sockets
 const MSG_RATE = 60;          // messages/second refilled per socket (a client sends ~25)

@@ -7,7 +7,7 @@ import * as C from '../shared/constants.js';
 console.log = () => {};   // (room.js tells the server's log about every join and age; nobody's reading here)
 
 const ROOM = 'OFFLINE';
-const START = { mode: 'dotime', botLevel: C.BOT_LEVEL_DEFAULT, bots: 4 };
+const START = { mode: 'dotime', botLevel: C.BOT_LEVEL_DEFAULT, bots: 4, monsters: C.MONSTER_LEVEL_DEFAULT };
 const client = { ws: { readyState: 1, send: data => postMessage(data) }, pid: 0 };
 let room = null;
 

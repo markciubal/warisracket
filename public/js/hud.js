@@ -1,5 +1,6 @@
-import { TIER_COLORS, PLAYER, ARMORS, ERAS, MODES, DISASTERS, SHROOMS, BUILDS, CLOTHES, DUEL_WEAPONS, duelWeapon, RANGED, PRACTICE_WEAPONS, MOTES } from '/shared/constants.js';
+import { TIER_COLORS, PLAYER, ARMORS, ERAS, MODES, DISASTERS, SHROOMS, BUILDS, CLOTHES, DUEL_WEAPONS, duelWeapon, RANGED, PRACTICE_WEAPONS, MOTES, SHOPS } from '/shared/constants.js';
 import * as M from '/shared/math.js';
+import * as F from '/shared/forest.js';
 
 const $ = id => document.getElementById(id);
 export const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -351,13 +352,12 @@ export class Hud {
 
   // buffs: [{ kind, left }] from magic mushrooms (and motes), shown with their seconds left.
   // perm: gold motes kept ({ might, hide }), in peace mode
-  setStatus({ stun, slow, bleed, limp, hungry, buffs = [], perm = null }) {
-    const key = `${stun ? 1 : 0}${slow ? 1 : 0}${bleed ? 1 : 0}${limp ? 1 : 0}${hungry ? 1 : 0}${buffs.map(b => b.kind + b.left).join()}${perm ? `${perm.might}${perm.hide}` : ''}`;
+  setStatus({ stun, slow, bleed, limp, buffs = [], perm = null }) {
+    const key = `${stun ? 1 : 0}${slow ? 1 : 0}${bleed ? 1 : 0}${limp ? 1 : 0}${buffs.map(b => b.kind + b.left).join()}${perm ? `${perm.might}${perm.hide}` : ''}`;
     if (key === this.lastStatus) return;
     this.lastStatus = key;
     this.statusEl.innerHTML = [
       limp && '<span class="status bleed">LIMPING · SEE DOCTOR</span>',
-      hungry && '<span class="status slow">HUNGRY</span>',
       stun && '<span class="status stun">STUNNED</span>',
       slow && '<span class="status slow">SLOWED</span>',
       bleed && '<span class="status bleed">BLEEDING</span>',
@@ -430,37 +430,61 @@ export class Hud {
       `<div class="${p.id === myId ? 'me' : ''}"><span>${esc(p.name)}</span><span>${p.k}</span></div>`).join('');
   }
 
+  // The forests round p, north up, into this.forestMap: a cell at a time, the shade of the ring it's
+  // in (deeper, darker), and the penumbra faintly.
+  drawForests(p, forests, range, S, rad) {
+    const north = Math.abs(p[1]) > 0.98 ? M.tangent(p, [1, 0, 0]) : M.tangent(p, [0, 1, 0]);
+    const east = M.cross(north, p);
+    this.forestFrame = { north, east };
+    const c = (this.forestMap ||= document.createElement('canvas'));
+    c.width = c.height = S;
+    const g = c.getContext('2d'), cx = S / 2, cell = 5;
+    const shades = ['rgba(70, 40, 110, 0.45)', 'rgba(54, 28, 90, 0.58)', 'rgba(40, 18, 70, 0.7)', 'rgba(28, 8, 52, 0.8)'];
+    for (let y = 0; y < S; y += cell) {
+      for (let x = 0; x < S; x += cell) {
+        const dx = x + cell / 2 - cx, dy = y + cell / 2 - cx, r = Math.hypot(dx, dy);
+        if (r > rad + cell) continue;
+        const dir = M.norm(M.add(M.scale(east, dx), M.scale(north, -dy)));
+        const q = M.moveOnSphere(p, dir, dir, (r / rad) * range)[0];
+        for (const s of forests) {
+          const out = F.outside(s, q);
+          if (out > SHOPS.haunt.penumbra) continue;
+          g.fillStyle = out > 0 ? 'rgba(60, 48, 84, 0.28)' : shades[Math.min(3, Math.max(0, F.tierAt(s, q)))];
+          g.fillRect(x, y, cell, cell);
+          break;
+        }
+      }
+    }
+  }
+
   // items: { p: unit vec, color, kind: 'player'|'boulder'|'pickup'|'volcano'|'danger'|'armor' }
-  // areas: places that are ground (the dark forest): { p: its middle, r: how far it reaches, rings }
-  radar(me, items, areas = [], range = 42) {
+  // forests: the dark forest (its shop: its own shape, shared/forest.js)
+  radar(me, items, forests = [], range = 42) {
     const g = this.radarCtx, S = 180, cx = S / 2, rad = S / 2 - 8;
     g.clearRect(0, 0, S, S);
     g.strokeStyle = 'rgba(255,240,200,0.18)';
     g.lineWidth = 1;
     for (const k of [0.33, 0.66, 1]) { g.beginPath(); g.arc(cx, cx, rad * k, 0, Math.PI * 2); g.stroke(); }
     const right = M.cross(me.f, me.p);
-    // the dark forest: a dark patch, darker ring by ring toward its heart (kept inside the radar:
-    // past its edge only the near side shows)
-    g.save();
-    g.beginPath();
-    g.arc(cx, cx, rad, 0, Math.PI * 2);
-    g.clip();
-    for (const a of areas) {
-      const d = M.arcDist(me.p, a.p);
-      const dir = d < 0.01 ? me.f : M.towardDir(me.p, a.p);
-      const x = cx + M.dot(dir, right) * (d / range) * rad;
-      const y = cx - M.dot(dir, me.f) * (d / range) * rad;
-      for (let i = 0; i < a.rings; i++) {
-        g.beginPath();
-        g.arc(x, y, ((a.r * (a.rings - i)) / a.rings / range) * rad, 0, Math.PI * 2);
-        g.fillStyle = i ? 'rgba(30, 10, 50, 0.3)' : 'rgba(70, 40, 110, 0.45)';
-        g.fill();
-        g.strokeStyle = 'rgba(190, 150, 255, 0.6)';
-        g.lineWidth = 1;
-        g.stroke();
+    // the dark forest: its own shape, darker ring by ring toward its heart, and the gloom round it.
+    // Worked out on a grid a couple of times a second (or when I've moved), north up, then turned
+    // every frame to the way I'm facing.
+    if (forests.length) {
+      const now = performance.now(), key = forests.map(s => `${s.id}:${s.rings}`).join() + range;
+      if (!this.forestMap || key !== this.forestKey || now - this.forestAt > 400 || M.arcDist(me.p, this.forestFrom) > 1.5) {
+        this.drawForests(me.p, forests, range, S, rad);
+        Object.assign(this, { forestKey: key, forestAt: now, forestFrom: me.p });
       }
+      const { north, east } = this.forestFrame;
+      g.save();
+      g.beginPath();
+      g.arc(cx, cx, rad, 0, Math.PI * 2);
+      g.clip();
+      g.translate(cx, cx);
+      g.rotate(-Math.atan2(M.dot(me.f, east), M.dot(me.f, north)));
+      g.drawImage(this.forestMap, -cx, -cx);
+      g.restore();
     }
-    g.restore();
     for (const it of items) {
       const d = M.arcDist(me.p, it.p);
       if (d < 0.01) continue;

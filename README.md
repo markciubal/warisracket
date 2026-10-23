@@ -127,6 +127,7 @@ Settings (optional), e.g. `heroku config:set BOT_LEVEL=7 ERA_SECONDS=120`:
 | `ERA_SECONDS` | `--era-seconds` | 45 | Length of each War mode age |
 | `PEACE_SECONDS` | `--peace-seconds` | 180 | Peace mode: time before each vote to keep going |
 | `BOT_LEVEL` | `--bot-level` | 1 | Bot brains, 1–10: 1 wanders around and lags, 5 is a fair fight, 10 barely misses |
+| `MONSTERS` | `--monsters` | 3 | Peace mode: how hard the Dark Forest's monsters are, 0–5 (0 none at all, 3 as they come, 5 a nightmare) |
 | `BOTS` | `--bots` | 4 | Bots fill the planet up to this many cavemen (0–10). 0 = humans only |
 | `MAX_PLAYERS` | | 12 | Human cap on each rock. Extra visitors see "CAVE FULL" in that rock's lobby |
 | `MAX_ROOMS` | | 20 | Most rocks at once. Past that, making a new one says "TOO MANY ROCKS" |
@@ -319,8 +320,9 @@ With the default `ERA_SECONDS=45` a whole round is 4½ minutes plus the finale.
 ## Peace mode
 
 **No war at all.** Every round starts in **PEACE TIME**: weapons are hoes, **nobody gets killed**
-(knocked out, you just **go to sleep** for 10 seconds and wake up on the same spot), and the
-whole town opens up within seconds, so everything below is there to do from the start:
+(knocked out, you just **go to sleep** for 10 seconds and wake up on the same spot, or just
+outside the Dark Forest if that's where it happened), and the whole town opens up within seconds,
+so everything below is there to do from the start:
 
 - **Plant**: the attack button (left click / F, PLANT on phones) puts a seed in the ground just
   in front of you: wheat, corn or pumpkin. Crops grow (15 to 30 s) and sway when they're ripe.
@@ -339,14 +341,14 @@ whole town opens up within seconds, so everything below is there to do from the 
 As a round starts **the planet grows** (radius 30 to 40, over 5 seconds), and the town opens
 up on the new ground straight after, near wherever people are: a **doctor**, a **target range**,
 a **duel ring**, a **tailor**, a **fishing pond**, a **hot spring** and a **bonfire**, then another
-range and another pond, and somewhere out of town the **Dark Forest** takes root. Each has a
-floating sign and shows on the radar as a square (the forest as a dark green patch, its true
-size); stand in its circle to use it.
+range and another pond, and on the far side of the planet the **Dark Forest** takes root. Each
+has a floating sign and shows on the radar as a square (the forest as its own dark shape, deeper
+rings darker); stand in its circle to use it.
 
 **Every time the tribe votes to keep farming, the planet grows again**: 10 more each time (40, 50,
 60...), up to 80, with another pond, another doctor, another bonfire and another hot spring on the
-new ground, and room for the forest to spread further. The shops keep their size as it grows
-under them. A new round starts back at the usual 30.
+new ground (the forest, being half the planet, grows with it). The shops keep their size as it
+grows under them. A new round starts back at the usual 30.
 
 - **Shells** 🐚 are the money. Everyone gets 3 when a peace starts (they're shown under your
   health) and earns more: **1 for every crop you pick** (the food still goes to the tribe), 1 for
@@ -372,10 +374,15 @@ under them. A new round starts back at the usual 30.
   and out of the ring it only swings at the air (and at monsters). Bots grab whatever's on the
   rack. **Nobody goes below 1 HP in a duel**: knocking someone down to 1 wins the bout and 3
   shells, and the loser had better see the doctor.
-- **The Dark Forest**: one a round, a wood of dead trees, crooked gravestones and drifting wisps
-  that starts small (two rings across) and **grows a ring at a time** (every minute) out from the
-  same spot, as far as the planet has room for, up to four rings. The deeper you go, the worse it
-  gets, each kind of monster keeping to its own ring:
+- **The Dark Forest**: one a round, a wood of dead trees and black pines (thick in places, with
+  clearings), crooked gravestones and drifting wisps, on the **far side of the planet** from
+  everyone. Fully grown it covers **about half the planet**. Its edge wanders in and out (Perlin
+  noise, so every round's forest is a different shape) and it's pulled back from the poles, so
+  the volcano and the Businessman stay out of it. It starts half grown (two rings) and **grows a
+  ring every minute** until it has all four; its rings follow the edge's shape, wobbles and all.
+  The deeper you go, the worse it gets, each kind of monster keeping to its own ring (more of
+  them than before: it's a big forest). How hard they are is a planet rule (**MONSTERS**, under
+  Planet rules: from none at all to a nightmare); as they come, they're:
 
   | Ring | Who lives there | Each one pays |
   |---|---|---|
@@ -384,11 +391,12 @@ under them. A new round starts back at the usual 30.
   | Deeper still | **Vampires** (a bite drinks your life back into them, and they pop up behind you) and **sleep demons**: tall, black, stooped, arms down to their knees, and a pair of googly eyes rattling about in their heads. Their long arms reach a long way, and a grab **freezes you stiff** for a moment | 5 🐚 |
   | The heart | **Werewolves**: big, fast, and they leap at you from far off | 10 🐚 |
 
-  The screen says when you've gone a ring deeper (and who's in it), and the forest shows on the
-  radar as a dark patch. They never leave their ring, but they go for anyone who comes in, and
-  another comes back a while after one's slain. Inside, your hoe becomes a **torch**; practice and
-  rack weapons work on them too (a bazooka does nicely). If they knock you out, you go to sleep
-  for 10 seconds where you fell (see below).
+  The screen says when you've gone a ring deeper (and who's in it), and the radar shows the
+  forest's shape round you, darker ring by ring. They never leave their ring, but they go for
+  anyone who comes in, and another comes back a while after one's slain. Inside, your hoe becomes
+  a **torch**; practice and rack weapons work on them too (a bazooka does nicely). If they knock
+  you out, you sleep for 10 seconds and **wake up just outside the forest**, past its penumbra,
+  the nearest way out from where you fell, facing away from it.
 - **The penumbra**: the grey band right round the forest's edge. **E** there (GEAR on phones)
   opens the **gear screen**: pick a **melee weapon** (anything on the duel ring's rack) and a
   **ranged one** (anything in a range shed) to take in. It shows your own caveman holding both,
@@ -442,21 +450,21 @@ under them. A new round starts back at the usual 30.
   They hurt. Below 40 HP you **limp** (walk slower) until the doctor fixes you up.
 - **Going to sleep**: in peace, whatever knocks you out (a monster, a sky rock, a boulder, the
   volcano) only puts you to sleep. You lie where you fell for **10 seconds** (a countdown says
-  so), then wake up **on the same spot**, blinking (a quick snap, a double blink, a groggy one, a
-  flutter or a squint, never more than half a second) through your own eyes before the camera
-  draws back over your shoulder, with your gear still on you. Being knocked
-  out doesn't count as a death on the scoreboard. (A duel still stops at 1, and so does hunger.)
-- **Hunger**: in peace your life slowly runs down, a point every 1.5 seconds (**HUNGRY** under
-  your health), never below 1. But just as it's about to run down to 1, **a stranger** in a
-  hooded cloak walks over from somewhere nearby with food in hand, gives you +60 life with a kind
-  word, and wanders off again (no shells asked). The same goes for anyone a lost duel leaves at
-  1: a stranger always comes. The Businessman can't stand it.
+  so), then wake up **on the same spot** (knocked out in the Dark Forest or its penumbra: just
+  outside it), blinking (a quick snap, a double blink, a groggy one, a flutter or a squint, never
+  more than half a second) through your own eyes before the camera draws back over your shoulder,
+  with your gear still on you. Being knocked out doesn't count as a death on the scoreboard. (A
+  duel still stops at 1.) Life never runs down by itself: no hunger.
+- **The kind stranger**: lose a duel (down to 1), and **a stranger** in a hooded cloak walks over
+  from somewhere nearby with food in hand, gives you +60 life with a kind word, and wanders off
+  again (no shells asked). The Businessman can't stand it.
 
 Bots use the town too: they see the doctor when they're hurt and can pay (and soak in a hot spring
 when they can't), buy hats when they're rich, take practice weapons to the ranges, duel each other
 in the ring, go fishing (they're not always quick enough on the hook, and the fighters and golden
 fish get away from them more often than not) and dance round the bonfire, where a crowd draws a
-crowd. (They don't go looking for monsters, but one that wanders into the forest gets a fright.)
+crowd. (They don't go looking for monsters: one that wanders into the forest, or its gloom, turns
+round and walks straight back out.)
 
 ### Peace chat
 
@@ -525,6 +533,17 @@ scoreboard). The chief opens the **tribe council** with C to change:
   | 10 | Sabertooth | Almost never misses, reacts instantly, runs faster than you |
 
 - **Bot fill**: bots join until the planet has this many cavemen and leave as humans arrive.
+- **Monsters** (peace mode only): how hard the Dark Forest's monsters are. Changing it mid-game,
+  the ones in the forest fade away and new ones come along at the new level.
+
+  | Level | Name | What they're like |
+  | --- | --- | --- |
+  | OFF | None | No monsters at all: a quiet walk in the woods |
+  | 1 | Sleepy | Half as many, half the life, a soft bite, slow, and slow to notice you. Pay half (at least 1 🐚) |
+  | 2 | Spooky | A bit less of everything |
+  | 3 | Scary | As they come (the default) |
+  | 4 | Nasty | More of them, tougher, hit harder, quicker, notice you sooner. Pay half as much again |
+  | 5 | Nightmare | 1.6 times as many, over twice the life, hit nearly twice as hard. Pay double |
 
 Every rock has its own chief and rules. If nobody is playing on a rock yet, its lobby shows the
 same controls, so whoever makes the rock (or arrives first) sets the rules and becomes chief. The
@@ -707,6 +726,7 @@ shared/constants.js  Tuning: ages, ranged weapons, armor, bot levels, melee weap
 shared/math.js       Sphere-surface movement, collisions, projectile physics
 shared/chat.js       Peace mode: the chat's one-syllable rule (syllable counter), its tidying, and the examples
 shared/layout.js     Peace mode: where a shop's parts go, so the server and clients agree as the planet grows
+shared/forest.js     Peace mode: the Dark Forest's shape (seeded Perlin noise), its rings and the way out of it, the same on the server and in the browser
 public/index.html    Page shell, HUD, lobby, council and round-end markup
 public/style.css     Carved-stone UI
 public/js/main.js    Client: networking, local movement, camera, events, rules UI

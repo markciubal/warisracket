@@ -148,16 +148,15 @@ export const PEACE = {
   limp: 0.7,
   skyRockEvery: [16, 30],   // seconds between sky rocks
   skyRockWarn: 2.4,         // seconds from the warning ring to the impact
-  // Hunger: life runs down a point this often (never below 1). When it's about to run down to 1,
-  // or anything else has knocked you down to 1, a stranger turns up with food (STRANGER).
-  hungerEvery: 1.5,
   // Nobody dies in peace, but a monster, a sky rock or the volcano can knock you out: you sleep
-  // where you fell, and get up there, good as new, this many seconds later.
+  // where you fell, and get up there, good as new, this many seconds later (out of the dark
+  // forest, if that's where it happened: just past its edge, the nearest way out). Knocked down to
+  // 1 in a duel, a stranger turns up with food (STRANGER).
   sleep: 10,
 };
 
-// Kind strangers of the peace: one walks over from somewhere nearby, hands the hungry caveman
-// food (food: life back) and wanders off again. from: how far away they appear. giveUp: seconds of
+// Kind strangers of the peace: one walks over from somewhere nearby, hands the caveman a duel left
+// at 1 HP some food (food: life back) and wanders off again. from: how far away they appear. giveUp: seconds of
 // chasing someone who won't stand still before they just catch up. leave: seconds walking away.
 export const STRANGER = {
   speed: 9.5, from: [13, 18], giveUp: 25, food: 60, leave: 4,
@@ -175,13 +174,16 @@ export const STRANGER = {
 //   duel:   a ring where you can bonk each other (pick any weapon off the rack, DUEL_WEAPONS), but
 //           nobody goes below 1 HP; knocking someone down to 1 wins the bout.
 //   tailor: E to buy hats and capes (CLOTHES).
-//   haunt:  the DARK FOREST, one a round: rings of `ring` across, `startRings` to begin with,
-//           spreading a ring every `spreadEvery` seconds as far as the planet allows (more after
-//           each growth spurt). Monsters (BEASTS with monster: true) live in it, each kind in its
-//           own ring, the worst at the heart (FOREST_TIERS). Your hoe is a torch in there; a slain
-//           monster pays its ring's reward, and another comes `respawn` seconds later. Round its
-//           edge, `penumbra` wide, is the PENUMBRA: E there to pick a melee weapon (any on the
-//           duel ring's rack) and a ranged one (any in a range shed) to take in, and keep.
+//   haunt:  the DARK FOREST, one a round, on the far side of the planet from everybody. Fully
+//           grown it covers about half the planet: `reach` (an angle) out from its middle, its
+//           edge wandering in and out by `wobble` of that (Perlin noise: a new shape every round)
+//           and pulled in toward the poles by `poles` (shared/forest.js). It starts `startRings`
+//           rings deep and grows a ring every `spreadEvery` seconds to all FOREST_TIERS.length.
+//           Monsters (BEASTS with monster: true) live in it, each kind in its own ring, the worst
+//           at the heart (FOREST_TIERS). Your hoe is a torch in there; a slain monster pays its
+//           ring's reward, and another comes `respawn` seconds later. Round its edge, `penumbra`
+//           wide, is the PENUMBRA: E there to pick a melee weapon (any on the duel ring's rack)
+//           and a ranged one (any in a range shed) to take in, and keep.
 //   pond:   fishing. The water (r) is solid; stand on the bank (zone) and E casts. A fish bites
 //           some time in `wait` seconds later: E within `window` seconds hooks it (FISH), too
 //           soon scares it off, too late and it gets away. Then it has to be reeled in, tap after
@@ -197,7 +199,7 @@ export const SHOPS = {
   range:   { name: 'TARGET RANGE', r: 1.0, zone: 3.2, targets: 3, downrange: 9, spread: 2.6, targetR: 0.75, targetH: 1.35, payGap: 1 },
   duel:    { name: 'DUEL RING',    r: 0,   zone: 5.5, win: 3 },
   tailor:  { name: 'TAILOR',       r: 1.7, zone: 3.6 },
-  haunt:   { name: 'DARK FOREST',  r: 0, zone: 8, ring: 4, startRings: 2, spreadEvery: 60, respawn: 8, penumbra: 3.5 },
+  haunt:   { name: 'DARK FOREST',  r: 0, reach: 0.62 * Math.PI, wobble: 0.16, poles: 0.42, startRings: 2, spreadEvery: 60, respawn: 8, penumbra: 3.5 },
   pond:    { name: 'FISHING POND', r: 2.3, zone: 4.2, wait: [2.5, 7], window: 1.1, giveUp: 30 },
   spring:  { name: 'HOT SPRING',   r: 0,   zone: 3.0, heal: 3, every: 1 },
   bonfire: { name: 'BONFIRE',      r: 0.9, zone: 4.6, every: 8, crowd: 5, drums: [1.2, 4.3], drumAt: 1.1, drumReach: 1.9 },
@@ -206,19 +208,33 @@ export const SHOPS = {
 // nothing gets planted or built on it.
 export const AREA_SHOPS = new Set(['duel', 'haunt', 'pond', 'spring', 'bonfire']);
 // [kind, seconds after the planet has finished growing]: the whole town, all at once
-// (the forest first, to claim room for all it'll spread to)
+// (the forest first, on the far side, to claim the half of the planet it'll spread over)
 export const SHOP_OPENINGS = [['haunt', 0], ['doctor', 0.3], ['range', 0.6], ['duel', 1], ['tailor', 1.5], ['pond', 2], ['spring', 2.5], ['bonfire', 3], ['range', 6], ['pond', 9]];
 // ...and after each later growth spurt, on the new ground (the forest just spreads further)
 export const EXPANSION_OPENINGS = [['pond', 3], ['doctor', 9], ['bonfire', 14], ['spring', 20]];
-// The dark forest's rings, from the edge in: who lives in each (so many at once) and what each
-// one slain pays. The heart is the deepest ring it has spread to so far: as it spreads, the
-// skeletons move out to the new edge and something worse moves into the middle.
+// The dark forest's rings, from the edge in: who lives in each (so many at once: it's a big
+// forest) and what each one slain pays. The heart is the deepest ring it has spread to so far: as
+// it spreads, the skeletons move out to the new edge and something worse moves into the middle.
 export const FOREST_TIERS = [
-  { name: 'SKELETONS AND ZOMBIES', kinds: ['skeleton', 'zombie'], count: 4, reward: 2 },
-  { name: 'GHOSTS AND BATS', kinds: ['ghost', 'bat'], count: 3, reward: 3 },
-  { name: 'VAMPIRES AND SLEEP DEMONS', kinds: ['vampire', 'demon'], count: 3, reward: 5 },
-  { name: 'WEREWOLVES', kinds: ['werewolf'], count: 1, reward: 10 },
+  { name: 'SKELETONS AND ZOMBIES', kinds: ['skeleton', 'zombie'], count: 10, reward: 2 },
+  { name: 'GHOSTS AND BATS', kinds: ['ghost', 'bat'], count: 8, reward: 3 },
+  { name: 'VAMPIRES AND SLEEP DEMONS', kinds: ['vampire', 'demon'], count: 5, reward: 5 },
+  { name: 'WEREWOLVES', kinds: ['werewolf'], count: 2, reward: 10 },
 ];
+// How hard the dark forest's monsters are (a planet rule, for peace mode: MONSTERS), from none at
+// all to a nightmare. Each scales the monsters' numbers (count: of each ring's FOREST_TIERS.count),
+// their life, the blows they land, how fast they go and how far off they notice you (sense); and
+// what each one slain pays (pay: of its ring's reward, never under 1).
+export const MONSTER_LEVELS = [
+  { name: 'NONE', desc: 'NO MONSTERS AT ALL. A QUIET WALK IN THE WOODS.', count: 0, hp: 1, dmg: 1, speed: 1, sense: 1, pay: 1 },
+  { name: 'SLEEPY', desc: 'A FEW, SLOW AND SOFT. GOOD FOR LITTLE CAVE KIDS.', count: 0.5, hp: 0.5, dmg: 0.4, speed: 0.75, sense: 0.7, pay: 0.5 },
+  { name: 'SPOOKY', desc: 'A BIT LESS OF EVERYTHING.', count: 0.75, hp: 0.75, dmg: 0.7, speed: 0.9, sense: 0.85, pay: 0.75 },
+  { name: 'SCARY', desc: 'AS THEY COME.', count: 1, hp: 1, dmg: 1, speed: 1, sense: 1, pay: 1 },
+  { name: 'NASTY', desc: 'MORE OF THEM, TOUGHER, HIT HARDER, QUICKER. PAY MORE.', count: 1.3, hp: 1.5, dmg: 1.35, speed: 1.12, sense: 1.25, pay: 1.5 },
+  { name: 'NIGHTMARE', desc: 'RUN. (PAY DOUBLE, IF YOU LIVE.)', count: 1.6, hp: 2.2, dmg: 1.8, speed: 1.25, sense: 1.5, pay: 2 },
+];
+export const MONSTER_LEVEL_DEFAULT = 3;
+
 // Motes: what a slain forest monster sometimes leaves behind, a glowing wisp to walk into.
 // chance: of one, by the monster's ring (edge .. heart); gold: of those, how many are gold.
 // Offensive (side 'off') and defensive ('def') ones give a buff for a while (buff: a SHROOMS

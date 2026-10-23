@@ -22,6 +22,11 @@
       "value": "1",
       "required": false
     },
+    "MONSTERS": {
+      "description": "How hard the Dark Forest's monsters are in peace mode, for new rocks: 0 none at all, 1 sleepy, 2 spooky, 3 scary (as they come), 4 nasty, 5 nightmare.",
+      "value": "3",
+      "required": false
+    },
     "BOTS": {
       "description": "Bots fill each new rock up to this many cavemen (0-10, 0 = humans only).",
       "value": "4",

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as C from '/shared/constants.js';
 import * as M from '/shared/math.js';
+import * as F from '/shared/forest.js';
 import { Sky, World } from './world.js';
 import { Caveman, redrawAllTags } from './caveman.js';
 import { Effects } from './fx.js';
@@ -229,7 +230,7 @@ const state = {
   ping: 0,
   pingT: 0,
   // planet rules + War mode clock, as last told by the server
-  game: { mode: 'dotime', era: 0, phase: 'play', eraLeft: 0, eraLen: 45, endLeft: 0, eraSeconds: 45, botLevel: C.BOT_LEVEL_DEFAULT, bots: 4, open: 0, chief: 0, disaster: null, mmDead: 0,
+  game: { mode: 'dotime', era: 0, phase: 'play', eraLeft: 0, eraLen: 45, endLeft: 0, eraSeconds: 45, botLevel: C.BOT_LEVEL_DEFAULT, bots: 4, monsters: C.MONSTER_LEVEL_DEFAULT, open: 0, chief: 0, disaster: null, mmDead: 0,
     wave: 0, waveSize: 0, waveLevel: 0,   // co-op
     calm: 1, food: 0, vote: 0, yes: 0, no: 0,     // Ploughshares: peace holding this age, food store, the vote,
     radius: C.PLANET_R },                         // ...and how big the planet has grown
@@ -240,7 +241,7 @@ const state = {
   shrooms: new Map(),  // magic mushrooms on the ground
   motes: new Map(),    // motes a slain forest monster left (peace mode)
   perm: { might: 0, hide: 0 },   // gold motes I've kept
-  strangers: new Map(),   // Ploughshares: kind strangers bringing food to the hungry
+  strangers: new Map(),   // Ploughshares: kind strangers bringing food to whoever a duel left at 1
   mammonSaid: 0,       // when the Businessman last spoke (he doesn't get to talk all the time)
   talkNear: false,     // at his podium, where E talks to him
   penumbra: false,     // at the dark forest's edge, where E picks gear
@@ -477,7 +478,7 @@ function scoreRoom() {
 function requestRoom() {
   if (!state.room) return;
   const g = state.game;
-  send({ t: 'room', code: state.room, make: 1, rules: state.world ? { mode: g.mode, botLevel: g.botLevel, bots: g.bots, open: g.open } : undefined });
+  send({ t: 'room', code: state.room, make: 1, rules: state.world ? { mode: g.mode, botLevel: g.botLevel, bots: g.bots, monsters: g.monsters, open: g.open } : undefined });
 }
 
 // ---- JOIN MY ROCK: the code big, the link, and a QR code of the link (a phone camera opens it).
@@ -818,6 +819,7 @@ const handlers = {
       if (m.changed.includes('mode')) bits.push(C.MODES[m.mode]);
       if (m.changed.includes('botLevel')) bits.push(`BOT BRAINS ${m.botLevel}/10 (${C.botLevelDef(m.botLevel).name})`);
       if (m.changed.includes('bots')) bits.push(m.bots ? `BOTS FILL TO ${m.bots}` : 'NO BOTS');
+      if (m.changed.includes('monsters')) bits.push(`MONSTERS: ${C.MONSTER_LEVELS[m.monsters].name}`);
       if (m.changed.includes('open')) bits.push(m.open ? 'ROCK NOW PUBLIC: ANYONE CAN JOIN' : 'ROCK NOW PRIVATE: CODE ONLY');
       hud.feed(`<span class="streak">${m.by ? `CHIEF ${esc(m.by.toUpperCase())}` : 'SPIRITS'}:</span> ${bits.join(' · ')}`);
     }
@@ -986,7 +988,7 @@ const handlers = {
 
   // the dark forest spread a ring: built again bigger (and the radar shows it)
   forest(m) {
-    town.regrow(m.id, m.zone, m.rings);
+    town.regrow(m.id, m.rings);
     if (!state.joined) return;
     const heart = C.FOREST_TIERS[m.rings - 1];
     hud.feed(`<span style="color:${SHOP_LOOK.haunt.color}">🌲 THE DARK FOREST SPREADS</span> · ${heart.name} AT ITS HEART`);
@@ -1183,7 +1185,7 @@ const handlers = {
     if (state.joined && d < 25) sound.speak(m.text.toLowerCase(), { pitch: 0.1 + (pl.id % 5) * 0.08, dist: d });
   },
 
-  // ---- hunger: a stranger is on the way with food
+  // ---- knocked down to 1 in a duel: a stranger is on the way with food
   stranger(m) {
     addStranger(m);
     if (m.for === state.myId && state.joined) hud.feed('<span class="streak">A STRANGER</span> IS COMING WITH FOOD');
@@ -1405,7 +1407,7 @@ const handlers = {
       const by = state.players.get(m.by);
       if (state.joined && by) hud.feed(`<span class="${m.by === state.myId ? 'me' : ''}">${esc(by.name)}</span> SLAY ${name}`);
       sound.play('shatter', distTo(b.rp));
-      if (m.by === state.myId) hud.center(`YOU SLAY THE ${b.name.toUpperCase()}!`, `+${C.FOREST_TIERS[b.tier]?.reward ?? 2} 🐚`, 1.6);
+      if (m.by === state.myId) hud.center(`YOU SLAY THE ${b.name.toUpperCase()}!`, `+${forestPay(b.tier ?? 0)} 🐚`, 1.6);
     } else if (m.reason === 'slain') {
       const by = state.players.get(m.by);
       if (state.joined) hud.feed(by ? `<span class="${m.by === state.myId ? 'me' : ''}">${esc(by.name)}</span> SLAY ${name}!` : `${name} GO SLEEP`);
@@ -2514,7 +2516,7 @@ function addBeast(m, fresh = true) {
     until: clock() + (m.left ?? def.life), snaps: [], speed: 0, monster: !!m.monster, tier: m.tier ?? null,
   };
   // (the dark forest's monsters are nobody's)
-  b.model = new Beast(m.kind, { label: b.monster ? b.name : `${owner ? owner.name : 'WILD'}'S ${b.name}`, team: beastTeam(b), look: m.look });
+  b.model = new Beast(m.kind, { label: b.monster ? b.name : `${owner ? owner.name : 'WILD'}'S ${b.name}`, team: beastTeam(b), look: m.look, maxHp: m.maxHp });
   b.model.setHp(m.hp);
   b.model.place(b.rp, b.rf, b.rh);
   if (!fresh) b.model.spawnT = 9;   // already out when we arrived: no rising out of the ground
@@ -2571,7 +2573,7 @@ function splatTarget(shop, i, at) {
   setTimeout(() => { splat.removeFromParent(); splat.material.dispose(); }, 12000);
 }
 
-// ---- kind strangers (Ploughshares): hooded, with food in hand, walking up to the hungry
+// ---- kind strangers (Ploughshares): hooded, with food in hand, walking up to whoever a duel left at 1
 function addStranger(m) {
   if (state.strangers.has(m.id)) return;
   const model = new Caveman({ name: 'STRANGER', look: m.look, bot: true, lifeBar: false });
@@ -3166,7 +3168,7 @@ function shopPrompt(shop) {
       : `${key('E')}RANGE SHED · PICK A PRACTICE WEAPON · <span class="up">1 🐚 A HIT</span>`;
     case 'haunt': {
       const tier = forestTier(shop, me.p), T = C.FOREST_TIERS[tier];
-      return `DARK FOREST · ${forestDepth(shop, tier)}: ${T.name} · ${isTouch ? 'BONK' : buttonName('melee')} THEM · <span class="up">${T.reward} 🐚 EACH</span>`;
+      return `DARK FOREST · ${forestDepth(shop, tier)}: ${T.name} · ${isTouch ? 'BONK' : buttonName('melee')} THEM · <span class="up">${forestPay(tier)} 🐚 EACH</span>`;
     }
     case 'duel': return `${key('E')}PICK A WEAPON · ${isTouch ? 'BONK' : buttonName('melee')} · DOWN TO 1 HP WINS <span class="up">${C.SHOPS.duel.win} 🐚</span>`;
     case 'pond': {
@@ -3186,8 +3188,10 @@ function shopPrompt(shop) {
 // Which ring of the dark forest p is in, from its edge (0) to its heart (rings - 1), and what to
 // call it. The server's rings are the same.
 function forestTier(s, p) {
-  return M.clamp(Math.floor((zoneOf(s) - M.arcDist(p, s.at)) / C.SHOPS.haunt.ring), 0, (s.rings || 1) - 1);
+  return Math.max(0, F.tierAt(s, p));
 }
+// what a monster of ring `tier` pays, slain, at this rock's MONSTERS level
+const forestPay = tier => Math.max(1, Math.round(C.FOREST_TIERS[tier].reward * C.MONSTER_LEVELS[state.game.monsters].pay));
 const forestDepth = (s, tier) => (tier === (s.rings || 1) - 1 ? 'THE HEART' : tier === 0 ? 'THE EDGE' : 'DEEPER IN');
 
 // What GRAB says on a phone at each place it works.
@@ -3241,8 +3245,8 @@ const gearPick = { melee: 'club', ranged: 'spear' };
 function penumbraOf() {
   for (const s of town.shops.values()) {
     if (s.kind !== 'haunt') continue;
-    const d = M.arcDist(me.p, s.at);
-    if (d > zoneOf(s) - 0.5 && d < zoneOf(s) + C.SHOPS.haunt.penumbra) return s;
+    const out = F.outside(s, me.p);
+    if (out > -0.5 && out < C.SHOPS.haunt.penumbra) return s;
   }
   return null;
 }
@@ -3491,7 +3495,7 @@ function updateLocal(dt, t) {
     const tier = shop?.kind === 'haunt' ? forestTier(shop, me.p) : null;
     if (tier !== null && state.forestTier !== null && tier > state.forestTier) {
       const T = C.FOREST_TIERS[tier];
-      hud.center(forestDepth(shop, tier), `${T.name} · ${T.reward} 🐚 EACH`, 1.5);
+      hud.center(forestDepth(shop, tier), `${T.name} · ${forestPay(tier)} 🐚 EACH`, 1.5);
     }
     state.forestTier = tier;
     if (pen && !state.reel) hud.prompt(`${isTouch ? '' : '<span class="key">E</span>'}THE PENUMBRA · PICK YOUR GEAR FOR THE DARK FOREST`);
@@ -4049,7 +4053,7 @@ function updateHud(dt, t) {
   updateBeastHud(t);
   const buffs = Object.entries(me.buffs).filter(([, until]) => until > t).map(([kind, until]) => ({ kind, left: Math.ceil(until - t) }));
   hud.setStatus({ stun: t < me.stunUntil, slow: t < me.slowUntil, bleed: mine && mine.flags & 16, limp: peaceNow() && me.alive && me.hp < C.PEACE.limpHp,
-    hungry: peaceNow() && me.alive && me.hp < 70 && me.hp >= C.PEACE.limpHp, buffs, perm: peaceNow() ? state.perm : null });
+    buffs, perm: peaceNow() ? state.perm : null });
   hud.eruptWarning(t < state.eruptUntil);
   hud.scoreboard(state.players.values(), state.myId, input.down('Tab'), state.game.chief);
   // weapon stats only while the scores are up (Tab, or ☰ on a phone)
@@ -4144,8 +4148,7 @@ function updateHud(dt, t) {
     // co-op: friends green, bots red. Otherwise everyone's a target: humans red, bots orange.
     const dotColor = p => (coop ? (p.bot ? '#ff4b4b' : '#5ef08a') : p.bot ? '#ff9a3c' : '#ff4b4b');
     for (const p of state.players.values()) if (p.id !== state.myId && p.alive) items.push({ p: p.rp, color: dotColor(p), kind: 'player' });
-    const areas = [...town.shops.values()].filter(sh => sh.kind === 'haunt').map(sh => ({ p: sh.at, r: zoneOf(sh), rings: sh.rings || 1 }));
-    hud.radar(me, items, areas);
+    hud.radar(me, items, [...town.shops.values()].filter(sh => sh.kind === 'haunt'));
   }
 }
 
@@ -4329,6 +4332,11 @@ function buildRules(root) {
         `<button data-v="${i + 1}" title="${l.name}" style="--hue:${Math.round(120 - (i / (C.BOT_LEVELS.length - 1)) * 120)}">${i + 1}</button>`).join('')}</div>
       <div class="rule-desc" data-level-desc></div>
     </div>
+    <div class="rule" data-monster-rule><span>MONSTERS</span>
+      <div class="seg levels" data-key="monsters">${C.MONSTER_LEVELS.map((l, i) =>
+        `<button data-v="${i}" title="${l.name}" style="--hue:${i ? Math.round(120 - ((i - 1) / (C.MONSTER_LEVELS.length - 2)) * 120) : 200}">${i ? i : 'OFF'}</button>`).join('')}</div>
+      <div class="rule-desc" data-monster-desc></div>
+    </div>
     <div class="rule"><span>BOT FILL</span>
       <div class="stepper"><button data-step="-1">-</button><b data-bots>4</b><button data-step="1">+</button></div>
       <div class="rule-desc" data-fill-desc></div>
@@ -4341,7 +4349,7 @@ function buildRules(root) {
     const btn = e.target.closest('button');
     if (!btn || btn.disabled) return;
     const g = state.game;
-    const want = { mode: g.mode, botLevel: g.botLevel, bots: g.bots, open: g.open };
+    const want = { mode: g.mode, botLevel: g.botLevel, bots: g.bots, monsters: g.monsters, open: g.open };
     const seg = btn.closest('.seg');
     if (seg) want[seg.dataset.key] = seg.dataset.key === 'mode' ? btn.dataset.v : Number(btn.dataset.v);
     if (btn.dataset.step) want.bots = M.clamp(g.bots + Number(btn.dataset.step), 0, C.MAX_BOTS);
@@ -4362,8 +4370,13 @@ function refreshRules() {
     root.querySelectorAll('.seg').forEach(seg => {
       seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(g[seg.dataset.key]) === b.dataset.v));
     });
-    // the brain meter fills up to the chosen level
-    root.querySelectorAll('.levels button').forEach(b => b.classList.toggle('lit', Number(b.dataset.v) <= g.botLevel));
+    // the brain meter fills up to the chosen level (and the monster one, from 1: OFF is none)
+    root.querySelectorAll('[data-key=botLevel] button').forEach(b => b.classList.toggle('lit', Number(b.dataset.v) <= g.botLevel));
+    root.querySelectorAll('[data-key=monsters] button').forEach(b => b.classList.toggle('lit', Number(b.dataset.v) >= 1 && Number(b.dataset.v) <= g.monsters));
+    // (monsters: only the dark forest's, so only in peace mode)
+    const mon = C.MONSTER_LEVELS[g.monsters];
+    root.querySelector('[data-monster-rule]').classList.toggle('hidden', g.mode !== 'plough');
+    root.querySelector('[data-monster-desc]').textContent = g.monsters ? `${g.monsters}/${C.MONSTER_LEVELS.length - 1} ${mon.name}: ${mon.desc}` : `OFF: ${mon.desc}`;
     const lvl = C.botLevelDef(g.botLevel);
     const coop = g.mode === 'coop';
     root.querySelector('[data-level-desc]').textContent = `${g.botLevel}/10 ${lvl.name}: ${lvl.desc}`;
@@ -4380,7 +4393,7 @@ function refreshRules() {
     }[g.mode];
   }
   // folded away in the lobby: one line says what's set
-  $('rules-sum').textContent = `RULES: ${C.MODES[g.mode]} · ${g.mode === 'coop' ? 'WAVES' : `${g.bots} BOTS`} · BRAINS ${g.botLevel}${state.offline ? '' : g.open ? ' · PUBLIC' : ' · PRIVATE'}`;
+  $('rules-sum').textContent = `RULES: ${C.MODES[g.mode]} · ${g.mode === 'coop' ? 'WAVES' : `${g.bots} BOTS`} · BRAINS ${g.botLevel}${g.mode === 'plough' ? ` · MONSTERS ${C.MONSTER_LEVELS[g.monsters].name}` : ''}${state.offline ? '' : g.open ? ' · PUBLIC' : ' · PRIVATE'}`;
   scoreRoom();
   $('lobby-note').textContent = humans.length === 0 ? 'YOU PICK THE RULES.' : `CHIEF ${chiefName} PICKS THE RULES.`;
   $('council-note').textContent = iAmChief ? 'NEW MODE = NEW ROUND.' : `ONLY CHIEF ${chiefName} CAN CHANGE RULES.`;
