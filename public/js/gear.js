@@ -60,6 +60,7 @@ export class GearView {
       this.scene.add(this.man.root);
       this.lookKey = key;
     }
+    this.man.setDress(this.dress || 0);   // (dressed as the tribe is now: main sets it)
     Object.assign(this, { melee: duelWeapon(melee), ranged, mult, t: 0, step: 0, events: [], charging: false });
     this.man.setWeapon(this.melee);
     this.man.ammo = RANGED[ranged].ammo;

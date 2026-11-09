@@ -19,7 +19,7 @@ const MAX_PLAYERS = Math.max(1, Number(process.env.MAX_PLAYERS) || 12);   // hum
 const MAX_ROOMS = Math.max(1, Number(process.env.MAX_ROOMS) || 20);       // rocks at once
 const MAX_CONNECTIONS = Math.max(MAX_PLAYERS, Number(process.env.MAX_CONNECTIONS) || 100);
 const ERA_SECONDS = Math.max(10, Number(arg('era-seconds') ?? process.env.ERA_SECONDS) || C.DOTIME.eraSeconds);
-// Ploughshares: farming time before each vote to keep going
+// Ploughshares: how long each stretch of peace is
 const PEACE_SECONDS = Math.max(20, Number(arg('peace-seconds') ?? process.env.PEACE_SECONDS) || C.PEACE.seconds);
 // what every new rock starts with, until its chief changes it
 const START_RULES = cleanRules(

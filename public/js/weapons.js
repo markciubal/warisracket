@@ -312,6 +312,15 @@ export function buildWeapon(w) {
       c.emissiveIntensity = 0.45;
       return c;
     });
+  } else if (w.glow) {
+    // from the trading post: a glow of its own colour
+    restyle(g, m => {
+      if (!m.emissive) return m;
+      const c = m.clone();
+      c.emissive.set(w.glow);
+      c.emissiveIntensity = 0.4;
+      return c;
+    });
   } else if (w.prefix === 'soggy') {
     restyle(g, m => {
       const c = m.clone();

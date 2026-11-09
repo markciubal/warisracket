@@ -152,10 +152,13 @@ function capture(el, pointerId) {
   try { el.setPointerCapture(pointerId); } catch { /* pointer already gone */ }
 }
 
+// A menu button acts on the press, and what it opens is then under the finger: the click the lift
+// makes would land on it (a tap on a pop-up's backdrop closes it). Eat that click, however long
+// the finger was held; the next press ends it if no click came (the finger slid off).
 function swallowNextClick() {
   const stop = e => { e.stopPropagation(); e.preventDefault(); };
   addEventListener('click', stop, { capture: true, once: true });
-  setTimeout(() => removeEventListener('click', stop, { capture: true }), 600);
+  addEventListener('pointerdown', () => removeEventListener('click', stop, { capture: true }), { capture: true, once: true });
 }
 
 export class TouchControls {
@@ -189,7 +192,11 @@ export class TouchControls {
     // these open a full-screen panel: eat the click the tap fires next, or it would land on the panel
     this.bind('t-council', () => { this.setTribe(false); swallowNextClick(); actions.council(); });
     this.bind('t-settings', () => { this.setTribe(false); swallowNextClick(); actions.settings(); });
+    this.bind('t-bag', () => { this.setTribe(false); swallowNextClick(); actions.bag(); });
     this.bind('t-rock', () => { this.setTribe(false); swallowNextClick(); actions.rock(); });
+    this.bind('t-eat', () => actions.eat());
+    this.bind('t-level', () => { this.setTribe(false); swallowNextClick(); actions.level(); });
+    this.noteActions = actions;
     // asks once ("SURE?"), quits on the second tap; the menu stays open in between
     this.bind('t-quit', () => { swallowNextClick(); actions.quit($('t-quit')); });
     this.bind('t-tilt', () => actions.recenter());
@@ -212,6 +219,15 @@ export class TouchControls {
   }
 
   // aimWhileHeld: dragging the finger on this button also aims (charge a spear and steer it).
+  // The notes to tap while playing the xylophone or the flute (keys: their labels; null: none)
+  setNotes(keys) {
+    const el = $('t-notes');
+    el.classList.toggle('hidden', !keys);
+    if (!keys) return;
+    el.innerHTML = keys.map((k, n) => `<div class="tbtn note" data-n="${n}">${k}</div>`).join('');
+    for (const b of el.children) this.bind(b, () => this.noteActions.note(Number(b.dataset.n)));
+  }
+
   bind(idOrEl, press, release = null, aimWhileHeld = false) {
     const el = typeof idOrEl === 'string' ? $(idOrEl) : idOrEl;
     el.addEventListener('pointerdown', e => {

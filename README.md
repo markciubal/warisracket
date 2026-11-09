@@ -125,7 +125,7 @@ Settings (optional), e.g. `heroku config:set BOT_LEVEL=7 ERA_SECONDS=120`:
 | --- | --- | --- | --- |
 | `MODE` | `--mode` | `dotime` | `dotime` (War mode), `plough` (Peace mode), `classic` (Forever Stone) or `coop` (Tribe vs Bots) |
 | `ERA_SECONDS` | `--era-seconds` | 45 | Length of each War mode age |
-| `PEACE_SECONDS` | `--peace-seconds` | 180 | Peace mode: time before each vote to keep going |
+| `PEACE_SECONDS` | `--peace-seconds` | 180 | Peace mode: how long each stretch of peace is (the world grows between them) |
 | `BOT_LEVEL` | `--bot-level` | 1 | Bot brains, 1–10: 1 wanders around and lags, 5 is a fair fight, 10 barely misses |
 | `MONSTERS` | `--monsters` | 3 | Peace mode: how hard the Dark Forest's monsters are, 0–5 (0 none at all, 3 as they come, 5 a nightmare) |
 | `BOTS` | `--bots` | 4 | Bots fill the planet up to this many cavemen (0–10). 0 = humans only |
@@ -175,12 +175,16 @@ your router or use a tunnel such as `cloudflared tunnel --url http://localhost:3
 | Left mouse / F | Bonk with your melee weapon (right mouse when left-handed) |
 | Hold right mouse | Charge a spear, draw a bow or steady a musket (a dotted arc shows where it lands), then release. Guns and lasers fire while held (left mouse when left-handed) |
 | Space | Jump (you can hop over boulders if you time it) |
-| E | Swap weapons at a glowing totem, put on armor, (when hurt) eat the roast at a campfire, or talk business with the Businessman at his podium. In peace mode, use the town: the doctor, the range shed, the duel rack, the tailor, cast, hook and reel in at a pond (tap E fast to reel), dance or play the drums at the bonfire, pick gear in the Dark Forest's penumbra |
+| E | Swap weapons at a glowing totem, put on armor, (when hurt) eat the roast at a campfire, or talk business with the Businessman at his podium. In peace mode, use the town: the doctor, the range shed, the duel rack, the tailor, cast, hook and reel in at a pond (tap E fast to reel), dance, cook a feast that's due, or play the drums, the xylophone or the bone flute at the bonfire, work on the tribe project at its ground, pick gear in the Dark Forest's penumbra; beside a knocked-out caveman, drag them to safety; facing a caveman, give them shells or lend them something from your bag |
 | Q | Killstreak beast: call it, then aim and Q again to send it |
 | 1–6 | Grunt: OOGA!, BOOGA!, UNGA BUNGA!, ME SMASH!, ME HUNGRY., WAR IS RACKET! |
 | Enter | In peace mode: talk, one syllable per word |
 | Tab | Scores (with the rock code), plus your weapon's full stats on its card |
 | C | Tribe council (planet rules) |
+| I | Peace mode: your bag (what you've bought at the trading post): weapons out or away, gear on or off |
+| H | Peace mode, when hurt: eat a bite out of the tribe's food store, wherever you are (the 🍖 EAT button above the stick on phones) |
+| L | Peace mode: your level: the grit toward the next, and points to put on STRENGTH, VITALITY or DEXTERITY (⬆ LEVEL in the ☰ menu on phones) |
+| 1–0 (or the numpad) | Playing the bonfire's xylophone: its ten bars; the bone flute: 1–8, its eight holes |
 | V | Switch the view: over the shoulder (3rd person) or through your caveman's own eyes (1st person), gliding between them |
 | M / N | Mute everything / toggle the drums |
 | G | Graphics: LOW / AUTO / HIGH |
@@ -294,6 +298,13 @@ With the default `ERA_SECONDS=45` a whole round is 4½ minutes plus the finale.
   that age lands just in front of each caveman: press E to take it (yours drops in its place for
   someone else) or just leave it. It lies there for 45 s. Bots simply swap.
 - Lasers don't curve with the planet: aim above the horizon and the beam goes off into space.
+- **Clothes change with the ages.** Everyone starts in pelts and dresses up as history marches
+  on, each stage cut in their own garb's colours on top of the last: Stone Age **pelts**; Bendy
+  Stick Age **stitched hides** (hide patches, boots and arm bands); Shiny Rock Age **woven cloth**
+  (a woven tunic, bracers, a belt buckle); Boom Stick Age **dyed cloth** (sleeves, trousers and a
+  sash); Bang Bang Age **tailored coats** (a collar and brass buttons); Zap Age **sleek suits**
+  with seams that glow. The feed says so when the tribe's dress changes. In peace mode the same
+  six stages go by the stretch instead (see below).
   Bullets and musket balls kick up dirt instead of lying around to be picked up.
 - **Armor** spawns at random spots and shows as a glowing stand (and a shield on the radar). It
   drops more often in later ages. Walk onto it to put it on if you have none, or press E to
@@ -327,25 +338,40 @@ so everything below is there to do from the start:
 - **Plant**: the attack button (left click / F, PLANT on phones) puts a seed in the ground just
   in front of you: wheat, corn or pumpkin. Crops grow (15 to 30 s) and sway when they're ripe.
 - **Harvest**: walk over a ripe crop to pick it. Its food (1 to 3) goes into the tribe's shared
-  store, shown on the age panel. Bots farm too: they plant now and then and pick what's ripe.
+  store, shown on the age panel. Hurt, you eat what you need of it there and then (**5 life for
+  every food**: wheat +5, corn +10, pumpkin +15; fish you catch the same) and only the rest goes
+  in the store. Bots farm too: they plant now and then and pick what's ripe.
+- **The tribe's store**: the food is everyone's. Crops, fish and monsters knocked out in the Dark
+  Forest (their meat: 1 food for the edge's, 2 for vampires and sleep demons, 4 for a werewolf)
+  fill it; buildings and bites come out of it. Hurt, anywhere (fighting in the forest, after a
+  sky rock, a lost duel), press **H** (the **🍖 EAT** button above the stick on phones) for a
+  bite: 5 life a food, up to 4 food a bite, a bite every 2.5 seconds. Bots take a bite too, but
+  only when the store's well stocked.
+- **A hungry tribe**: with less than 10 food in the store, the age panel says **HUNGRY!**,
+  and all food brought in (a crop, a fish, a monster's meat) pays **1 shell more**. So when the
+  fighters have eaten the store down, farming and fishing pay best.
 - **Build**: the throw button (right click, BUILD on phones) builds in front of you, paid for
   out of the store: a **fence** (2 food), a **hut** (6) or a big **stone head** (12). **Q**
   (NEXT on phones) picks which. They face whoever built them, and they're solid.
-- **Vote**: when the time is up (3 minutes, `PEACE_SECONDS`) everyone votes **KEEP FARMING?**
-  with Y / N or the buttons. More yes than no gives another stretch; anything else ends the
-  round with a **HARVEST FESTIVAL** ranking who picked the most food and built the most. Then a
-  fresh planet, the fields, buildings and town gone, and a new peace with a new town.
+- **Stretches**: the peace never ends. It goes in stretches (3 minutes each, `PEACE_SECONDS`;
+  the age panel counts down to the next): as one is up, **the story of the night** is told, the
+  planet grows a step, and the next stretch starts with a fresh list of deeds and tribe deeds and
+  the store goal again. Nothing to vote on, nothing to lose: the fields, the town and your bag
+  stay. **The tribe dresses better with every stretch**, too: pelts, then stitched hides, woven
+  cloth, dyed cloth, tailored coats and finally sleek suits with glowing seams (the same six
+  stages a war walks through with its ages), each in your own garb's colours.
 
 ### The town
 
 As a round starts **the planet grows** (radius 30 to 40, over 5 seconds), and the town opens
 up on the new ground straight after, near wherever people are: a **doctor**, a **target range**,
-a **duel ring**, a **tailor**, a **fishing pond**, a **hot spring** and a **bonfire**, then another
-range and another pond, and on the far side of the planet the **Dark Forest** takes root. Each
+a **duel ring**, a **tailor**, a **trading post**, a **fishing pond**, a **hot spring**, a **bonfire** and the
+**tribe project** ground, then another range and another pond, and on the far side of the planet
+the **Dark Forest** takes root. Each
 has a floating sign and shows on the radar as a square (the forest as its own dark shape, deeper
 rings darker); stand in its circle to use it.
 
-**Every time the tribe votes to keep farming, the planet grows again**: 10 more each time (40, 50,
+**Every new stretch of peace, the planet grows again**: 10 more each time (40, 50,
 60...), up to 80, with another pond, another doctor, another bonfire and another hot spring on the
 new ground (the forest, being half the planet, grows with it). The shops keep their size as it
 grows under them. A new round starts back at the usual 30.
@@ -353,7 +379,106 @@ grows under them. A new round starts back at the usual 30.
 - **Shells** 🐚 are the money. Everyone gets 3 when a peace starts (they're shown under your
   health) and earns more: **1 for every crop you pick** (the food still goes to the tribe), 1 for
   every target hit, 3 for every duel won, fish, dancing and monsters. Your shells stay with you
-  from round to round.
+  from round to round. They buy what the **trading post** sells, so they're worth gathering.
+- **Feasts and bumper crops**: food the tribe gathers (crops, fish and monsters' meat, eaten or
+  stored) counts toward a **FEAST**: every 30 gathered in a peace, one is due. **A feast has to be
+  cooked**: somebody stands at a bonfire and presses **E** (COOK on phones) and stays put for 20
+  seconds (quicker with Dexterity; walk off and it spoils, start again). Then everyone on the
+  planet gets **2 shells** and **FAST FEET** and **REGROW** for 20 seconds, and the cook 2 shells
+  more. The age panel says how far off the next one is (FEAST IN 12), or how many are waiting
+  (🍲 1 FEAST TO COOK); feasts stack up uncooked. And every **10 crops** you pick yourself is a
+  **BUMPER CROP**: 3 shells on top.
+- **Deeds**: twelve things the town has to do, shown as a strip of icons on the age panel: 🌾 pick
+  a crop, 🎣 land a catch, 🛖 build something, 👹 knock out a monster, 💃 dance for a shell, 🥁 drum
+  for a shell, 🎯 hit a target, ⚔️ win a bout, ♨️ soak in a hot spring (while hurt), 🐚 spend shells
+  in town (doctor, tailor or trading post), 🔨 work on the tribe project, 🤝 drag a friend to
+  safety. The first time you do each one in a stretch of peace it lights up and pays **1 shell**;
+  do all twelve and you're a **JACK OF ALL TRADES**: **10 shells** on top, and everyone hears.
+  Every new stretch of peace starts a fresh list.
+- **Levels**: everything you do in peace earns **grit**: a crop 1, a catch 2 a shell plus its
+  food, a target hit 1, a bout won 6, something built 2, a shell for the band 1, a feast 5, a
+  deed 5, and a monster knocked out 3 times its ring's shells (6 to 30). Every 20 + 10 × your
+  level of it (30 to level 2, 40 to level 3...) is a **level** and a **point** to spend, up to
+  level 20. The chip under your health says where you are (LV 3 · GRIT 12/50) and lights up when
+  there's a point waiting. **L** (⬆ LEVEL in the ☰ menu on phones) opens the level screen, with
+  three stats to put points on, up to 10 each:
+
+  | Stat | A point gives you |
+  | --- | --- |
+  | 💪 **Strength** | Hit monsters 8% harder, with anything (melee or ranged) |
+  | ❤️ **Vitality** | 8 more life (so the bar can say 108 / 108), and that much back at once |
+  | 🤸 **Dexterity** | Swing, wind up, draw and reload 5% quicker, and shake off a stun 5% sooner |
+
+  Your level, points and stats stay with you on the rock, round after round, like your shells
+  and your bag; the stats count in peace mode (where the monsters are). Everyone hears when you
+  level up. Bots level too, and spend their points as they get them.
+
+#### The tribe together
+
+Most of what pays best in peace takes more than one caveman:
+
+- **Tribe deeds**: a second strip under your deeds, six things the *tribe* has to do, each by so
+  many **different** cavemen (never more than are on the rock): 🌾 crops picked by 3, 🎣 catches
+  landed by 2, 👹 monsters felled by 3, 🎶 2 in the band at once, 💃 3 dancing round one fire at
+  once, 🔨 2 pairs of hands on the tribe project. Each one done pays **everyone on the planet a
+  shell**; all six, **5 more each**. A fresh list every stretch.
+- **The store goal**: the bar under the strips fills as the store does. The first time in a stretch
+  it holds **40 food**, a **BIG FEAST** for the whole planet: 4 shells each and the feast buffs for
+  twice as long. The store stays full: eat up.
+- **The tribe project**: the 🔨 TRIBE PROJECT ground opens with the town. **E** there (WORK on
+  phones) is a step of work, every 1.5 seconds, each step paid for out of the store (1 or 2 food).
+  Three projects, one after another, each needing 10 to 16 steps, and **no one pair of hands can
+  do more than 60% of one** when there's anyone else on the rock: it takes the tribe. Each one
+  raised pays everyone who worked on it 3 shells and 10 grit, stands on the ground for the rest
+  of the round, and its boon holds all round:
+
+  | Project | Steps | Boon |
+  | --- | --- | --- |
+  | 🗼 **Watchtower** | 10 (1 food each) | Sky rocks are seen coming from twice as far off |
+  | 🌉 **Footbridge** | 12 (1 food each) | The far bank: another fishing pond opens |
+  | 🗿 **Great Totem** | 16 (2 food each) | Every crop picked brings the tribe one more food |
+
+  Bots wander over and put in their share. The age panel says how far the current one has got.
+- **Big game**: every 150 seconds (once the first was felled) an **ELDER** of the heart ring's
+  kind stirs at the heart of the Dark Forest: half again as big, **7 times the life**, blows half
+  again as hard, and **it heals 6 life a second unless two or more different cavemen have hit it
+  in the last 6 seconds**. Nobody fells it alone. Down, it brings the store **10 food**, drops
+  three motes, and **everyone who hit it in the last 25 seconds** gets 3 times its ring's shells
+  and grit. Its name and life bar are pink.
+- **Hunting parties**: nobody has to ask. Any monster felled with other cavemen **within 10** pays
+  each of them a shell and half the grit, and the one who felled it a shell more for each of them
+  (up to 3). Hunt near each other.
+- **Drag a friend**: beside a caveman who's been knocked out, **E** (DRAG on phones) drags them
+  along behind you (you walk at 72%). **Out of the forest and its gloom they wake up at once**,
+  where they are (after 2 seconds of it, if they fell somewhere safe already): no sleeping it off.
+  E again lays them down. The rescuer gets 2 shells, 6 grit and the 🤝 deed.
+- **The ensemble**: the band pays by how many play and dance round a fire, and now by how many
+  **different instruments** are going at once: drums, xylophone and flute together pay everyone
+  there (dancers too) **×2**, two of them ×1.5.
+- **Call and response**: with anyone at a bonfire, every 40 seconds **the fire hums a phrase** of
+  four notes (you hear it, and the screen shows the keys: 3 5 5 1). Anyone who plays it back on
+  the xylophone or the flute within 15 seconds heals **everyone in the circle 15 life** and pays
+  them a shell.
+- **Give and lend**: face another caveman within arm's reach and **E** (GIVE on phones) opens a
+  screen: hand over **1, 5 or 10 shells**, or **lend** them anything out of your bag (a weapon
+  out of your hand goes with it). What's lent is theirs to use; it **comes back to your bag on
+  its own when they leave the rock**, or when they face you and GIVE IT BACK. Nobody can be given
+  a second of something they have.
+- **The tribe chest**: at the trading post, open your bag (**I**) and any of it can go **TO
+  CHEST** (not things lent to you); the stall shows **🧰 THE TRIBE CHEST** with everything in it,
+  for anyone on the rock to **TAKE OUT**. It's theirs until they put it back, or leave the rock
+  (back in the chest it goes). It holds 12 things and keeps them from round to round, like bags.
+- **Mentors**: a caveman of **level 6 or more** within 10 of one of **level 3 or less**: all the
+  grit either of them earns is **×1.5**, and the other gets half of it too. A floating note says
+  so when it kicks in.
+- **Tribe level**: everyone's level averaged (bots too), shown on your level chip and screen and
+  at the stall. The trading post's best needs it high: Bone Crusher, Wolfsbane Axe, Obsidian Edge
+  and Pea Shooter at **3**, Firework, Moon Beam and Silver Charm at **4**, Moon Cleaver and
+  Thunder Stick at **5**. Helping newcomers level is how the whole tribe gets the good stuff.
+- **The story of the night**: as a stretch ends, a panel tells what the tribe did this stretch
+  (who felled the first monster, who cooked which feast, what was raised, who dragged whom to
+  safety, who lent what, the big feast, the elder...), a few lines at a time.
+
 - **Doctor**: **E** (HEAL on phones) gets you all better for **1 shell**.
 - **Target range**: **E** at the range shed (WEAPONS on phones) opens its rack: every age's ranged
   weapon (spear, bow, longbow, boom stick, bang stick, zap stick) and four you only get here, never
@@ -384,12 +509,12 @@ grows under them. A new round starts back at the usual 30.
   them than before: it's a big forest). How hard they are is a planet rule (**MONSTERS**, under
   Planet rules: from none at all to a nightmare); as they come, they're:
 
-  | Ring | Who lives there | Each one pays |
+  | Ring | Who lives there | Each one pays (and its meat for the tribe's store) |
   |---|---|---|
-  | The edge | **Skeletons** (quick, rattly) and **zombies** (slow and tough; a bite slows you down) | 2 🐚 |
-  | Deeper in | **Ghosts** (a spook stuns you) and **bats** (small, fast, nip nip nip) | 3 🐚 |
-  | Deeper still | **Vampires** (a bite drinks your life back into them, and they pop up behind you) and **sleep demons**: tall, black, stooped, arms down to their knees, and a pair of googly eyes rattling about in their heads. Their long arms reach a long way, and a grab **freezes you stiff** for a moment | 5 🐚 |
-  | The heart | **Werewolves**: big, fast, and they leap at you from far off | 10 🐚 |
+  | The edge | **Skeletons** (quick, rattly) and **zombies** (slow and tough; a bite slows you down) | 2 🐚 (1 food) |
+  | Deeper in | **Ghosts** (a spook stuns you) and **bats** (small, fast, nip nip nip) | 3 🐚 (1 food) |
+  | Deeper still | **Vampires** (a bite drinks your life back into them, and they pop up behind you) and **sleep demons**: tall, black, stooped, arms down to their knees, and a pair of googly eyes rattling about in their heads. Their long arms reach a long way, and a grab **freezes you stiff** for a moment | 5 🐚 (2 food) |
+  | The heart | **Werewolves**: big, fast, and they leap at you from far off | 10 🐚 (4 food) |
 
   The screen says when you've gone a ring deeper (and who's in it), and the radar shows the
   forest's shape round you, darker ring by ring. They never leave their ring, but they go for
@@ -415,6 +540,50 @@ grows under them. A new round starts back at the usual 30.
 - **Tailor**: **E** (SHOP on phones) opens the counter: straw hat (2), flower crown (3), top hat
   (5), gold crown (10), red or blue cape (3), gold cape (8). Everyone sees what you wear, it stays
   on in later rounds, and anything you've bought you can put back on for free (or take off).
+- **Trading post**: a stall under a striped awning. **E** (TRADE on phones) opens it: weapons and
+  gear you can **only get here**, in peace mode, for shells. What you buy goes in **your bag** and
+  stays yours round after round. **I** opens the bag (🎒 BAG in the ☰ menu on phones), anywhere:
+
+  | | Price | What it does |
+  | --- | --- | --- |
+  | 🌙 **Silver Sickle** | 12 | A quick melee weapon. Silver: 60% harder on monsters |
+  | 🦴 **Bone Crusher** | 18 | Slow and huge. Sends them flying, and stuns |
+  | 🪓 **Wolfsbane Axe** | 25 | Two and a half times as hard on werewolves and vampires |
+  | 🐟 **Stink Fish** | 5 | Cheap and smelly: monsters it slaps walk at half speed for 3 s |
+  | 🧛 **Vampire Fang** | 16 | Half of every blow on a monster comes back to you as life |
+  | ⚡ **Thunder Club** | 20 | Monsters stand dazed for a second (no moving, no attacking) and fly back |
+  | 🗡️ **Obsidian Edge** | 20 | One blow in three on a monster lands double |
+  | 🏹 **Silver-Tip Bow** | 15 | A ranged one: silver arrows, 60% harder on monsters |
+  | 🎆 **Firework** | 22 | A rocket that bursts wide, for a whole crowd of monsters |
+  | ⭐ **Star Sling** | 8 | A cheap, quick sling; its stars hit monsters half again as hard |
+  | 💧 **Holy Water** | 14 | Lob a flask: it splashes everything nearby. 3× on vampires and ghosts, 2× on sleep demons |
+  | 🎯 **Silver Bolt** | 18 | A crossbow: one big hit, 60% harder on monsters |
+  | 🌕 **Moon Beam** | 24 | A stick of moonlight: zaps whatever the crosshair is on, half again as hard on monsters |
+  | 🦌 **Antler Pike** | 14 | A long reach: poke monsters from further off than they can grab |
+  | 🔪 **Night Dagger** | 15 | Quick as a blink, and one stab in four on a monster lands double |
+  | 🌘 **Moon Cleaver** | 28 | Huge and slow, sweeps all round: every monster in reach gets it, and stands dazed |
+  | 🔦 **Glow Rod** | 19 | Monsters it touches slow down, and a bit of every blow comes back as life |
+  | 🔱 **Harpoon** | 20 | A heavy spear, thrown hard: half again as hard on monsters |
+  | 🦴 **Bone Bow** | 12 | A quick little bow: ten arrows, fast to draw, 40% harder on monsters |
+  | 🌩️ **Thunder Stick** | 24 | One big bang: the hardest single shot there is, 40% harder on monsters |
+  | 🫛 **Pea Shooter** | 20 | Thirty peas a load, as fast as you can hold the button, 30% harder on monsters |
+  | 🧺 **Big Basket** | 6 | +1 food for the tribe with every crop you pick, and a shell every third |
+  | 🍀 **Lucky Cowrie** | 10 | One time in four, the shells you earn come in twice |
+  | 🌱 **Green Thumb** | 7 | What you plant is ripe in half the time |
+  | 🩴 **Fleet Sandals** | 8 | Run 15% faster |
+  | 🧥 **Mammoth Cloak** | 12 | Take a quarter less from everything |
+  | 🎣 **Patient Rod** | 8 | Fish bite sooner, and you get longer to hook them |
+  | 🏮 **Moon Lantern** | 10 | Monsters notice you from only half as far |
+  | 🌿 **Healer's Pouch** | 9 | A life back every 2 seconds |
+  | 🔔 **Party Bells** | 6 | Dancing and drumming pay twice as fast |
+  | 🧿 **Silver Charm** | 14 | Hit monsters 30% harder, with anything |
+
+  From the bag you can take out **one melee weapon** (it's in hand instead of the hoe, so no
+  planting till you put it away; in the Dark Forest it's what you fight with instead of the torch)
+  and **one ranged** (like a range shed's, shoot it anywhere), and put on **two bits of gear**,
+  whose bonuses count while they're on (gear you buy goes straight on, if there's room; it shows
+  after your shells). Weapons go back in the bag when a round ends; gear stays on. None of it
+  counts outside peace mode.
 - **Fishing pond**: stand on the sandy bank and press **E** (FISH on phones) to cast: a red
   bobber goes out on the water. Wait. When a fish bites the bobber dips, the screen says
   **BITE!**, and you have about a second to press **E** again (HOOK! on phones) to hook it. Too
@@ -424,9 +593,9 @@ grows under them. A new round starts back at the usual 30.
 
   | Fish | How to reel it | Worth |
   |---|---|---|
-  | **Minnow** | A few taps and it's out | 1 🐚, 1 food for the tribe |
-  | **Trout** | Steady taps: tap too fast and the reel slips, tap too slow and it swims back | 2 🐚, 2 food |
-  | **Big pike** | A fighter: it pulls, then tires, then pulls. Reel while it tires; tap while it pulls and the line strains, and too much strain **snaps** it | 3 🐚, 4 food |
+  | **Minnow** | A few taps and it's out | 1 🐚, 1 food for the tribe, +5 life |
+  | **Trout** | Steady taps: tap too fast and the reel slips, tap too slow and it swims back | 2 🐚, 2 food, +10 life |
+  | **Big pike** | A fighter: it pulls, then tires, then pulls. Reel while it tires; tap while it pulls and the line strains, and too much strain **snaps** it | 3 🐚, 4 food, +20 life |
   | **Golden fish** | Pulls back hard all the time: mash as fast as you can | 10 🐚, and everyone hears about it |
   | **Old boot** | Heavy, but it doesn't fight: just keep tapping | Nothing |
 
@@ -439,12 +608,16 @@ grows under them. A new round starts back at the usual 30.
   and you dance; walking off stops it. Dancers earn shells, and the more dance together the
   quicker: a shell every 8 seconds alone, every 4 with two, every 2 with four, up to five
   dancers. Everyone sees you dance.
-- **The drums**: walk up to one of the bonfire's two drums and **E** (DRUMS on phones) to play
-  them: the attack button (left click / F, **BOOM** on phones) hits the big low one and the throw
-  button (right click, **TAK**) the small high one. Everyone nearby hears what you play, and a
-  drummer counts for the band the same as a dancer (keep playing to keep earning). Walk off to
-  stop. While you're at the bonfire **everything else goes quieter, to half**: the music, the
-  sounds, the speech. The drums don't.
+- **The band**: round the bonfire stand two drums, a **xylophone** and a **bone flute**. Walk up
+  to one and **E** (DRUMS, XYLO or FLUTE on phones) to play it. The drums: the attack button
+  (left click / F, **BOOM** on phones) hits the big low one and the throw button (right click,
+  **TAK**) the small high one. The xylophone: keys **1 to 0** (the top row or the numpad) ring its
+  ten bars, a major scale from C up (bright wooden notes; the bar you struck hops). The bone
+  flute: keys **1 to 8**, its eight holes, a softer, breathier octave (the hole lights up). On a
+  phone a row of note buttons appears while you play. Everyone nearby hears what you play, and a
+  player counts for the band the same as a dancer (keep playing to keep earning). Walk off the
+  instrument to stop. While you're at the bonfire **everything else goes quieter, to half**: the
+  music, the sounds, the speech. The band doesn't.
 - **It's still a dangerous world.** The volcano erupts again, boulders still roll, and now and
   then a **sky rock** falls near somebody (a red ring shows where, and the feed says LOOK UP!).
   They hurt. Below 40 HP you **limp** (walk slower) until the doctor fixes you up.
@@ -464,7 +637,7 @@ when they can't), buy hats when they're rich, take practice weapons to the range
 in the ring, go fishing (they're not always quick enough on the hook, and the fighters and golden
 fish get away from them more often than not) and dance round the bonfire, where a crowd draws a
 crowd. (They don't go looking for monsters: one that wanders into the forest, or its gloom, turns
-round and walks straight back out.)
+round and walks straight back out. Nor do they shop at the trading post: that's for people.)
 
 ### Peace chat
 
@@ -743,7 +916,7 @@ public/js/beasts.js  Killstreak beast models and animation: attack dogs, mammoth
 public/js/mammon.js  The Businessman: model, outfits per age, disaster gear, fattening stages,
                      coin heap and profit sign
 public/js/farm.js    Peace mode: crops growing and the fences, huts and stone heads built in peace
-public/js/town.js    Peace mode: the doctor, ranges, duel ring, tailor, the Dark Forest, ponds, hot springs and bonfires (and their drums)
+public/js/town.js    Peace mode: the doctor, ranges, duel ring, tailor, trading post, the Dark Forest, ponds, hot springs and bonfires (and their drums)
 public/js/gear.js    Peace mode: the penumbra's gear screen, your caveman trying both weapons on a dummy, and their stats
 node_modules/qrcode-generator  The rock's QR code (served at /qr/, and kept for offline like three.js)
 public/js/offline.js Playing offline: stands in for the WebSocket, talking to offline-worker.js

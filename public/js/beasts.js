@@ -428,14 +428,16 @@ const GOOGLY_G = 9.8, GOOGLY_BOUNCE = 0.55;
 const _eyeP = new THREE.Vector3(), _eyeV = new THREE.Vector3(), _eyeA = new THREE.Vector3(), _eyeQ = new THREE.Quaternion();
 // how long each move's animation runs (s)
 const MOVE_TIME = { pounce: 0.6, bite: 0.3, tusk: 0.6, trample: 0.3, chomp: 0.6, roar: 1.2, swipe: 0.5, blink: 0.35 };
-const TEAM_COLOR = { mine: '#ffd34d', ally: '#8dff9a', foe: '#ff8a7a' };
+const TEAM_COLOR = { mine: '#ffd34d', ally: '#8dff9a', foe: '#ff8a7a', boss: '#ff5fe0' };
 
 export class Beast {
   // look: which dog (BEASTS.dog.looks), for the dog
   // maxHp: its most life (the dark forest's monsters have more, or less, than def.hp: MONSTERS)
-  constructor(kind, { label, team = 'foe', look = null, maxHp = null }) {
+  // size: how big, times its kind's (an ELDER of the forest)
+  constructor(kind, { label, team = 'foe', look = null, maxHp = null, size = 1 }) {
     this.kind = kind;
     this.def = BEASTS[kind];
+    this.size = size;
     Object.assign(this, BUILD[kind](look));
     // one draw call per material per moving part
     const groups = [];
@@ -542,7 +544,7 @@ export class Beast {
     // rises out of the ground when called
     this.spawnT += dt;
     const grow = Math.min(1, this.spawnT * 2.2);
-    this.root.scale.setScalar(0.3 + 0.7 * (1 - (1 - grow) ** 3));
+    this.root.scale.setScalar(this.size * (0.3 + 0.7 * (1 - (1 - grow) ** 3)));
     if (this.deadT >= 0) {
       // keels over, lies there a moment, sinks into the ground
       this.deadT += dt;

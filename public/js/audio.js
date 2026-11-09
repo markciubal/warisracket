@@ -1,4 +1,6 @@
 // Everything is synthesized with WebAudio, so there are no asset files to load.
+import { INSTRUMENTS } from '/shared/constants.js';
+
 const BPM = 96;
 const STEP = 60 / BPM / 4;
 // 16-step patterns: kick, low tom, high tom, shaker
@@ -63,6 +65,23 @@ export class Sound {
     } else {
       this.tone({ f0: 330, f1: 210, dur: 0.16, vol: 0.55 * v, out: this.drums });
       this.noise({ dur: 0.04, vol: 0.3 * v, f0: 3200, type: 'highpass', out: this.drums });
+    }
+  }
+
+  // A note on the bonfire's xylophone (bright, short) or bone flute (soft, breathy): n, which of
+  // INSTRUMENTS[kind].notes. Never ducked.
+  note(kind, n, dist = 0) {
+    if (!this.ctx || this.muted || !this.inWorld) return;
+    const def = INSTRUMENTS[kind], semis = def.notes[n] ?? 0;
+    const f = def.base * 2 ** (semis / 12), v = Math.max(0.06, 1 - dist / 45);
+    if (kind === 'xylo') {
+      this.tone({ type: 'sine', f0: f, dur: 0.45, vol: 0.5 * v, out: this.drums, attack: 0.003 });
+      this.tone({ type: 'triangle', f0: f * 3, dur: 0.12, vol: 0.12 * v, out: this.drums, attack: 0.002 });
+      this.noise({ dur: 0.02, vol: 0.12 * v, f0: 4000, type: 'highpass', out: this.drums });
+    } else {
+      this.tone({ type: 'sine', f0: f, dur: 0.55, vol: 0.4 * v, out: this.drums, attack: 0.04, lp: 2200 });
+      this.tone({ type: 'sine', f0: f * 2, dur: 0.4, vol: 0.08 * v, out: this.drums, attack: 0.05 });
+      this.noise({ dur: 0.3, vol: 0.05 * v, f0: f * 2, q: 6, out: this.drums, attack: 0.03 });
     }
   }
 

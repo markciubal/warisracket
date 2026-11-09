@@ -39,6 +39,16 @@
       <div id="era-next"></div>
       <div id="era-dots"></div>
       <div id="era-calm"></div>
+      <div id="deeds" class="hidden"></div>
+      <!-- peace: TRIBE DEEDS (so many different cavemen each), and the store goal (a BIG FEAST) -->
+      <div id="tribe" class="hidden"></div>
+      <div id="goal" class="hidden"><i></i><span></span></div>
+    </div>
+
+    <!-- peace: THE STORY OF THE NIGHT, told as a stretch ends -->
+    <div id="story" class="stone hidden">
+      <h2>THE STORY OF THE NIGHT</h2>
+      <div id="story-lines"></div>
     </div>
 
     <div id="top-right">
@@ -94,6 +104,8 @@
       </div>
       <div id="status-icons"></div>
       <div id="purse"></div>
+      <div id="eat-tip" class="hidden"></div>
+      <div id="level-chip" class="hidden"></div>
     </div>
 
     <!-- Ploughshares, in peace: what the throw button builds -->
@@ -137,6 +149,8 @@
     <div id="grunts" class="hidden"></div>
     <div id="t-menu" class="hidden">
       <div class="tbtn menu-item hidden" id="t-rock">▦ ROCK CODE</div>
+      <div class="tbtn menu-item hidden" id="t-bag">🎒 BAG</div>
+      <div class="tbtn menu-item hidden" id="t-level">⬆ LEVEL</div>
       <div class="tbtn menu-item" id="t-settings">⚙ SETTINGS</div>
       <div class="tbtn menu-item hidden" id="t-council">⚑ RULES</div>
       <div class="tbtn menu-item quit" id="t-quit">✕ QUIT</div>
@@ -145,6 +159,8 @@
     <div class="tbtn ring" id="t-bonk"><span>BONK</span></div>
     <div class="tbtn" id="t-jump"><span>JUMP</span></div>
     <div class="tbtn hidden" id="t-grab"><span>GRAB</span></div>
+    <div class="tbtn hidden" id="t-eat"><span>🍖 EAT</span><b id="t-eat-n"></b></div>
+    <div id="t-notes" class="hidden"></div>
     <div class="tbtn hidden" id="t-beast"><b id="t-beast-icon"></b><span id="t-beast-label">CALL</span></div>
   </div>
 
@@ -154,16 +170,6 @@
   </div>
 
   <div id="net-banner" class="hidden"></div>
-
-  <!-- Ploughshares: the vote to keep farming (keys Y / N, or tap) -->
-  <div id="vote" class="stone hidden">
-    <div class="vote-q">KEEP FARMING?</div>
-    <div class="row">
-      <button id="vote-yes">YES <span class="desk-only">(Y)</span></button>
-      <button id="vote-no">NO <span class="desk-only">(N)</span></button>
-    </div>
-    <div id="vote-count"></div>
-  </div>
 
   <!-- desktop pause: the mouse is free (Esc). Clicking anywhere that isn't a button goes back in. -->
   <div id="lock-hint" class="hidden">
@@ -260,6 +266,66 @@
   </div>
 
   <!-- Ploughshares, in the town: the tailor's counter (E at the tailor) -->
+  <!-- the trading post's stall (peace mode): weapons and gear for shells -->
+  <div id="stall" class="hidden">
+    <div class="tablet panel">
+      <div class="panel-head">
+        <h1>TRADING POST</h1>
+        <button class="close-x" id="stall-x" title="Close (Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body">
+        <p class="rules-note" id="stall-purse"></p>
+        <div id="stall-items"></div>
+      </div>
+      <button id="stall-close">DONE</button>
+    </div>
+  </div>
+
+  <!-- the bag (peace mode, I): what you've bought; weapons out or away, gear on or off -->
+  <div id="bag" class="hidden">
+    <div class="tablet panel">
+      <div class="panel-head">
+        <h1>YOUR BAG</h1>
+        <button class="close-x" id="bag-x" title="Close (I or Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body">
+        <p class="rules-note" id="bag-note"></p>
+        <div id="bag-items"></div>
+      </div>
+      <button id="bag-close">DONE</button>
+    </div>
+  </div>
+
+  <!-- GIVE (peace mode, E facing a caveman): shells, or something out of the bag on loan -->
+  <div id="give" class="hidden">
+    <div class="tablet panel">
+      <div class="panel-head">
+        <h1 id="give-title">GIVE</h1>
+        <button class="close-x" id="give-x" title="Close (Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body">
+        <p class="rules-note" id="give-note"></p>
+        <div id="give-items"></div>
+      </div>
+      <button id="give-close">DONE</button>
+    </div>
+  </div>
+
+  <!-- LEVELS (peace mode): the stats, and the points to put on them -->
+  <div id="level" class="hidden">
+    <div class="tablet panel">
+      <div class="panel-head">
+        <h1>YOUR LEVEL</h1>
+        <button class="close-x" id="level-x" title="Close (L or Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body">
+        <p class="rules-note" id="level-note"></p>
+        <div id="level-items"></div>
+      </div>
+      <button id="level-close">DONE</button>
+    </div>
+  </div>
+
   <div id="tailor" class="hidden">
     <div class="tablet panel">
       <div class="panel-head">

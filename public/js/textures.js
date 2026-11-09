@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GARBS } from '/shared/constants.js';
+import { GARBS, DRESS } from '/shared/constants.js';
 import { seededRandom } from './util.js';
 
 function canvasTexture(size, draw, seed = 7) {
@@ -122,6 +122,84 @@ export function peltTexture(garbIndex) {
   const id = GARBS[garbIndex]?.id || 'leopard';
   if (!peltCache.has(id)) peltCache.set(id, canvasTexture(256, PELTS[id], garbIndex * 31 + 5));
   return peltCache.get(id);
+}
+
+// The clothes of the later DRESS stages, in a garb's own colours (GARBS cloth and trim), each
+// drawn on the cloth parts in place of the pelt.
+const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+const rgba = (c, a) => `rgba(${hex(c).join(',')},${a})`;
+const shade = (c, k) => `rgb(${hex(c).map(v => Math.round(Math.min(255, v * k))).join(',')})`;
+function weave(g, s, color, gap = 8, alpha = 0.3) {
+  g.strokeStyle = rgba(color, alpha);
+  g.lineWidth = 1.5;
+  for (let x = 0; x < s; x += gap) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, s); g.stroke(); }
+  for (let y = 0; y < s; y += gap) { g.beginPath(); g.moveTo(0, y); g.lineTo(s, y); g.stroke(); }
+}
+const CLOTH = {
+  // the pelt still, with patches of hide stitched on
+  hides(g, s, r, garb, pelt) {
+    pelt(g, s, r);
+    for (let i = 0; i < 6; i++) {
+      const x = r() * s, y = r() * s, w = 44 + r() * 40, h = 34 + r() * 30;
+      wrapped(s, x, y, (px, py) => {
+        g.fillStyle = i % 2 ? '#5a3519' : '#7a4b25';
+        g.fillRect(px, py, w, h);
+        g.strokeStyle = '#e2c477';
+        g.lineWidth = 2;
+        g.setLineDash([5, 5]);
+        g.strokeRect(px + 4, py + 4, w - 8, h - 8);
+        g.setLineDash([]);
+      });
+    }
+  },
+  // woven cloth, the weave showing
+  woven(g, s, r, garb) {
+    g.fillStyle = garb.cloth;
+    g.fillRect(0, 0, s, s);
+    g.fillStyle = 'rgba(0,0,0,0.07)';
+    for (let y = 0; y < s; y += 16) g.fillRect(0, y, s, 8);
+    weave(g, s, garb.trim, 8, 0.28);
+  },
+  // dyed: broad bands of the trim colour, slanting
+  dyed(g, s, r, garb) {
+    g.fillStyle = garb.cloth;
+    g.fillRect(0, 0, s, s);
+    g.fillStyle = garb.trim;
+    for (let x = -s; x < s * 2; x += 56) {
+      g.beginPath();
+      g.moveTo(x, 0); g.lineTo(x + 22, 0); g.lineTo(x + 22 + s * 0.5, s); g.lineTo(x + s * 0.5, s);
+      g.closePath();
+      g.fill();
+    }
+    weave(g, s, '#000000', 6, 0.08);
+  },
+  // tailored: a darker cloth, finely pinstriped
+  tailored(g, s, r, garb) {
+    g.fillStyle = shade(garb.cloth, 0.62);
+    g.fillRect(0, 0, s, s);
+    g.strokeStyle = rgba(garb.trim, 0.75);
+    g.lineWidth = 1.2;
+    for (let x = 6; x < s; x += 12) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, s); g.stroke(); }
+    weave(g, s, '#000000', 4, 0.06);
+  },
+  // sleek: near black, with seams in the trim colour (the material glows a little too)
+  sleek(g, s, r, garb) {
+    g.fillStyle = '#1c1c26';
+    g.fillRect(0, 0, s, s);
+    weave(g, s, '#ffffff', 10, 0.05);
+    g.strokeStyle = shade(garb.trim, 1.6);
+    g.lineWidth = 4;
+    for (const x of [s * 0.25, s * 0.75]) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, s); g.stroke(); }
+    for (const y of [s * 0.3, s * 0.8]) { g.beginPath(); g.moveTo(0, y); g.lineTo(s, y); g.stroke(); }
+  },
+};
+const clothCache = new Map();
+// stage: DRESS index (0: the pelt itself)
+export function clothTexture(garbIndex, stage) {
+  if (!stage) return peltTexture(garbIndex);
+  const garb = GARBS[garbIndex] || GARBS[0], id = DRESS[stage]?.id || 'sleek', key = `${garb.id}:${id}`;
+  if (!clothCache.has(key)) clothCache.set(key, canvasTexture(256, (g, s, r) => CLOTH[id](g, s, r, garb, PELTS[garb.id]), garbIndex * 31 + stage * 7 + 5));
+  return clothCache.get(key);
 }
 
 export function peltSwatchURL(garbIndex) {

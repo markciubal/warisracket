@@ -507,7 +507,7 @@ body.details #wc-stats { display: grid; grid-template-columns: 74px 1fr 38px; ga
 #scoreboard .hint { margin-top: 10px; text-align: center; font-size: 12px; color: #2b241d; }
 
 /* ---------------------------------------------------------------- round end & council */
-#roundend, #council, #settings, #tailor, #rack, #shed, #gear {
+#roundend, #council, #settings, #tailor, #stall, #bag, #rack, #shed, #gear {
   position: fixed;
   inset: 0;
   display: flex;
@@ -517,7 +517,7 @@ body.details #wc-stats { display: grid; grid-template-columns: 74px 1fr 38px; ga
   background: radial-gradient(ellipse at center, rgba(20, 12, 30, 0.25), rgba(10, 6, 18, 0.7));
 }
 #roundend { z-index: 15; pointer-events: none; }
-#council, #tailor, #rack, #shed, #gear { z-index: 22; }
+#council, #tailor, #stall, #bag, #rack, #shed, #gear { z-index: 22; }
 /* the penumbra's gear screen: the look on the left, the numbers on the right, the picks below */
 #gear .tablet { width: min(720px, 100%); }
 .gear-top { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; }
@@ -637,7 +637,7 @@ button.minor {
 #lock-hint button { font-size: 14px; text-shadow: none; }
 #lock-quit, #settings-quit { min-width: 92px; }   /* same size when it turns into SURE? */
 #lock-hint #lock-resume { font-size: 16px; }
-#roundend h1, #council h1, #tailor h1, #rack h1, #shed h1 { margin: 0 0 4px; font-size: 30px; color: #f7d58b; text-shadow: 0 3px 0 #6b3a12; }
+#roundend h1, #council h1, #tailor h1, #stall h1, #bag h1, #rack h1, #shed h1 { margin: 0 0 4px; font-size: 30px; color: #f7d58b; text-shadow: 0 3px 0 #6b3a12; }
 #council h1 { font-size: 28px; }
 #re-winner { margin: 2px 0 8px; font-size: 17px; color: #ffd34d; text-shadow: 0 2px 0 #3a1f08; }
 #roundend table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -693,6 +693,7 @@ details.fold[open] summary { margin-bottom: 8px; }
 #era-next { font-size: 11px; color: #2b241d; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25); }
 #era-dots { display: flex; justify-content: center; gap: 6px; margin-top: 3px; }
 #era-dots:empty { display: none; }
+#era-dots .feast { color: #ffd36b; font-size: 11px; align-self: center; }   /* peace: how far to the next feast */
 #era-dots i { width: 9px; height: 9px; border-radius: 50%; background: rgba(0, 0, 0, 0.4); border: 2px solid #1b130c; }
 #era-dots i.done { background: #a8875a; }
 #era-dots i.now { background: #ffd34d; box-shadow: 0 0 8px #ffd34d; }
@@ -732,9 +733,75 @@ body:not(.peace) #build-panel, body.peace:not(.practicing) #spear-box, body.prac
 
 /* the town: shells (peace only), and the tailor's counter */
 #purse { margin-top: 4px; font-size: 13px; color: #ffe9a8; text-shadow: 0 1px 0 #000; }
+/* hurt in peace: a bite out of the tribe's store (H; on a phone, the button) */
+#eat-tip { margin-top: 4px; font-size: 12px; color: #c9f59a; text-shadow: 0 1px 0 #000; white-space: nowrap; }
+#eat-tip.empty { color: #d9b38a; }
+/* (on a phone it's a button, over the stick: what's in the store under it) */
+#t-eat {
+  left: calc(68px + var(--sl));
+  bottom: calc(172px + var(--sb));
+  width: 62px;
+  height: 62px;
+  font-size: 11px;
+  color: #1b2a0c;
+  text-shadow: none;
+  background: radial-gradient(circle at 35% 30%, #d6f7b0, #5fae36 75%);
+}
+#t-eat b { font-weight: 400; font-size: 10px; white-space: nowrap; }
+/* the DEEDS strip on the peace panel: done ones lit, a new one pops */
+#deeds { display: flex; justify-content: center; gap: 3px; margin-top: 3px; font-size: 13px; line-height: 1; }
+#deeds i { font-style: normal; opacity: 0.45; filter: grayscale(1); }
+body.touch #deeds { font-size: 11px; gap: 2px; margin-top: 2px; }
+#deeds i.done { opacity: 1; filter: none; }
+#deeds i.new { animation: deedPop 0.7s ease-out; }
+@keyframes deedPop { 0% { transform: scale(2.4); } 60% { transform: scale(0.9); } 100% { transform: scale(1); } }
+/* TRIBE DEEDS: each with how many of the different cavemen it takes so far; done ones lit */
+#tribe { display: flex; justify-content: center; gap: 5px; margin-top: 3px; font-size: 11px; line-height: 1; color: #fff3c4; text-shadow: 0 1px 0 #20330f; }
+#tribe i { font-style: normal; opacity: 0.55; }
+#tribe i.done { opacity: 1; color: #ffe066; }
+#tribe i.new { animation: deedPop 0.7s ease-out; }
+#tribe i.some { opacity: 0.85; }
+body.touch #tribe { font-size: 9px; gap: 3px; }
+/* the store goal: a bar to the BIG FEAST */
+#goal { position: relative; height: 12px; margin-top: 4px; background: rgba(0, 0, 0, 0.35); border: 2px solid #1b130c; border-radius: 7px; overflow: hidden; }
+#goal i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #e8c45a, #ffe9a8); transition: width 0.4s; }
+#goal span { position: absolute; inset: 0; font-size: 9px; line-height: 10px; text-align: center; color: #20330f; letter-spacing: 0.04em; }
+#goal.done i { background: linear-gradient(90deg, #ff9a3c, #ffd34d); }
+/* THE STORY OF THE NIGHT, as a stretch of peace ends */
+#story { position: absolute; left: 50%; top: calc(206px + var(--st, 0px)); transform: translateX(-50%); width: min(380px, 90vw); padding: 8px 14px 10px; text-align: center; pointer-events: none; animation: pop 0.4s cubic-bezier(0.2, 1.8, 0.4, 1); }   /* (under the age panel) */
+#story h2 { margin: 0 0 4px; font-family: var(--font-carve); font-size: 18px; color: #f7d58b; text-shadow: 0 2px 0 #3a1f08; }
+#story-lines div { font-size: 12px; color: #2b241d; line-height: 1.35; }
+#story-lines div.more { color: #6b5a44; font-size: 11px; }
+body.touch #story { top: calc(190px + var(--st, 0px)); width: min(320px, 70vw); }
+/* GIVE: shells and things on loan */
+#give .tablet { width: min(480px, 100%); }
+#give-close { margin-top: 12px; width: 100%; }
+.give-shells { display: flex; gap: 8px; margin: 6px 0 2px; }
+.give-shells button { flex: 1; }
+.shop-row .lock { display: block; font-size: 10px; color: #a8201a; }
+.shop-note { margin: 4px 0; font-size: 11px; color: #4a3d2e; opacity: 0.85; }
+.shop-row small .lent { color: #2f6fd1; }
+#era-calm.hungry { color: #ffb36b; white-space: nowrap; }
 body:not(.peace) #purse { display: none; }
 #tailor .tablet { width: min(420px, 100%); }
-#tailor-close, #rack-close, #shed-close { margin-top: 12px; width: 100%; }
+#stall .tablet, #bag .tablet, #level .tablet { width: min(520px, 100%); }
+#level-close { margin-top: 12px; width: 100%; }
+.stat-n { margin-left: 6px; padding: 0 7px; border-radius: 8px; background: #2b241d; color: #ffd34d; font-weight: 400; font-size: 13px; }
+/* my level, under my health: lit when there's a point to spend */
+#level-chip { margin-top: 4px; font-size: 12px; color: #ffe9a8; text-shadow: 0 1px 0 #000; white-space: nowrap; }
+#level-chip.points { color: #ffd34d; animation: throb 0.6s infinite alternate; }
+/* the notes to tap, playing the xylophone or the flute on a phone */
+#t-notes { position: absolute; left: 50%; bottom: calc(150px + var(--sb)); transform: translateX(-50%); display: flex; gap: 5px; }   /* (above the prompt) */
+#t-notes.hidden { display: none; }
+.tbtn.note { position: relative; width: 42px; height: 42px; font-size: 16px; color: var(--ink); text-shadow: none; background: radial-gradient(circle at 35% 30%, #fff1c0, #ffb52e 75%); }
+#stall .panel-body, #bag .panel-body { max-height: min(62vh, 520px); overflow-y: auto; }
+#tailor-close, #stall-close, #bag-close, #rack-close, #shed-close { margin-top: 12px; width: 100%; }
+/* the trading post's things, and the bag's: an icon, a name and what it does, and its button */
+.shop-head { margin: 10px 0 2px; font-size: 13px; color: #6b3a12; letter-spacing: 1px; }
+.shop-row .shop-what { display: flex; gap: 8px; align-items: center; min-width: 0; text-align: left; }
+.shop-row .shop-icon { font-size: 22px; }
+.shop-row small { display: block; font-size: 10px; color: #4a3d2e; opacity: 0.85; line-height: 1.25; }
+.shop-row button.owned { opacity: 0.6; }
 #rack .tablet, #shed .tablet { width: min(560px, 100%); }
 #rack-items, #shed-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
 .rack-item.only { background: linear-gradient(#9fd86a, #5f9a32); }
@@ -790,15 +857,6 @@ body.touch #practice-note { top: calc(84px + var(--st)); bottom: auto; font-size
 body:not(.peace) #chat-form, body:not(.peace) #chat-tip, body.chatting #chat-tip, body.no-chat #chat { display: none; }
 .floater.emote.chat { white-space: normal; width: max-content; max-width: 230px; text-align: center; }
 
-/* the vote to keep farming */
-#vote { position: fixed; top: 96px; left: 50%; transform: translateX(-50%); z-index: 10;   /* above the pause screen */ padding: 8px 14px 6px; text-align: center; }
-#vote .vote-q { font-size: 18px; color: #f7d58b; text-shadow: 0 2px 0 #3a1f08; }
-#vote .row { margin-top: 6px; gap: 10px; }
-#vote button { font-size: 14px; padding: 4px 14px; }
-#vote button.on { outline: 3px solid #ffe066; outline-offset: 1px; }
-#vote button span { font-size: 11px; opacity: 0.7; }
-#vote-count { margin-top: 4px; font-size: 11px; color: #2b241d; }
-body.touch #vote { top: calc(74px + var(--st)); }
 body.touch #chat { top: calc(150px + var(--st)); bottom: auto; left: calc(8px + var(--sl)); width: min(300px, 42vw); }
 body.touch .chat-line { font-size: 11px; }
 body.touch #chat-log .chat-line:nth-last-child(n + 5) { display: none; }

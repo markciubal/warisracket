@@ -18,14 +18,23 @@ export const SHOP_LOOK = {
   range:  { color: '#ffd34d', icon: '🎯', sign: 'TARGETS', sub: '1 🐚 A HIT' },
   duel:   { color: '#ff9a3d', icon: '⚔️', sign: 'DUEL RING', sub: 'NOBODY GOES BELOW 1 HP' },
   tailor: { color: '#c58cff', icon: '🎩', sign: 'TAILOR', sub: 'HATS · CAPES' },
+  trader: { color: '#ffb84d', icon: '💰', sign: 'TRADING POST', sub: 'WEAPONS · GEAR · 🐚' },
   haunt:  { color: '#a07cff', icon: '🌲', sign: 'DARK FOREST', sub: 'THE DEEPER, THE WORSE' },
   pond:   { color: '#4fb3ff', icon: '🎣', sign: 'FISHING', sub: 'FISH FOR 🐚 AND FOOD' },
   spring: { color: '#7fe3d0', icon: '♨️', sign: 'HOT SPRING', sub: 'SOAK TO HEAL' },
   bonfire: { color: '#ff7a2f', icon: '🔥', sign: 'BONFIRE', sub: 'DANCE FOR 🐚' },
+  site:    { color: '#e0b060', icon: '🔨', sign: 'TRIBE PROJECT', sub: 'MANY HANDS · E TO WORK' },
 };
 
 // A shop's circle: the dark forest's grows as it spreads (the server says how far).
 export const zoneOf = s => s.zone ?? SHOPS[s.kind].zone;
+
+// Where a bonfire's xylophone or flute stands, on the planet (the server works it out the same way).
+export function instrumentAt(s, kind) {
+  const def = SHOPS.bonfire, a = def[kind], side = M.cross(s.u, s.f);
+  const dir = M.add(M.scale(s.f, Math.cos(a)), M.scale(side, Math.sin(a)));
+  return M.moveOnSphere(s.u, dir, dir, def.zone - def.drumAt)[0];
+}
 
 // Where a bonfire's drums stand, on the planet (the server works it out the same way).
 export function drumsOf(s) {
@@ -182,6 +191,30 @@ const MODELS = {
     }
   },
   // a striped tent with a pennant, a dummy in a top hat and a rack of capes
+  // a market stall under a striped awning: the counter, crates and a sack of goods, a basket, a
+  // sickle and a bow hung up, a lantern, and a pile of shells
+  trader(g) {
+    const wood = mat(WOOD), plank = mat('#8b5a2b');
+    part(g, new THREE.BoxGeometry(2.6, 0.95, 0.7), plank, 0, 0.48, 0.45);
+    part(g, new THREE.BoxGeometry(2.8, 0.08, 0.9), wood, 0, 0.98, 0.45);
+    for (const x of [-1.3, 1.3]) for (const z of [-0.5, 0.75]) part(g, new THREE.CylinderGeometry(0.07, 0.08, 2.6, 5), wood, x, 1.3, z);
+    const awning = new THREE.MeshLambertMaterial({ map: stripes('#f2a23a', '#f4ead2', 9), side: THREE.DoubleSide });
+    part(g, new THREE.BoxGeometry(3.0, 0.06, 1.7), awning, 0, 2.65, 0.15).rotation.x = 0.16;
+    part(g, new THREE.BoxGeometry(2.6, 1.6, 0.12), plank, 0, 1.75, -0.55);
+    // goods
+    part(g, new THREE.BoxGeometry(0.6, 0.5, 0.6), mat('#a8743c', { flatShading: true }), -1.9, 0.25, 0.9);
+    part(g, new THREE.BoxGeometry(0.5, 0.4, 0.5), mat('#9a6a34', { flatShading: true }), -1.85, 0.7, 0.85).rotation.y = 0.4;
+    part(g, new THREE.SphereGeometry(0.4, 8, 6), mat('#c9b27a', { flatShading: true }), 1.9, 0.32, 0.9).scale.y = 0.8;
+    part(g, new THREE.CylinderGeometry(0.28, 0.22, 0.32, 10), mat('#b8823e', { flatShading: true }), 0.7, 1.18, 0.45);
+    for (let i = 0; i < 6; i++) part(g, new THREE.SphereGeometry(0.07, 6, 4), mat('#f6e6d0'), -0.6 + (i % 3) * 0.13, 1.06 + Math.floor(i / 3) * 0.08, 0.5 + (i % 2) * 0.1);
+    // hung up on the back board: a sickle and a bow
+    const sickle = part(g, new THREE.TorusGeometry(0.28, 0.035, 4, 12, Math.PI * 1.2), mat('#cfd8e6'), -0.6, 1.9, -0.46);
+    sickle.rotation.z = 0.6;
+    part(g, new THREE.CylinderGeometry(0.025, 0.025, 0.5, 4), wood, -0.75, 1.55, -0.46).rotation.z = 0.5;
+    part(g, new THREE.TorusGeometry(0.42, 0.03, 4, 14, Math.PI), wood, 0.6, 1.85, -0.46).rotation.z = Math.PI / 2;
+    // a lantern
+    part(g, new THREE.BoxGeometry(0.22, 0.3, 0.22), new THREE.MeshBasicMaterial({ color: '#ffd27a' }), 1.15, 2.3, 0.75);
+  },
   tailor(g) {
     const r = SHOPS.tailor.r;
     const cloth = new THREE.MeshLambertMaterial({ map: stripes('#8a4fd1', '#f2c94c', 14), side: THREE.DoubleSide });
@@ -207,6 +240,90 @@ const MODELS = {
   },
 };
 
+// The TRIBE PROJECT's ground: a work table with tools, a pile of logs and a stack of stones. What
+// the tribe is building (and has built) stands on it: PROJECT_MODELS, by Town.project().
+// (the table, logs and stones sit in the solid middle, SHOPS.site.r; the projects stand out at the
+// edge of its circle, where nobody has to stand to work)
+MODELS.site = g => {
+  const wood = mat(WOOD), plank = mat('#8b5a2b');
+  part(g, new THREE.BoxGeometry(1.3, 0.1, 0.7), plank, -0.45, 0.8, 0.55);
+  for (const [x, z] of [[-1.0, 0.3], [0.1, 0.3], [-1.0, 0.8], [0.1, 0.8]]) part(g, new THREE.CylinderGeometry(0.05, 0.06, 0.8, 5), wood, x, 0.4, z);
+  part(g, new THREE.BoxGeometry(0.1, 0.5, 0.1), mat('#c9a06a'), -0.6, 0.98, 0.5).rotation.z = 0.5;   // a mallet
+  part(g, new THREE.BoxGeometry(0.28, 0.16, 0.16), mat('#8d8a83'), -0.45, 1.12, 0.43).rotation.z = 0.5;
+  for (let i = 0; i < 5; i++) {
+    const log = part(g, new THREE.CylinderGeometry(0.14, 0.14, 1.3, 7), wood, 0.45 + (i % 3) * 0.3 - 0.3, 0.14 + Math.floor(i / 3) * 0.26, -0.55);
+    log.rotation.x = Math.PI / 2;
+  }
+  for (let i = 0; i < 4; i++) part(g, new THREE.DodecahedronGeometry(0.22 - i * 0.03, 0), mat('#8d8a83', { flatShading: true }), 0.7 + Math.cos(i * 1.7) * 0.22, 0.2 + i * 0.26, 0.55 + Math.sin(i * 1.7) * 0.22);
+};
+// k: how far built (0..1). Full-size models, scaled up from the ground as the work goes on
+// (Town.project); the scaffold stands round one till it's done.
+const PROJECT_MODELS = {
+  watchtower(g) {
+    const wood = mat(WOOD), plank = mat('#8b5a2b');
+    for (const [x, z] of [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]]) {
+      const pole = part(g, new THREE.CylinderGeometry(0.08, 0.1, 3.6, 6), wood, x * 1.1, 1.8, z * 1.1);
+      pole.rotation.set(-z * 0.08, 0, x * 0.08);
+    }
+    part(g, new THREE.BoxGeometry(2.0, 0.12, 2.0), plank, 0, 3.4, 0);
+    for (const s of [-1, 1]) {
+      part(g, new THREE.BoxGeometry(2.0, 0.06, 0.06), wood, 0, 4.0, s * 0.97);
+      part(g, new THREE.BoxGeometry(0.06, 0.06, 2.0), wood, s * 0.97, 4.0, 0);
+    }
+    part(g, new THREE.ConeGeometry(1.6, 1.0, 4), new THREE.MeshLambertMaterial({ map: stripes('#d9b45a', '#b8903a', 6) }), 0, 4.9, 0).rotation.y = Math.PI / 4;
+    part(g, new THREE.CylinderGeometry(0.03, 0.03, 1.0, 4), wood, 0, 5.8, 0);
+    part(g, new THREE.ConeGeometry(0.16, 0.5, 3), mat('#e03a2f'), 0.27, 6.1, 0).rotation.z = -Math.PI / 2;
+    // a brazier up top: this is where the tribe keeps watch
+    part(g, new THREE.CylinderGeometry(0.2, 0.14, 0.2, 8), mat('#3a2a1a'), 0, 3.56, 0);
+    part(g, new THREE.ConeGeometry(0.16, 0.5, 6), new THREE.MeshBasicMaterial({ color: '#ffb03a' }), 0, 3.9, 0);
+  },
+  footbridge(g) {
+    const wood = mat(WOOD), plank = mat('#8b5a2b');
+    const N = 9;
+    for (let i = 0; i < N; i++) {
+      const a = ((i / (N - 1)) - 0.5) * Math.PI * 0.8;
+      const p = part(g, new THREE.BoxGeometry(1.4, 0.08, 0.34), plank, Math.sin(a) * 2.2, 0.5 + Math.cos(a) * 1.0, 0);
+      p.rotation.z = -a;
+    }
+    for (const z of [-0.6, 0.6]) {
+      for (let i = 0; i < 5; i++) {
+        const a = ((i / 4) - 0.5) * Math.PI * 0.8;
+        part(g, new THREE.CylinderGeometry(0.04, 0.05, 0.8, 5), wood, Math.sin(a) * 2.2, 0.9 + Math.cos(a) * 1.0, z);
+      }
+      const rail = part(g, new THREE.TorusGeometry(2.3, 0.04, 5, 16, Math.PI * 0.8), wood, 0, 0.5, z);
+      rail.rotation.z = Math.PI * 0.1 + Math.PI / 2 - Math.PI * 0.4;
+    }
+    for (const x of [-2.1, 2.1]) part(g, new THREE.BoxGeometry(0.6, 0.5, 1.1), mat('#8d8a83', { flatShading: true }), x, 0.25, 0);
+  },
+  totem(g) {
+    const faces = ['#a5432c', '#8d8a83', '#5f8f6a'];
+    faces.forEach((c, i) => {
+      const y = 0.7 + i * 1.3;
+      part(g, new THREE.BoxGeometry(1.1, 1.25, 1.0), mat(c, { flatShading: true }), 0, y, 0);
+      for (const s of [-1, 1]) part(g, new THREE.SphereGeometry(0.13, 6, 5), mat('#fff3d6'), s * 0.28, y + 0.2, 0.5);
+      for (const s of [-1, 1]) part(g, new THREE.SphereGeometry(0.06, 5, 4), mat('#1a100a'), s * 0.28, y + 0.2, 0.6);
+      part(g, new THREE.BoxGeometry(0.24, 0.4, 0.3), mat(c, { flatShading: true }), 0, y - 0.05, 0.6);
+      part(g, new THREE.BoxGeometry(0.6, 0.1, 0.1), mat('#1a100a'), 0, y - 0.4, 0.52);
+    });
+    // wings up top
+    for (const s of [-1, 1]) {
+      const wing = part(g, new THREE.BoxGeometry(1.6, 0.14, 0.5), mat('#e0b060', { flatShading: true }), s * 1.1, 4.1, 0);
+      wing.rotation.z = s * 0.35;
+    }
+    part(g, new THREE.ConeGeometry(0.35, 0.7, 6), mat('#e0b060', { flatShading: true }), 0, 4.45, 0);
+  },
+};
+function scaffold(g, h) {
+  const pole = mat('#c9a06a');
+  for (const [x, z] of [[-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0], [1.0, 1.0]]) part(g, new THREE.CylinderGeometry(0.05, 0.06, h, 5), pole, x, h / 2, z);
+  for (const y of [h * 0.5, h]) {
+    for (const s of [-1, 1]) {
+      part(g, new THREE.BoxGeometry(2.1, 0.06, 0.06), pole, 0, y, s * 1.0);
+      part(g, new THREE.BoxGeometry(0.06, 0.06, 2.1), pole, s * 1.0, y, 0);
+    }
+  }
+}
+
 // A point on the ground d from a shop's middle, in direction a (radians round from its front), in
 // the shop's own frame, and which way is up there. Big things (a ring, a hollow) are built in one
 // piece and still sit on the curve. (Built for today's R; rebuilt when the planet grows.)
@@ -216,6 +333,8 @@ function groundAt(d, a) {
   const up = new THREE.Vector3(Math.sin(a) * Math.sin(th), Math.cos(th), Math.cos(a) * Math.sin(th));
   return { pos: new THREE.Vector3(up.x * R, R * Math.cos(th) - R, up.z * R), up };
 }
+const WISP_AT = new THREE.Matrix4();   // (a dark forest wisp's place, as it's moved)
+
 // Stand obj on that curve, d from the middle in direction a, turned yaw about its own up.
 function standAt(obj, d, a, yaw = 0) {
   const { pos, up } = groundAt(d, a);
@@ -268,51 +387,81 @@ const CURVED = {
   // gravestones out near the edge and bones further in; a ring of standing stones round a glowing
   // altar at the heart; and wisps of green light drifting about (s.wisps). Built again each time it
   // grows: everything in it has its place in the whole forest (seeded), and shows once the forest
-  // has grown over it, so what was there stays where it was.
+  // has grown over it, so what was there stays where it was. It's big, so it's built light: the
+  // ground is one layer shaded by depth (not a stack of see-through ones), the ground and the wood
+  // come in eighths round the middle (what's off the screen, or out of the sun's shadow box, isn't
+  // drawn), and the wisps are two instanced meshes.
   haunt(g, s) {
     const rings = s.rings || 1, pen = SHOPS.haunt.penumbra;
     // which way from the middle (azimuth a, as groundAt has it), and how far out depth f is that way
     const dirOf = a => M.add(M.scale(s.f, Math.cos(a)), M.scale(M.cross(s.u, s.f), Math.sin(a)));
-    const N = 144, edges = Array.from({ length: N + 1 }, (_, i) => F.edgeAngle(s, dirOf((i / N) * Math.PI * 2)) * R);
-    const grownTo = rings / FOREST_TIERS.length;
-    const distAt = (i, f, beyond = 0) => (1 - f) * grownTo * edges[i] + beyond;
-    // a band of ground following the shape, from depth f1 out to f2 (plus beyond: past the edge)
-    const band = (f1, f2, b1, b2, color, opacity, lift) => {
-      const steps = Math.max(1, Math.ceil(Math.max(...edges) * grownTo * Math.abs(f1 - f2) / 0.9 + Math.abs(b2 - b1) / 0.9));
-      const pos = [], idx = [];
-      for (let i = 0; i <= N; i++) {
-        const a = (i / N) * Math.PI * 2;
-        for (let j = 0; j <= steps; j++) {
-          const k = j / steps;
-          const { pos: q, up } = groundAt(M.lerp(distAt(i, f1, b1), distAt(i, f2, b2), k), a);
-          q.addScaledVector(up, lift);
-          pos.push(q.x, q.y, q.z);
-          if (i < N && j < steps) {
-            const v = i * (steps + 1) + j, w = v + steps + 1;
+    const N = 120, SECTORS = 8, per = N / SECTORS;
+    const edges = Array.from({ length: N + 1 }, (_, i) => F.edgeAngle(s, dirOf((i / N) * Math.PI * 2)) * R);
+    const grownTo = rings / FOREST_TIERS.length, span = Math.max(...edges) * grownTo;
+    // A band of ground following the shape, along `samples` ([depth, past the edge] pairs, from the
+    // inside out), in eighths. look: [colour, opacity], or tint(depth) -> [r, g, b, a].
+    const band = (samples, look, lift) => {
+      const tinted = typeof look === 'function';
+      const material = tinted
+        ? new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, side: THREE.DoubleSide })
+        : groundMat(...look);
+      const J = samples.length;
+      for (let sec = 0; sec < SECTORS; sec++) {
+        const pos = [], col = [], idx = [];
+        for (let i = sec * per; i <= (sec + 1) * per; i++) {
+          const a = (i / N) * Math.PI * 2;
+          for (const [f, b] of samples) {
+            const { pos: q, up } = groundAt((1 - f) * grownTo * edges[i] + b, a);
+            q.addScaledVector(up, lift);
+            pos.push(q.x, q.y, q.z);
+            if (tinted) col.push(...look(f));
+          }
+        }
+        for (let i = 0; i < per; i++) {
+          for (let j = 0; j < J - 1; j++) {
+            const v = i * J + j, w = v + J;
             idx.push(v, w, v + 1, v + 1, w, w + 1);
           }
         }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        if (tinted) geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
+        geo.setIndex(idx);
+        const m = new THREE.Mesh(geo, material);
+        m.renderOrder = 1;
+        g.add(m);
       }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      geo.setIndex(idx);
-      const m = new THREE.Mesh(geo, groundMat(color, opacity));
-      m.renderOrder = 1;
-      g.add(m);
     };
-    // the penumbra round it: gloom, not quite forest yet (E there: the gear screen)
-    band(0, 0, 0, pen, '#2d2638', 0.34, 0.015);
-    band(0, 0, pen - 0.12, pen, '#a08cc8', 0.35, 0.04);
-    band(1, 0, 0, 0, '#231a33', 0.72, 0.02);
-    for (let k = 1; k < rings; k++) band(1, k / rings, 0, 0, '#0e0816', 0.28, 0.02 + k * 0.004);
-    for (let k = 0; k < rings; k++) band(k / rings, k / rings, 0, 0.22, '#7c5cc4', 0.42, 0.05);
-    // the wood: merged into a few meshes, one per material
-    const wood = new THREE.Group();
+    // depths from the middle (1) out to the edge (0), no further apart along the ground than `step`,
+    // through every ring's edge exactly
+    const depths = (step = 1.4) => {
+      const out = [1];
+      for (let k = rings; k >= 1; k--) {
+        const hi = k / rings, lo = (k - 1) / rings, n = Math.max(1, Math.ceil((span * (hi - lo)) / step));
+        for (let j = 1; j <= n; j++) out.push(hi - ((hi - lo) * j) / n);
+      }
+      return out.map(f => [f, 0]);
+    };
+    const beyond = (b1, b2, step = 1.2) => {
+      const n = Math.max(1, Math.ceil((b2 - b1) / step));
+      return Array.from({ length: n + 1 }, (_, j) => [0, b1 + ((b2 - b1) * j) / n]);
+    };
+    // the forest's ground, darker ring by ring: each ring in deeper has another dark veil over it
+    const base = new THREE.Color('#231a33'), dark = new THREE.Color('#0e0816');
+    const shades = Array.from({ length: rings }, (_, t) => { const c = base.clone().lerp(dark, 1 - 0.72 ** t); return [c.r, c.g, c.b, 1 - 0.28 * 0.72 ** t]; });
+    band(depths(), f => shades[Math.min(rings - 1, Math.floor(f * rings + 1e-6))], 0.02);
+    // each ring's edge faintly lit, and the penumbra round it all: gloom, not quite forest yet (E there: the gear screen)
+    for (let k = 0; k < rings; k++) band([[k / rings, 0], [k / rings, 0.22]], ['#7c5cc4', 0.42], 0.05);
+    band(beyond(0, pen), ['#2d2638', 0.34], 0.015);
+    band([[0, pen - 0.12], [0, pen]], ['#a08cc8', 0.35], 0.04);
+    // the wood: merged into a few meshes, one per material and eighth of the way round
+    const woods = Array.from({ length: SECTORS }, () => new THREE.Group());
     const bark = mat('#2b2420', { flatShading: true }), pine = mat('#18241d', { flatShading: true });
     const stone = mat('#7d7a86', { flatShading: true }), moss = mat('#4f6b3a', { flatShading: true }), bone = mat('#d9d0b8', { flatShading: true });
-    const bake = (obj, d, a, yaw) => {   // stand obj on the curve, and move its pieces into the wood
+    const bake = (obj, d, a, yaw) => {   // stand obj on the curve, and move its pieces into its eighth of the wood
       standAt(obj, d, a, yaw);
       obj.updateMatrix();
+      const wood = woods[Math.floor((((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * SECTORS) % SECTORS];
       for (const c of [...obj.children]) {
         c.updateMatrix();
         c.matrix.premultiply(obj.matrix);
@@ -324,7 +473,7 @@ const CURVED = {
     // it's built), at so much ground apiece; each one only shows once the forest has grown over it
     const rnd = seeded(s.seed || s.id);
     const full = 4 * Math.PI * R * R * 0.5;   // (about the ground it covers, fully grown)
-    for (let n = Math.round(full / 15), i = 0; i < n * 2; i++) {
+    for (let n = Math.round(full / 20), i = 0; i < n * 2; i++) {
       const a = rnd() * Math.PI * 2, cosTh = 1 - rnd() * 2;   // (evenly over the planet...)
       const th = Math.acos(cosTh), d = th * R;
       const roll = rnd(), yaw = rnd() * 6, h = 2.4 + rnd() * 1.8, kindRoll = rnd();
@@ -372,22 +521,20 @@ const CURVED = {
     const altar = new THREE.Group();
     part(altar, new THREE.BoxGeometry(1.1, 0.5, 0.7), stone, 0, 0.25, 0);
     bake(altar, 0.01, 0, 0);
-    mergeChildren(wood);
-    g.add(wood);
+    for (const wood of woods) { mergeChildren(wood); g.add(wood); }
     const glow = g.add(groundDisk(1.4, 0, groundMat('#7dff6a', 0.18))).children.at(-1);
     glow.position.y = 0.06;
-    // wisps all through it, each drifting round a spot of its own
-    s.wisps = [];
-    const wr = seeded((s.seed || s.id) + 5);
-    for (let i = 0; i < 12 + rings * 6; i++) {
+    // wisps all through it, each drifting round a spot of its own (moved in update: two instanced
+    // meshes, their bright middles and their glows)
+    const wr = seeded((s.seed || s.id) + 5), list = [];
+    for (let i = 0; i < 12 + rings * 4; i++) {
       const a = wr() * Math.PI * 2, f = 0.08 + wr() * 0.9;
-      const d = (1 - f) * grownTo * F.edgeAngle(s, dirOf(a)) * R;
-      const wisp = new THREE.Group();
-      wisp.add(new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), new THREE.MeshBasicMaterial({ color: '#b8ff9a' })));
-      wisp.add(new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), new THREE.MeshBasicMaterial({ color: '#7dff6a', transparent: true, opacity: 0.22, depthWrite: false })));
-      g.add(wisp);
-      s.wisps.push({ obj: wisp, a, d: Math.max(2.5, d), ph: i * 1.7 });
+      list.push({ a, d: Math.max(2.5, (1 - f) * grownTo * F.edgeAngle(s, dirOf(a)) * R), ph: i * 1.7 });
     }
+    const cores = new THREE.InstancedMesh(new THREE.SphereGeometry(0.11, 8, 6), new THREE.MeshBasicMaterial({ color: '#b8ff9a' }), list.length);
+    const halos = new THREE.InstancedMesh(new THREE.SphereGeometry(0.3, 8, 6), new THREE.MeshBasicMaterial({ color: '#7dff6a', transparent: true, opacity: 0.22, depthWrite: false }), list.length);
+    for (const im of [cores, halos]) { im.frustumCulled = false; g.add(im); }
+    s.wisps = { list, cores, halos };
   },
   // a fishing pond: deep water you can't walk into (r), a sandy bank all round to stand on and
   // cast from (zone), reeds, stones and lily pads
@@ -486,6 +633,33 @@ const CURVED = {
       g.add(standAt(drum, zone - SHOPS.bonfire.drumAt, a));
       return { skin, hitAt: -9 };
     });
+    // the xylophone: ten bars on a log frame, long to short (town.noteHit makes one jump)
+    {
+      const xylo = new THREE.Group();
+      const frame = mat('#8b5a2b');
+      for (const z of [-0.26, 0.26]) part(xylo, new THREE.BoxGeometry(1.5, 0.08, 0.08), frame, 0, 0.55, z);
+      for (const x of [-0.7, 0.7]) part(xylo, new THREE.CylinderGeometry(0.05, 0.06, 0.55, 6), frame, x, 0.28, 0);
+      const tints = ['#ff5a3a', '#ff9a2a', '#ffd34d', '#9ad64f', '#4fcf8a', '#4fc2e8', '#5f8fff', '#9a6fff', '#e86fd0', '#ff6f9a'];
+      s.xylo = tints.map((c, i) => {
+        const bar = part(xylo, new THREE.BoxGeometry(0.12, 0.05, 0.62 - i * 0.03), mat(c), -0.66 + i * 0.146, 0.62, 0);
+        return { bar, hitAt: -9 };
+      });
+      g.add(standAt(xylo, zone - SHOPS.bonfire.drumAt, SHOPS.bonfire.xylo));
+    }
+    // the bone flute, on a little stand (its holes light up as it's played)
+    {
+      const st = new THREE.Group();
+      part(st, new THREE.CylinderGeometry(0.16, 0.2, 0.5, 7), mat('#5a3519'), 0, 0.25, 0);
+      const flute = part(st, new THREE.CylinderGeometry(0.045, 0.055, 0.9, 8), mat('#f3e7c8'), 0, 0.62, 0);
+      flute.rotation.z = 1.1;
+      s.flute = [];
+      for (let i = 0; i < 8; i++) {
+        const hole = part(flute, new THREE.CylinderGeometry(0.02, 0.02, 0.02, 6), mat('#3a2a1a'), 0, -0.36 + i * 0.09, 0.045);
+        hole.rotation.x = Math.PI / 2;
+        s.flute.push({ hole, hitAt: -9 });
+      }
+      g.add(standAt(st, zone - SHOPS.bonfire.drumAt, SHOPS.bonfire.flute));
+    }
     // sparks, drifting up (update)
     s.sparks = [];
     for (let i = 0; i < 6; i++) {
@@ -546,7 +720,10 @@ export class Town {
         g.traverse(o => { if (o.isMesh && o.material.transparent) o.castShadow = false; });
         return g;
       };
-      this.put(s, make(), on(middle), make);
+      // (built for the planet as it was: scaled about the planet's middle onto it as it is now, so
+      // all of it lies on the ground. Rebuilt once the size has changed enough to show; till then a
+      // big one, like the dark forest that goes half way round, would sink under it on its far side)
+      this.put(s, make(), obj => { on(middle)(obj); obj.scale.setScalar(R / s.builtR); }, make);
     }
     if (m.kind === 'range') this.buildRange(s);
     // the sign out front, and the icon up high
@@ -634,11 +811,51 @@ export class Town {
     if (d) d.hitAt = clock();
   }
 
+  // a note on a bonfire's xylophone or flute (n: which bar or hole)
+  noteHit(shopId, kind, n) {
+    const x = this.shops.get(shopId)?.[kind]?.[n];
+    if (x) x.hitAt = clock();
+  }
+
+  // The TRIBE PROJECTS on the project ground: the ones raised (done: kinds, in order) stand each in
+  // its own spot round it, and the one under way (current: { kind, done, steps }) rises in its
+  // spot as the work goes on, inside a scaffold. Rebuilt only when any of that changes.
+  project(done = [], current = null) {
+    const s = [...this.shops.values()].find(sh => sh.kind === 'site');
+    if (!s) return;
+    const key = `${done.join()}|${current ? `${current.kind}:${current.done}/${current.steps}` : ''}`;
+    if (s.projectKey === key) return;
+    s.projectKey = key;
+    if (s.projectPart) {
+      dispose(s.projectPart.obj);
+      s.parts.splice(s.parts.indexOf(s.projectPart), 1);
+      s.projectPart = null;
+    }
+    const g = new THREE.Group();
+    const D = SHOPS.site.zone - 0.4;   // (at the edge of the circle, facing in)
+    const spot = (i, obj) => { obj.position.set(Math.cos(i * 2.1 + 0.6) * D, 0, Math.sin(i * 2.1 + 0.6) * D); obj.rotation.y = -(i * 2.1 + 0.6) + Math.PI / 2; g.add(obj); return obj; };
+    done.forEach((kind, i) => { if (PROJECT_MODELS[kind]) { const m = new THREE.Group(); PROJECT_MODELS[kind](m); spot(i, m); } });
+    if (current && PROJECT_MODELS[current.kind]) {
+      const k = Math.max(0.04, current.done / current.steps);
+      const m = new THREE.Group();
+      PROJECT_MODELS[current.kind](m);
+      m.scale.set(1, k, 1);
+      const sc = new THREE.Group();
+      scaffold(sc, 4.2);
+      sc.add(m);
+      spot(done.length, sc);
+    }
+    shadows(g, true, true);
+    s.projectPart = this.put(s, g, obj => placeOnSphere(obj, s.u, M.tangent(s.u, s.f), 0));
+    s.projectPart = s.parts.at(-1);
+  }
+
   // The dark forest grew a ring: built again for its new size (the trees it had stay where they were).
   regrow(id, rings) {
     const s = this.shops.get(id);
     if (!s) return;
     s.rings = rings;
+    s.builtR = R;   // (built again now, for the planet as it is)
     for (const p of s.parts) {
       if (p.remake) {
         dispose(p.obj);
@@ -700,9 +917,16 @@ export class Town {
         tg.hinge.rotation.z = 0.1 * k * Math.sin(e * 19 + 1);
       }
       // the wisps drift about their spots in the forest, bobbing
-      for (const w of s.wisps || []) {
-        const { pos, up } = groundAt(w.d + Math.sin(t * 0.3 + w.ph) * 1.4, w.a + (Math.cos(t * 0.23 + w.ph) * 1.4) / w.d);
-        w.obj.position.copy(pos).addScaledVector(up, 1.3 + Math.sin(t * 1.7 + w.ph) * 0.35);
+      if (s.wisps) {
+        const { list, cores, halos } = s.wisps;
+        list.forEach((w, i) => {
+          const { pos, up } = groundAt(w.d + Math.sin(t * 0.3 + w.ph) * 1.4, w.a + (Math.cos(t * 0.23 + w.ph) * 1.4) / w.d);
+          pos.addScaledVector(up, 1.3 + Math.sin(t * 1.7 + w.ph) * 0.35);
+          WISP_AT.makeTranslation(pos.x, pos.y, pos.z);
+          cores.setMatrixAt(i, WISP_AT);
+          halos.setMatrixAt(i, WISP_AT);
+        });
+        cores.instanceMatrix.needsUpdate = halos.instanceMatrix.needsUpdate = true;
       }
       // the pond: light on the water, lily pads turning slowly
       if (s.shine) s.shine.material.opacity = 0.16 + Math.sin(t * 0.9 + s.id) * 0.08;
@@ -725,6 +949,17 @@ export class Town {
         const e = t - d.hitAt;
         d.skin.position.y = d.skin.userData.y ??= d.skin.position.y;
         if (e < 0.25) d.skin.position.y = d.skin.userData.y - 0.06 * Math.sin((e / 0.25) * Math.PI);
+      }
+      // a xylophone bar struck hops; a flute hole played glows
+      for (const x of s.xylo || []) {
+        const e = t - x.hitAt;
+        x.bar.position.y = x.bar.userData.y ??= x.bar.position.y;
+        if (e < 0.3) x.bar.position.y = x.bar.userData.y + 0.08 * Math.sin((e / 0.3) * Math.PI);
+      }
+      for (const h of s.flute || []) {
+        const e = t - h.hitAt;
+        h.hole.material.emissive ??= new THREE.Color(0);
+        h.hole.material.emissive.setScalar(e < 0.4 ? 0.9 * (1 - e / 0.4) : 0);
       }
       for (const sp of s.sparks || []) {
         const k = (t * 0.5 + sp.ph) % 1;

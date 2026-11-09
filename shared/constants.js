@@ -55,6 +55,28 @@ export const RANGED = {
     sticks: false, flight: 4, splat: true, peace: true, hint: 'HOLD RMB · LOB · SPLAT' },
   bazooka:   { name: 'Bazooka',   proj: 'rocket', ammo: 1, regen: 3,    chargeTime: 0,    minSpeed: 40, maxSpeed: 40, minDmg: 80, maxDmg: 80, headMult: 1,    hitRadius: 0.6,  lift: 0.05, cooldown: 1,    botPace: 1.2,
     sticks: false, flight: 2.5, blast: 3.5, peace: true, hint: 'RMB · ROCKET · BOOM' },
+  // only from the trading post (ITEMS), in peace. model: the weapon whose look it borrows.
+  // vsMonsters: what it does to the dark forest's monsters, times.
+  silverbow: { name: 'Silver-Tip Bow', proj: 'arrow', ammo: 8, regen: 1.8, chargeTime: 0.6, minSpeed: 26, maxSpeed: 56, minDmg: 24, maxDmg: 50, headMult: 1.75, hitRadius: 0.55, lift: 0.33, cooldown: 0.28, botPace: 0.6,
+    peace: true, shop: true, model: 'longbow', vsMonsters: 1.6, hint: 'HOLD RMB · LOOSE A SILVER ARROW' },
+  firework:  { name: 'Firework', proj: 'rocket', ammo: 2, regen: 2.4, chargeTime: 0, minSpeed: 34, maxSpeed: 34, minDmg: 70, maxDmg: 70, headMult: 1, hitRadius: 0.6, lift: 0.08, cooldown: 0.8, botPace: 1.2,
+    sticks: false, flight: 2.5, blast: 5, peace: true, shop: true, model: 'bazooka', vsMonsters: 1.25, hint: 'RMB · WHOOSH · BANG, IN COLOURS' },
+  starsling: { name: 'Star Sling', proj: 'pebble', ammo: 8, regen: 0.8, chargeTime: 0.45, minSpeed: 20, maxSpeed: 42, minDmg: 14, maxDmg: 26, headMult: 1.5, hitRadius: 0.4, lift: 0.22, cooldown: 0.25, botPace: 0.6,
+    sticks: false, flight: 3, peace: true, shop: true, model: 'slingshot', vsMonsters: 1.5, hint: 'HOLD RMB · PULL · LET GO · A STAR FLIES' },
+  holywater: { name: 'Holy Water', proj: 'tomato', ammo: 4, regen: 1.6, chargeTime: 0.6, minSpeed: 10, maxSpeed: 24, minDmg: 24, maxDmg: 24, headMult: 1, hitRadius: 0.5, lift: 0.45, cooldown: 0.4, botPace: 0.7,
+    sticks: false, flight: 4, splat: true, blast: 2.5, peace: true, shop: true, model: 'tomato', vsMonsters: 1.2, vs: { vampire: 3, ghost: 3, demon: 2 }, hint: 'HOLD RMB · LOB · SPLASH' },
+  silverbolt: { name: 'Silver Bolt', proj: 'arrow', ammo: 1, regen: 1, chargeTime: 0, minSpeed: 64, maxSpeed: 64, minDmg: 60, maxDmg: 60, headMult: 1.75, hitRadius: 0.5, lift: 0.06, cooldown: 0.9, botPace: 0.8,
+    peace: true, shop: true, model: 'crossbow', vsMonsters: 1.6, hint: 'RMB · THWACK · A SILVER BOLT' },
+  moonbeam:  { name: 'Moon Beam', proj: 'laser', ammo: 12, regen: 0.35, chargeTime: 0, minSpeed: 0, maxSpeed: 0, minDmg: 26, maxDmg: 26, headMult: 1.75, hitRadius: 0.5, lift: 0, cooldown: 0.16, botPace: 0.4,
+    hitscan: true, range: 60, auto: true, burst: [3, 6], peace: true, shop: true, model: 'laser', vsMonsters: 1.5, hint: 'HOLD RMB · MOONLIGHT, ZAP ZAP' },
+  harpoon: { name: 'Harpoon', proj: 'spear', ammo: 3, regen: 3, chargeTime: 0.9, minSpeed: 14, maxSpeed: 33, minDmg: 50, maxDmg: 90, headMult: 1.5, hitRadius: 0.65, lift: 0.5, cooldown: 0.35, botPace: 1,
+    peace: true, shop: true, model: 'spear', vsMonsters: 1.5, hint: 'HOLD RMB · THROW THE HARPOON' },
+  bonebow: { name: 'Bone Bow', proj: 'arrow', ammo: 10, regen: 1.2, chargeTime: 0.5, minSpeed: 22, maxSpeed: 46, minDmg: 18, maxDmg: 36, headMult: 1.75, hitRadius: 0.55, lift: 0.36, cooldown: 0.22, botPace: 0.6,
+    peace: true, shop: true, model: 'bow', vsMonsters: 1.4, hint: 'HOLD RMB · LOOSE · QUICK AS YOU LIKE' },
+  thunderstick: { name: 'Thunder Stick', proj: 'ball', ammo: 1, regen: 2, chargeTime: 0.35, minSpeed: 75, maxSpeed: 75, minDmg: 95, maxDmg: 95, headMult: 1.6, hitRadius: 0.5, lift: 0.04, cooldown: 0.5, botPace: 0.8,
+    sticks: false, flight: 2.5, peace: true, shop: true, model: 'musket', vsMonsters: 1.4, hint: 'HOLD RMB · AIM · LET GO · THUNDER' },
+  peashooter: { name: 'Pea Shooter', proj: 'bullet', ammo: 30, regen: 0.14, chargeTime: 0, minSpeed: 95, maxSpeed: 95, minDmg: 10, maxDmg: 10, headMult: 2, hitRadius: 0.45, lift: 0.02, cooldown: 0.1, botPace: 0.5,
+    sticks: false, flight: 1.5, auto: true, spread: 0.02, burst: [4, 8], peace: true, shop: true, model: 'gun', vsMonsters: 1.3, hint: 'HOLD RMB · PEAS, LOTS OF PEAS' },
 };
 
 // The range shed's rack (Ploughshares): every age's ranged weapon, and the ones you only get there.
@@ -119,19 +141,33 @@ export const MODES = { dotime: 'WAR MODE', plough: 'PEACE MODE', classic: 'FOREV
 // peace: weapons are hoes, nobody can die, and the tribe farms (plant, harvest into a shared food
 // store) and builds with the food. The planet grows and the whole town opens up straight away
 // (SHOPS: doctor, ranges, duel ring, tailor, haunted hollow, fishing pond, hot spring, bonfire).
-// When the farming time runs out everyone votes to keep going; otherwise the round ends with a
-// harvest festival and a fresh peace on a new planet.
+// The peace goes in stretches (seconds each) and never ends: as one is up, the story of it is told,
+// the world grows a step, and the next begins with a fresh list of deeds.
 export const PEACE = {
-  seconds: 180,       // peace before each vote (PEACE_SECONDS / --peace-seconds to change)
-  voteSeconds: 15,
+  seconds: 180,       // a stretch of peace (PEACE_SECONDS / --peace-seconds to change)
+  dressEvery: 1,      // stretches between one DRESS and the next (the tribe prospers)
   grudge: 25,         // seconds a bot fights back against whoever hurt it
   plantCd: 0.4,       // seconds between plantings
   plantReach: 1.4,    // seeds go this far in front of you
   cropGap: 0.9,       // closest two crops can be
   cropMax: 90,        // on the whole planet
   harvestRadius: 1.1, // walk this close to a ripe crop to pick it
+  // The tribe's store: the food is everyone's. Crops, fish and monsters hunted (FOREST_TIERS meat)
+  // fill it; buildings and bites come out of it. Hurt, H (EAT on phones) takes a bite out of it,
+  // anywhere: foodHeal life a food, up to biteFood food a bite, a bite every biteCd seconds. (Food
+  // you bring in yourself while hurt you eat there and then, and only what's left goes in.) Below
+  // hungryBelow in the store the tribe is HUNGRY: all food brought in pays hungryShells more.
+  foodHeal: 5,
+  biteFood: 4,
+  biteCd: 2.5,
+  hungryBelow: 10,
+  hungryShells: 1,
+  // DEEDS: the first time each stretch of peace you do each of them, deedShells;
+  // every one of them, allDeedsShells on top
+  deedShells: 1,
+  allDeedsShells: 10,
   // The planet grows to make room for a town, and shops open one by one (SHOP_OPENINGS). Every
-  // vote to keep farming grows it again (growStep, up to maxR), with more opening on the new ground
+  // new stretch of peace grows it again (growStep, up to maxR), with more opening on the new ground
   // (EXPANSION_OPENINGS).
   grownR: 40,
   growStep: 10,
@@ -148,6 +184,14 @@ export const PEACE = {
   limp: 0.7,
   skyRockEvery: [16, 30],   // seconds between sky rocks
   skyRockWarn: 2.4,         // seconds from the warning ring to the impact
+  // A FEAST every time the tribe has gathered this much more food this round (crops and fish):
+  // everyone on the planet gets feastShells and FAST FEET and REGROW for feastSecs. And a BUMPER
+  // CROP: every bumperEvery crops you pick yourself, bumperShells on top.
+  feastEvery: 30,
+  feastShells: 2,
+  feastSecs: 20,
+  bumperEvery: 10,
+  bumperShells: 3,
   // Nobody dies in peace, but a monster, a sky rock or the volcano can knock you out: you sleep
   // where you fell, and get up there, good as new, this many seconds later (out of the dark
   // forest, if that's where it happened: just past its edge, the nearest way out). Knocked down to
@@ -174,6 +218,7 @@ export const STRANGER = {
 //   duel:   a ring where you can bonk each other (pick any weapon off the rack, DUEL_WEAPONS), but
 //           nobody goes below 1 HP; knocking someone down to 1 wins the bout.
 //   tailor: E to buy hats and capes (CLOTHES).
+//   trader: the TRADING POST. E to buy weapons and gear (ITEMS) you can't get anywhere else.
 //   haunt:  the DARK FOREST, one a round, on the far side of the planet from everybody. Fully
 //           grown it covers about half the planet: `reach` (an angle) out from its middle, its
 //           edge wandering in and out by `wobble` of that (Perlin noise: a new shape every round)
@@ -199,28 +244,255 @@ export const SHOPS = {
   range:   { name: 'TARGET RANGE', r: 1.0, zone: 3.2, targets: 3, downrange: 9, spread: 2.6, targetR: 0.75, targetH: 1.35, payGap: 1 },
   duel:    { name: 'DUEL RING',    r: 0,   zone: 5.5, win: 3 },
   tailor:  { name: 'TAILOR',       r: 1.7, zone: 3.6 },
+  trader:  { name: 'TRADING POST', r: 1.7, zone: 3.6 },
   haunt:   { name: 'DARK FOREST',  r: 0, reach: 0.62 * Math.PI, wobble: 0.16, poles: 0.42, startRings: 2, spreadEvery: 60, respawn: 8, penumbra: 3.5 },
   pond:    { name: 'FISHING POND', r: 2.3, zone: 4.2, wait: [2.5, 7], window: 1.1, giveUp: 30 },
   spring:  { name: 'HOT SPRING',   r: 0,   zone: 3.0, heal: 3, every: 1 },
-  bonfire: { name: 'BONFIRE',      r: 0.9, zone: 4.6, every: 8, crowd: 5, drums: [1.2, 4.3], drumAt: 1.1, drumReach: 1.9 },
+  bonfire: { name: 'BONFIRE',      r: 0.9, zone: 4.6, every: 8, crowd: 5, drums: [1.2, 4.3], drumAt: 1.1, drumReach: 1.9, xylo: 2.75, flute: 5.55 },
+  //   site: the TRIBE PROJECT's ground: E there works on whatever the tribe is building (PROJECTS)
+  site:    { name: 'TRIBE PROJECT', r: 1.2, zone: 3.6 },
 };
 // Shops whose zone is ground you walk on (a ring, a forest, a bank, a pool, a dance circle):
 // nothing gets planted or built on it.
 export const AREA_SHOPS = new Set(['duel', 'haunt', 'pond', 'spring', 'bonfire']);
 // [kind, seconds after the planet has finished growing]: the whole town, all at once
 // (the forest first, on the far side, to claim the half of the planet it'll spread over)
-export const SHOP_OPENINGS = [['haunt', 0], ['doctor', 0.3], ['range', 0.6], ['duel', 1], ['tailor', 1.5], ['pond', 2], ['spring', 2.5], ['bonfire', 3], ['range', 6], ['pond', 9]];
+export const SHOP_OPENINGS = [['haunt', 0], ['doctor', 0.3], ['range', 0.6], ['duel', 1], ['tailor', 1.5], ['trader', 1.8], ['pond', 2], ['spring', 2.5], ['bonfire', 3], ['site', 3.5], ['range', 6], ['pond', 9]];
 // ...and after each later growth spurt, on the new ground (the forest just spreads further)
 export const EXPANSION_OPENINGS = [['pond', 3], ['doctor', 9], ['bonfire', 14], ['spring', 20]];
 // The dark forest's rings, from the edge in: who lives in each (so many at once: it's a big
 // forest) and what each one slain pays. The heart is the deepest ring it has spread to so far: as
 // it spreads, the skeletons move out to the new edge and something worse moves into the middle.
 export const FOREST_TIERS = [
-  { name: 'SKELETONS AND ZOMBIES', kinds: ['skeleton', 'zombie'], count: 10, reward: 2 },
-  { name: 'GHOSTS AND BATS', kinds: ['ghost', 'bat'], count: 8, reward: 3 },
-  { name: 'VAMPIRES AND SLEEP DEMONS', kinds: ['vampire', 'demon'], count: 5, reward: 5 },
-  { name: 'WEREWOLVES', kinds: ['werewolf'], count: 2, reward: 10 },
+  { name: 'SKELETONS AND ZOMBIES', kinds: ['skeleton', 'zombie'], count: 10, reward: 2, meat: 1 },
+  { name: 'GHOSTS AND BATS', kinds: ['ghost', 'bat'], count: 8, reward: 3, meat: 1 },
+  { name: 'VAMPIRES AND SLEEP DEMONS', kinds: ['vampire', 'demon'], count: 5, reward: 5, meat: 2 },
+  { name: 'WEREWOLVES', kinds: ['werewolf'], count: 2, reward: 10, meat: 4 },
 ];
+// (reward: shells to whoever knocks one out; meat: food it brings the tribe's store)
+
+// DEEDS, in peace: a bit of everything the town has to do. The first time each stretch of peace
+// you do one, PEACE.deedShells; all of them, PEACE.allDeedsShells (JACK OF ALL TRADES).
+export const DEEDS = {
+  pick:  { icon: '🌾', name: 'PICK A CROP' },
+  fish:  { icon: '🎣', name: 'LAND A CATCH' },
+  build: { icon: '🛖', name: 'BUILD SOMETHING' },
+  hunt:  { icon: '👹', name: 'KNOCK OUT A MONSTER' },
+  dance: { icon: '💃', name: 'DANCE FOR A SHELL' },
+  drums: { icon: '🥁', name: 'DRUM FOR A SHELL' },
+  range: { icon: '🎯', name: 'HIT A TARGET' },
+  duel:  { icon: '⚔️', name: 'WIN A BOUT' },
+  soak:  { icon: '♨️', name: 'SOAK IN A HOT SPRING' },
+  spend: { icon: '🐚', name: 'SPEND SHELLS IN TOWN' },
+  work:  { icon: '🔨', name: 'WORK ON THE TRIBE PROJECT' },
+  rescue: { icon: '🤝', name: 'DRAG A FRIEND TO SAFETY' },
+};
+
+// TRIBE DEEDS, in peace: things the whole tribe has to do between it, each by so many DIFFERENT
+// cavemen (need; never more than there are on the rock). Each one done pays everyone on the
+// planet TRIBE.deedShells; all of them, TRIBE.allDeedsShells on top. A fresh list every stretch.
+//   at once: the count is how many were doing it at the same time (the band, the dancers)
+export const TRIBE_DEEDS = {
+  farmers: { icon: '🌾', name: 'CROPS PICKED BY', need: 3, how: 'DIFFERENT CAVEMEN' },
+  fishers: { icon: '🎣', name: 'CATCHES LANDED BY', need: 2, how: 'DIFFERENT CAVEMEN' },
+  hunters: { icon: '👹', name: 'MONSTERS FELLED BY', need: 3, how: 'DIFFERENT CAVEMEN' },
+  band:    { icon: '🎶', name: 'IN THE BAND AT ONCE', need: 2, how: 'PLAYING TOGETHER', once: true },
+  dancers: { icon: '💃', name: 'DANCING AT ONCE', need: 3, how: 'ROUND ONE FIRE', once: true },
+  hands:   { icon: '🔨', name: 'HANDS ON THE PROJECT', need: 2, how: 'DIFFERENT CAVEMEN' },
+};
+export const TRIBE = {
+  deedShells: 1,
+  allDeedsShells: 5,
+  // THE STORE GOAL: the first time a stretch the store holds this much, a BIG FEAST: twice a
+  // feast's shells for everyone, and its buffs
+  storeGoal: 40,
+  bigFeastShells: 4,
+  // TRIBE LEVEL: everyone's level (humans and bots) averaged; some of the trading post's stock
+  // (ITEMS tribe) needs it this high
+  // MENTOR: a caveman of mentorLevel or more within `range` of one of pupilLevel or less: GRIT
+  // either of them earns is `bonus` times, and the other gets `share` of it too
+  mentorLevel: 6, pupilLevel: 3, mentorRange: 10, mentorBonus: 1.5, mentorShare: 0.5,
+  // THE STORY OF THE NIGHT: so many lines of what happened this stretch, told as it ends
+  storyLines: 7,
+};
+
+// TRIBE PROJECTS, in peace: one at a time, in this order, on the project ground (SHOPS.site). E
+// there is a step of work (every workCd seconds, costing the store `food` a step); `steps` of
+// them finish it, but no one pair of hands can do more than `share` of them when there's anyone
+// else on the rock: it takes the tribe. Done, every pair of hands that worked gets `shells` and
+// LEVELS.xp.project, and the whole planet gets its boon for the rest of the round:
+//   watchtower: sky rocks are seen coming twice as far off (PEACE.skyRockWarn, times)
+//   footbridge: the far bank: another fishing pond opens beside it
+//   totem:      every crop picked brings the store one more food
+export const PROJECTS = {
+  order: ['watchtower', 'footbridge', 'totem'],
+  workCd: 1.5,
+  share: 0.6,
+  shells: 3,
+  kinds: {
+    watchtower: { name: 'WATCHTOWER', icon: '🗼', steps: 10, food: 1, boon: 'SKY ROCKS ARE SEEN COMING FROM TWICE AS FAR OFF', warn: 2 },
+    footbridge: { name: 'FOOTBRIDGE', icon: '🌉', steps: 12, food: 1, boon: 'THE FAR BANK: A NEW FISHING POND', opens: 'pond' },
+    totem:      { name: 'GREAT TOTEM', icon: '🗿', steps: 16, food: 2, boon: 'EVERY CROP PICKED BRINGS THE TRIBE ONE MORE FOOD', crop: 1 },
+  },
+};
+
+// BIG GAME, in peace: now and then (every `every` seconds, once the forest has a heart ring to
+// hold it) an ELDER of the heart's kind stirs there: `size` times as big, `hp` times the life,
+// `dmg` times the blows, and it heals `regen` life a second unless two or more different cavemen
+// have hit it in the last `together` seconds. Felled, it brings `meat` food, and everyone who hit
+// it in the last `credit` seconds gets its ring's reward times `pay` in shells (and GRIT), and it
+// leaves `motes` motes.
+export const BOSS = {
+  every: 150, size: 1.55, hp: 7, dmg: 1.5, speed: 0.85, regen: 6, together: 6, credit: 25, pay: 3, meat: 10, motes: 3,
+};
+
+// HUNTING PARTY, in peace: a monster felled with other cavemen within `range` pays every one of
+// them a shell (and `share` of its GRIT), and the one who felled it a shell more for each of them
+// (up to `most`). Nobody has to ask: hunt near each other.
+export const PARTY = { range: 10, share: 0.5, most: 3 };
+
+// DRAGGING, in peace: E beside a caveman who's been knocked out drags them along behind you (you
+// walk `slow` as fast). Out of the dark forest and its gloom, they're up again after `secs`
+// seconds of it (at once, if that's where you started): no waiting out the sleep. The rescuer
+// gets `shells`, LEVELS.xp.rescue and the deed.
+export const DRAG = { reach: 2.4, behind: 1.3, slow: 0.72, secs: 2, shells: 2 };
+
+// THE BAND, in peace: the more different instruments play at once round a fire (the drums, the
+// xylophone, the flute), the quicker everyone there earns: `ensemble` more for each instrument
+// after the first, dancers too. CALL AND RESPONSE: every `callEvery` seconds, with somebody at
+// the fire, the fire hums a phrase of `callNotes` notes; anybody who plays it back (on the
+// xylophone or the flute) within `callSecs` seconds heals everyone in the circle `callHeal` life
+// and pays them a shell.
+export const BAND = { ensemble: 0.5, callEvery: 40, callNotes: 4, callSecs: 15, callHeal: 15 };
+
+// COOKING, in peace: a feast has to be cooked. Once the tribe has gathered enough for one
+// (PEACE.feastEvery), somebody has to stand at a bonfire and cook it (E: COOK): `secs` seconds,
+// quicker with DEXTERITY. Walk off and it's spoiled: start again. Feasts stack up uncooked.
+export const COOK = { secs: 20 };
+
+// GIVING, in peace: E facing a caveman within `reach` hands over shells (so many at a time), or
+// lends them something out of your bag. What's lent comes back to your bag when they leave the
+// rock (or when they hand it back).
+export const GIVE = { reach: 2.6, shells: [1, 5, 10] };
+
+// THE TRIBE CHEST, at the trading post: put a weapon or gear out of your bag in it for anyone on
+// the rock to take out (it's theirs till they put it back, or leave). It holds `max` things.
+export const CHEST = { max: 12 };
+
+// LEVELS, in peace: everything you do in the peace earns GRIT (xp), and every xpFor(level) of it
+// is a level, with a point to put on a STAT. Levels, points and stats stay with you on the rock,
+// round after round, like your shells; the stats only count in peace (fighting the forest's
+// monsters, above all).
+//   str: hits on monsters that much harder a point (melee and ranged)
+//   vit: that much more life a point
+//   dex: swings and winds up that much quicker a point, draws and reloads quicker, and a blow
+//        that stuns you stuns for that much less (hit recovery)
+export const LEVELS = {
+  xpFor: level => 20 + 10 * level,   // GRIT from this level to the next (30, 40, 50...)
+  max: 20,
+  statMax: 10,
+  str: 0.08, vit: 8, dex: 0.05,
+  xp: { monster: 3, crop: 1, fish: 2, target: 1, duel: 6, deed: 5, build: 2, band: 1, feast: 5, work: 2, project: 10, rescue: 6, cook: 4, call: 3, tribeDeed: 4 },   // (monster: times its ring's reward; fish: times its shells, + its food)
+};
+export const STATS = {
+  str: { name: 'STRENGTH',  icon: '💪', desc: `HIT MONSTERS ${Math.round(LEVELS.str * 100)}% HARDER A POINT, WITH ANYTHING` },
+  vit: { name: 'VITALITY',  icon: '❤️', desc: `${LEVELS.vit} MORE LIFE A POINT` },
+  dex: { name: 'DEXTERITY', icon: '🤸', desc: `SWING, DRAW AND RELOAD ${Math.round(LEVELS.dex * 100)}% QUICKER A POINT, AND SHAKE OFF A STUN AS MUCH SOONER` },
+};
+
+// The bonfire's instruments: the drums (two: BOOM and TAK), a xylophone (ten bars, 1 to 0) and a
+// bone flute (eight holes, 1 to 8). Each stands at its angle round the fire (SHOPS.bonfire).
+// notes: semitones up from the bottom note (a major scale).
+export const INSTRUMENTS = {
+  drum:  { name: 'DRUMS',      keys: [] },
+  xylo:  { name: 'XYLOPHONE',  base: 523.25, notes: [0, 2, 4, 5, 7, 9, 11, 12, 14, 16], keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'] },
+  flute: { name: 'BONE FLUTE', base: 392, notes: [0, 2, 4, 5, 7, 9, 11, 12], keys: ['1', '2', '3', '4', '5', '6', '7', '8'] },
+};
+// The trading post's stock (peace mode): weapons and gear for shells, and nowhere else. What you
+// buy goes in your bag (the inventory) and stays yours for as long as you're on the rock, round
+// after round. Out of the bag you can have one melee weapon (kept like one off the duel ring's
+// rack: your hoe's put away, so no planting) and one ranged (like one from a range shed), and wear
+// up to GEAR_SLOTS of the gear, whose bonuses count while it's on. Weapons go back in the bag
+// when a round ends; gear stays on. None of it counts outside peace.
+//   melee:  base: the weapon its look is built on; glow: its colour; stats: its own (on monsters,
+//           stun dazes them, slow slows them, kb shoves them, crit doubles a blow now and then,
+//           leech gives you back that much of each blow as life); vsMonsters
+//           (and vs, by kind): what it does to the dark forest's monsters, times.
+//   ranged: a RANGED key of its own (shop: true).
+//   gear:   food: more for the tribe with every crop you pick (and shellEvery: a shell every so
+//           many); double: the chance shells you earn come in twice; grow: how long what you
+//           plant takes, times; speed: how fast you run, times; hide: what you take, times; wait,
+//           window: a fish bites so much sooner, and you get so much longer to hook it; sense:
+//           how far off monsters notice you, times; regen: a life back every so many seconds;
+//           party: dancing and drumming pay so much faster; vsMonsters: any weapon, on monsters.
+//   tribe:  the TRIBE LEVEL (everyone's level averaged, TRIBE) it takes before the post sells it
+export const ITEMS = {
+  silversickle: { kind: 'melee', name: 'Silver Sickle', icon: '🌙', price: 12, base: 'khopesh', glow: '#bcd6ff', vsMonsters: 1.6,
+    stats: { dmg: 30, range: 2.5, cd: 0.45, windup: 0.1, kb: 6, arc: 120, speed: 1.05, bleed: 3 },
+    desc: 'QUICK AND SHINY. MONSTERS HATE SILVER: 60% HARDER ON THEM.' },
+  bonecrusher: { kind: 'melee', name: 'Bone Crusher', icon: '🦴', price: 18, base: 'femur', glow: '#ffcf7a', vsMonsters: 1.3, tribe: 3,
+    stats: { dmg: 70, range: 3, cd: 1.4, windup: 0.38, kb: 22, arc: 160, speed: 0.85, stun: 0.6 },
+    desc: 'SLOW AND HUGE. SENDS THEM FLYING, AND THEY SEE STARS.' },
+  wolfsbane: { kind: 'melee', name: 'Wolfsbane Axe', icon: '🪓', price: 25, base: 'stoneaxe', glow: '#a8ff7a', vsMonsters: 1.3, vs: { werewolf: 2.5, vampire: 2.5 }, tribe: 3,
+    stats: { dmg: 48, range: 2.3, cd: 0.8, windup: 0.2, kb: 9, arc: 100, speed: 0.95 },
+    desc: 'THE BANE OF WEREWOLVES AND VAMPIRES: TWO AND A HALF TIMES ON THEM.' },
+  stinkfish: { kind: 'melee', name: 'Stink Fish', icon: '🐟', price: 5, base: 'fish', glow: '#9fe3a8', vsMonsters: 1.2,
+    stats: { dmg: 22, range: 2.1, cd: 0.45, windup: 0.1, kb: 3, arc: 100, speed: 1.05, slow: 3 },
+    desc: 'CHEAP AND SMELLY. MONSTERS IT SLAPS WALK SLOW FOR A WHILE.' },
+  fang: { kind: 'melee', name: 'Vampire Fang', icon: '🧛', price: 16, base: 'jawbone', glow: '#ff8aa0', vsMonsters: 1.2,
+    stats: { dmg: 34, range: 2.2, cd: 0.55, windup: 0.12, kb: 4, arc: 100, speed: 1, leech: 0.5 },
+    desc: 'BITES BACK: HALF OF EVERY BLOW ON A MONSTER COMES BACK TO YOU AS LIFE.' },
+  thunderclub: { kind: 'melee', name: 'Thunder Club', icon: '⚡', price: 20, base: 'zapclub', glow: '#fff07a', vsMonsters: 1.3,
+    stats: { dmg: 44, range: 2.4, cd: 0.9, windup: 0.22, kb: 14, arc: 120, speed: 0.95, stun: 1 },
+    desc: 'A CRACK OF THUNDER: MONSTERS STAND DAZED FOR A SECOND, AND FLY BACK.' },
+  obsidianedge: { kind: 'melee', name: 'Obsidian Edge', icon: '🗡️', price: 20, base: 'obsidian', glow: '#c08aff', vsMonsters: 1.4, tribe: 3,
+    stats: { dmg: 36, range: 2.4, cd: 0.5, windup: 0.1, kb: 5, arc: 110, speed: 1, crit: 0.35 },
+    desc: 'SHARP AS NIGHT. ONE BLOW IN THREE ON A MONSTER LANDS DOUBLE.' },
+  antlerpike: { kind: 'melee', name: 'Antler Pike', icon: '🦌', price: 14, base: 'antler', glow: '#e0d2b0', vsMonsters: 1.3,
+    stats: { dmg: 38, range: 3.4, cd: 0.7, windup: 0.16, kb: 9, arc: 70, speed: 0.95 },
+    desc: 'A LONG REACH: POKE MONSTERS FROM FURTHER OFF THAN THEY CAN GRAB.' },
+  nightdagger: { kind: 'melee', name: 'Night Dagger', icon: '🔪', price: 15, base: 'dagger', glow: '#8a9cff', vsMonsters: 1.3,
+    stats: { dmg: 24, range: 2.0, cd: 0.28, windup: 0.06, kb: 2, arc: 90, speed: 1.1, crit: 0.25 },
+    desc: 'QUICK AS A BLINK, AND ONE STAB IN FOUR ON A MONSTER LANDS DOUBLE.' },
+  mooncleaver: { kind: 'melee', name: 'Moon Cleaver', icon: '🌘', price: 28, base: 'greatsword', glow: '#d8e8ff', vsMonsters: 1.4, tribe: 5,
+    stats: { dmg: 80, range: 3.3, cd: 1.5, windup: 0.4, kb: 20, arc: 180, speed: 0.8, stun: 0.5 },
+    desc: 'HUGE AND SLOW, AND IT SWEEPS ALL ROUND: EVERY MONSTER IN REACH GETS IT, AND STANDS DAZED.' },
+  glowrod: { kind: 'melee', name: 'Glow Rod', icon: '🔦', price: 19, base: 'glowstick', glow: '#7affd8', vsMonsters: 1.3,
+    stats: { dmg: 30, range: 2.4, cd: 0.45, windup: 0.1, kb: 4, arc: 110, speed: 1, leech: 0.3, slow: 1.5 },
+    desc: 'A COLD LIGHT: MONSTERS IT TOUCHES SLOW DOWN, AND A BIT OF EVERY BLOW COMES BACK AS LIFE.' },
+  silverbow: { kind: 'ranged', name: 'Silver-Tip Bow', icon: '🏹', price: 15, desc: 'ARROWS TIPPED WITH SILVER: 60% HARDER ON MONSTERS.' },
+  firework:  { kind: 'ranged', name: 'Firework', icon: '🎆', price: 22, tribe: 4, desc: 'A ROCKET THAT BURSTS WIDE: BLASTS A WHOLE CROWD OF MONSTERS.' },
+  starsling: { kind: 'ranged', name: 'Star Sling', icon: '⭐', price: 8, desc: 'A CHEAP SLING WITH STARS FOR STONES: QUICK, AND HALF AGAIN AS HARD ON MONSTERS.' },
+  holywater: { kind: 'ranged', name: 'Holy Water', icon: '💧', price: 14, desc: 'LOB A FLASK: IT SPLASHES EVERYTHING NEAR. THREE TIMES ON VAMPIRES AND GHOSTS, TWICE ON SLEEP DEMONS.' },
+  silverbolt: { kind: 'ranged', name: 'Silver Bolt', icon: '🎯', price: 18, desc: 'A CROSSBOW WITH SILVER BOLTS: ONE BIG HIT, 60% HARDER ON MONSTERS.' },
+  moonbeam:  { kind: 'ranged', name: 'Moon Beam', icon: '🌕', price: 24, tribe: 4, desc: 'A STICK OF MOONLIGHT: ZAPS WHATEVER THE CROSSHAIR IS ON, HALF AGAIN AS HARD ON MONSTERS.' },
+  harpoon:   { kind: 'ranged', name: 'Harpoon', icon: '🔱', price: 20, desc: 'A HEAVY SPEAR WITH A BARBED HEAD: THROWN HARD, HALF AGAIN AS HARD ON MONSTERS.' },
+  bonebow:   { kind: 'ranged', name: 'Bone Bow', icon: '🦴', price: 12, desc: 'A QUICK LITTLE BOW: TEN ARROWS, FAST TO DRAW, 40% HARDER ON MONSTERS.' },
+  thunderstick: { kind: 'ranged', name: 'Thunder Stick', icon: '🌩️', price: 24, tribe: 5, desc: 'ONE BIG BANG: THE HARDEST SINGLE SHOT THERE IS, 40% HARDER ON MONSTERS.' },
+  peashooter: { kind: 'ranged', name: 'Pea Shooter', icon: '🫛', price: 20, tribe: 3, desc: 'THIRTY PEAS A LOAD, AS FAST AS YOU CAN HOLD THE BUTTON. 30% HARDER ON MONSTERS.' },
+  basket:  { kind: 'gear', name: 'Big Basket', icon: '🧺', price: 6, food: 1, shellEvery: 3, desc: 'EVERY CROP YOU PICK: +1 FOOD FOR THE TRIBE. EVERY THIRD: +1 🐚.' },
+  cowrie:  { kind: 'gear', name: 'Lucky Cowrie', icon: '🍀', price: 10, double: 0.25, desc: 'ONE TIME IN FOUR, THE SHELLS YOU EARN COME IN TWICE.' },
+  thumb:   { kind: 'gear', name: 'Green Thumb', icon: '🌱', price: 7, grow: 0.5, desc: 'WHAT YOU PLANT IS RIPE IN HALF THE TIME.' },
+  sandals: { kind: 'gear', name: 'Fleet Sandals', icon: '🩴', price: 8, speed: 1.15, desc: 'RUN 15% FASTER.' },
+  cloak:   { kind: 'gear', name: 'Mammoth Cloak', icon: '🧥', price: 12, hide: 0.75, desc: 'TAKE A QUARTER LESS FROM EVERYTHING.' },
+  rod:     { kind: 'gear', name: 'Patient Rod', icon: '🎣', price: 8, wait: 0.6, window: 0.5, desc: 'FISH BITE SOONER, AND YOU GET LONGER TO HOOK THEM.' },
+  lantern: { kind: 'gear', name: 'Moon Lantern', icon: '🏮', price: 10, sense: 0.5, desc: 'MONSTERS NOTICE YOU FROM ONLY HALF AS FAR.' },
+  pouch:   { kind: 'gear', name: "Healer's Pouch", icon: '🌿', price: 9, regen: 2, desc: 'A LIFE BACK EVERY 2 SECONDS.' },
+  bells:   { kind: 'gear', name: 'Party Bells', icon: '🔔', price: 6, party: 2, desc: 'DANCING AND DRUMMING PAY TWICE AS FAST.' },
+  charm:   { kind: 'gear', name: 'Silver Charm', icon: '🧿', price: 14, vsMonsters: 1.3, tribe: 4, desc: 'HIT MONSTERS 30% HARDER, WITH ANYTHING.' },
+};
+export const GEAR_SLOTS = 2;
+
+// A melee weapon from the trading post, as a weapon: its own name and numbers on its base's look.
+export function itemWeapon(id) {
+  const it = ITEMS[id], base = WEAPON_TYPES[it.base];
+  return {
+    type: it.base, item: id, pool: 'shop', verb: base.verb, prefix: '', tier: 'shop', name: it.name,
+    stun: 0, slow: 0, bleed: 0, leech: 0, heal: 0, crit: 0, ...it.stats, scale: 1.08,
+    glow: it.glow, vsMonsters: it.vsMonsters, vs: it.vs || null, desc: it.desc,
+  };
+}
+
 // How hard the dark forest's monsters are (a planet rule, for peace mode: MONSTERS), from none at
 // all to a nightmare. Each scales the monsters' numbers (count: of each ring's FOREST_TIERS.count),
 // their life, the blows they land, how fast they go and how far off they notice you (sense); and
@@ -591,6 +863,7 @@ export const TIER_COLORS = {
   good: '#86d65f',
   rare: '#5fb0ff',
   legend: '#ffb52e',
+  shop: '#c9a6ff',   // from the trading post
 };
 
 const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
@@ -647,7 +920,7 @@ export function weaponOfType(type) {
 
 // The duel ring's weapon rack: the padded club, or any weapon of any age.
 export const DUEL_WEAPONS = ['practice', ...Object.keys(WEAPON_TYPES)];
-export const duelWeapon = type => (WEAPON_TYPES[type] ? weaponOfType(type) : makePracticeClub());
+export const duelWeapon = type => (ITEMS[type]?.kind === 'melee' ? itemWeapon(type) : WEAPON_TYPES[type] ? weaponOfType(type) : makePracticeClub());
 
 export function makeWeapon(rng = Math.random, pool = 'primitive') {
   const types = Object.keys(WEAPON_TYPES).filter(k => WEAPON_TYPES[k].pool === pool);
@@ -681,13 +954,26 @@ export function makeWeapon(rng = Math.random, pool = 'primitive') {
 }
 
 // ---------------------------------------------------------------- caveman flavor
+// (cloth, trim: the colours the garb's later clothes are cut and trimmed in, DRESS)
 export const GARBS = [
-  { id: 'leopard', name: 'Leopard' },
-  { id: 'tiger', name: 'Sabertooth' },
-  { id: 'zebra', name: 'Zebra' },
-  { id: 'mammoth', name: 'Mammoth' },
-  { id: 'wolf', name: 'Dire Wolf' },
-  { id: 'spotted', name: 'Spotty Beast' },
+  { id: 'leopard', name: 'Leopard',      cloth: '#d9a446', trim: '#6b3a12' },
+  { id: 'tiger', name: 'Sabertooth',     cloth: '#e1832d', trim: '#1d120a' },
+  { id: 'zebra', name: 'Zebra',          cloth: '#f1ede2', trim: '#151313' },
+  { id: 'mammoth', name: 'Mammoth',      cloth: '#6b4325', trim: '#d9b06a' },
+  { id: 'wolf', name: 'Dire Wolf',       cloth: '#8a8680', trim: '#2a2a2e' },
+  { id: 'spotted', name: 'Spotty Beast', cloth: '#efe9dc', trim: '#1e1a17' },
+];
+
+// DRESS: what everyone wears changes as time goes on. In a war it's the age's (ERAS, by index);
+// in peace it's the stretch's (one further along every PEACE.dressEvery stretches), as far as it
+// goes. Each stage is cut in the garb's own colours (GARBS cloth and trim) on top of the last.
+export const DRESS = [
+  { id: 'pelts',    name: 'PELTS',          sub: 'FUR, AND A TOOTH NECKLACE' },
+  { id: 'hides',    name: 'STITCHED HIDES', sub: 'HIDE PATCHES, BOOTS AND ARM BANDS' },
+  { id: 'woven',    name: 'WOVEN CLOTH',    sub: 'A WOVEN TUNIC, BRACERS AND A BUCKLE' },
+  { id: 'dyed',     name: 'DYED CLOTH',     sub: 'SLEEVES, TROUSERS AND A SASH' },
+  { id: 'tailored', name: 'TAILORED COATS', sub: 'A COLLAR AND BRASS BUTTONS' },
+  { id: 'sleek',    name: 'SLEEK SUITS',    sub: 'SEAMS THAT GLOW' },
 ];
 export const SKINS = ['#f1c27d', '#e0ac69', '#c68642', '#a86b3c', '#8d5524', '#5c3a1e'];
 export const HAIRS = ['#2b1a0e', '#4a2c12', '#161212', '#7a4a1f', '#8b2d0f', '#b9a27a'];

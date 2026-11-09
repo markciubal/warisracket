@@ -12,7 +12,7 @@ import { isTouch, TiltAim, TouchControls, TILT_LEVELS, buzz, setBuzz } from './t
 import { Settings, buildSettingsPanel } from './settings.js';
 import { Beast } from './beasts.js';
 import { Farm } from './farm.js';
-import { Town, SHOP_LOOK, zoneOf, drumsOf } from './town.js';
+import { Town, SHOP_LOOK, zoneOf, drumsOf, instrumentAt } from './town.js';
 import { CHAT, SAY_IT, checkChat } from '/shared/chat.js';
 import { OfflineSocket, OFFLINE_ROOM } from './offline.js';
 import { GearView, meleeRows, rangedRows } from './gear.js';
@@ -92,7 +92,7 @@ const sound = new Sound();
 const hud = new Hud();
 const input = new Input(canvas, isTouch);
 const tilt = new TiltAim();
-const touch = isTouch ? new TouchControls(input, tilt, { council: () => toggleCouncil(), settings: () => toggleSettings(true), recenter: recenterTilt, quit: btn => askQuit(btn), chat: () => openChat(), rock: () => showQr() }) : null;
+const touch = isTouch ? new TouchControls(input, tilt, { council: () => toggleCouncil(), settings: () => toggleSettings(true), recenter: recenterTilt, quit: btn => askQuit(btn), chat: () => openChat(), rock: () => showQr(), bag: () => togglePanel('bag', true), eat: () => eatBite(), level: () => togglePanel('level', true), note: n => playNote(n) }) : null;
 const projTemplates = Object.fromEntries(['spear', 'arrow', 'ball', 'bullet', 'pebble', 'tomato', 'rocket'].map(k => [k, buildProjectile(k)]));
 const NO_STICK = new Set(['ball', 'bullet', 'pebble', 'tomato', 'rocket']);   // gone where they land
 
@@ -220,6 +220,7 @@ const state = {
   lastSend: 0,
   lobbyAngle: 0,
   camGlide: null,      // the camera gliding between views: { from: 'first' | 'third', at, secs }
+  wakeIn: 0,           // frames until the eyes open (wakeUp)
   miniScoreT: 0,
   radarT: 0,
   eruptUntil: 0,
@@ -232,8 +233,11 @@ const state = {
   // planet rules + War mode clock, as last told by the server
   game: { mode: 'dotime', era: 0, phase: 'play', eraLeft: 0, eraLen: 45, endLeft: 0, eraSeconds: 45, botLevel: C.BOT_LEVEL_DEFAULT, bots: 4, monsters: C.MONSTER_LEVEL_DEFAULT, open: 0, chief: 0, disaster: null, mmDead: 0,
     wave: 0, waveSize: 0, waveLevel: 0,   // co-op
-    calm: 1, food: 0, vote: 0, yes: 0, no: 0,     // Ploughshares: peace holding this age, food store, the vote,
-    radius: C.PLANET_R },                         // ...and how big the planet has grown
+    calm: 1, food: 0,                              // Ploughshares: peace holding this age, food store,
+    gathered: 0, feasts: 0,                        // ...all the food gathered this peace, and the feasts it's earned,
+    radius: C.PLANET_R,                           // ...and how big the planet has grown
+    stretch: 0,                                   // ...and which stretch of the peace this is
+    project: null, boons: [], td: {}, tdd: [], tdNeed: {}, bigFeast: 0, feastsDue: 0, tribeLevel: 1, chest: [] },   // ...and the tribe's doings (TRIBE)
   gameAt: 0,
   armorDrops: new Map(),
   loot: new Map(),     // weapons and ammo pouches dropped by slain cavemen
@@ -242,10 +246,23 @@ const state = {
   motes: new Map(),    // motes a slain forest monster left (peace mode)
   perm: { might: 0, hide: 0 },   // gold motes I've kept
   strangers: new Map(),   // Ploughshares: kind strangers bringing food to whoever a duel left at 1
+  items: [],              // ...my bag: what I've bought at the trading post (ITEMS keys)
+  gear: [],               // ...and the gear of it I've got on
+  deeds: [],              // ...the DEEDS I've done this stretch of peace (C.DEEDS keys)
+  level: 1, xp: 0, points: 0, stats: { str: 0, vit: 0, dex: 0 },   // ...LEVELS: my level, the GRIT toward the next, points to spend, and the stats
+  lent: {},               // ...things in my bag on loan to me: item -> who lent it
+  fromChest: [],          // ...things in my bag out of the tribe chest
+  dress: null,            // ...DRESS: what everyone wears now (a stage; null till the first game info)
+  dressAt: 0,             // ...and when it last changed
+  dragging: 0,            // ...DRAG: the knocked-out caveman I'm dragging (id), if any
+  cooking: null,          // ...COOK: { until } while I'm cooking a feast
+  calls: new Map(),       // ...CALL AND RESPONSE: bonfire id -> { notes, until } while its phrase is up
+  sleeperNear: 0,         // ...a knocked-out caveman within reach (E drags them)
+  giveTo: 0,              // ...the caveman in front of me (E gives)
   mammonSaid: 0,       // when the Businessman last spoke (he doesn't get to talk all the time)
   talkNear: false,     // at his podium, where E talks to him
   penumbra: false,     // at the dark forest's edge, where E picks gear
-  drumming: null,      // at a bonfire's drums: { shop, i } (which drum I'm at)
+  drumming: null,      // playing at a bonfire: { shop, kind, i } (the drums, and which; the xylophone; the flute)
   reel: null,          // a fish on the line, being reeled in (startReel)
   reeled: null,        // ...and the last one: { kind, ms } (how long it took)
   forestTier: null,    // which ring of the dark forest I'm in (null: not in it)
@@ -260,7 +277,6 @@ const state = {
   // Ploughshares, in peace
   buildKind: 0,        // BUILD_ORDER index: what the throw button builds
   lastPlant: 0,
-  myVote: null,        // 'yes' | 'no' once I've voted
   harvestFest: false,  // the round ended in a harvest festival, not a fight
   peaceFrom: 0,        // when peace broke out, and how fat the Businessman was then (he wastes away)
   peaceFat: 0,
@@ -273,7 +289,7 @@ const state = {
 
 const me = {
   p: [0, -1, 0], f: [1, 0, 0], h: 0, vh: 0, kbv: [0, 0, 0],
-  alive: false, hp: PLAYER.maxHp, ammo: C.RANGED.spear.ammo, regen: 0, wpn: null, armor: null,
+  alive: false, hp: PLAYER.maxHp, maxHp: PLAYER.maxHp, ammo: C.RANGED.spear.ammo, regen: 0, wpn: null, armor: null,
   stunUntil: 0, slowUntil: 0, lastSwing: -99, lastThrow: -99, lastEmote: -99,
   charging: false, charge: 0, pitch: 0.32, deadAt: 0, deathText: '',
   aim: 0.32,   // pitch from mouse / drag; tilt adds its offset on top to make `pitch`
@@ -307,6 +323,10 @@ function clockLeft() {
   return Math.max(0, (g.phase === 'end' ? g.endLeft : g.eraLeft) - (clock() - state.gameAt));
 }
 
+// What the tribe wears now (a DRESS index): in a war the age's; in peace the stretch's, one further
+// along every so many stretches, as far as it goes.
+const dressStage = () => Math.min(C.DRESS.length - 1, peaceNow() ? Math.floor((state.game.stretch || 0) / C.PEACE.dressEvery) : state.game.era);
+
 // Apply a rules/clock update from the server and refresh everything that depends on it.
 function setGame(info) {
   const prev = { ...state.game };
@@ -322,6 +342,17 @@ function setGame(info) {
   document.body.classList.toggle('peace', peaceNow());
   if (prev.phase === 'peace' && !peaceNow()) closeChat();   // peace over: no more talking
   if (prev.mode !== state.game.mode) for (const pl of state.players.values()) pl.model.setTeam(teamOf(pl));
+  town.project(state.game.boons || [], state.game.project);   // (the tribe project's progress, on its ground)
+  // DRESS: what the tribe wears goes by the age (a war) or the stretch (peace)
+  const stage = dressStage();
+  if (stage !== state.dress) {
+    const was = state.dress;
+    state.dress = stage;
+    state.dressAt = clock();
+    for (const pl of state.players.values()) pl.model.setDress(stage);
+    for (const st of state.strangers.values()) st.model.setDress(stage);
+    if (state.joined && was !== null && stage > was) hud.feed(`<span class="streak">👕 THE TRIBE NOW WEARS ${C.DRESS[stage].name}</span> · ${C.DRESS[stage].sub}`);
+  }
   if (prev.chief !== state.game.chief) {
     for (const pl of state.players.values()) pl.model.setChief(pl.id === state.game.chief);
     if (state.game.chief && state.game.chief === state.myId) hud.feed(`<span class="me">YOU ARE CHIEF</span> · ${isTouch ? 'RULES IN ☰' : 'C FOR RULES'}`);
@@ -762,6 +793,7 @@ const handlers = {
     for (const b of m.builds || []) farm.addBuild(b);
     town.clear();
     for (const sh of m.shops || []) town.add(sh);
+    town.project(state.game.boons || [], state.game.project);
     for (const st of m.strangers || []) addStranger(st);
     if (m.doom) startDoom(m.doom);
     // Build every shader the scene needs now (in the background where the GPU allows it)
@@ -897,7 +929,6 @@ const handlers = {
   peace(m) {
     setGame(m);
     me.charging = false;
-    state.myVote = null;
     for (const pl of state.players.values()) { pl.practice = null; pl.model.setRanged(null); }
     state.practice = null;
     // (the server cleared every spear and arrow on the planet)
@@ -930,13 +961,14 @@ const handlers = {
   // picked (or trampled by a new build, n = 0)
   harvest(m) {
     state.game.food = m.food;
+    if (m.gathered != null) state.game.gathered = m.gathered;
     const at = farm.removeCrop(m.id);
     if (!at || !m.n) return;
     const up = at.clone().normalize();
     fx.burst(at.clone().addScaledVector(up, 0.4), { count: 10, color: '#e8c45a', speed: 3, size: 0.08, life: 0.7, up });
     if (m.by === state.myId) {
       sound.play('pickup');
-      fx.float(at.clone().addScaledVector(up, 1.2), `+${m.n} FOOD`, 'heal', { life: 1 });
+      fx.float(at.clone().addScaledVector(up, 1.2), `+${m.n} FOOD${m.life ? ` · +${m.life} LIFE` : ''}`, 'heal', { life: 1 });
     }
   },
 
@@ -952,6 +984,7 @@ const handlers = {
   // a shop opens (the first one: the Businessman perks up)
   shop(m) {
     town.add(m);
+    if (m.kind === 'site') town.project(state.game.boons || [], state.game.project);
     const u = v3(m.u).normalize();
     fx.dust(u.clone().multiplyScalar(R), u, 14);
     if (!state.joined) return;
@@ -974,14 +1007,15 @@ const handlers = {
     const kind = town.shops.get(m.z)?.kind;
     const key = isTouch ? 'TAP' : mouseWord(kind === 'range' ? 'ranged' : 'melee');
     const hello = {
-      doctor: ['DOCTOR', me.hp < PLAYER.maxHp ? `${isTouch ? 'USE' : 'E'} · ALL BETTER FOR 1 🐚` : 'COME BACK WHEN HURT'],
+      doctor: ['DOCTOR', me.hp < me.maxHp ? `${isTouch ? 'USE' : 'E'} · ALL BETTER FOR 1 🐚` : 'COME BACK WHEN HURT'],
       range: ['TARGET RANGE', state.practice ? `${isTouch ? 'WEAPONS' : 'E'} · SWAP IT OR HAND IT BACK` : `${isTouch ? 'WEAPONS' : 'E'} · PICK A PRACTICE WEAPON`],
       duel: ['DUEL RING', `${isTouch ? 'WEAPON' : 'E'} PICKS A WEAPON · KNOCK THEM TO 1 HP FOR ${C.SHOPS.duel.win} 🐚`],
       tailor: ['TAILOR', `${isTouch ? 'USE' : 'E'} · HATS AND CAPES`],
       haunt: ['DARK FOREST!', `${carrying() ? `YOUR ${C.duelWeapon(myPlayer().carry).name.toUpperCase()} VS THE MONSTERS` : 'YOUR HOE IS A TORCH IN HERE'} · THE DEEPER, THE WORSE (AND THE MORE 🐚)`],
       pond: ['FISHING POND', `${isTouch ? 'FISH' : 'E'} TO CAST · ${isTouch ? 'REEL' : 'E'} AGAIN WHEN IT BITES`],
       spring: ['HOT SPRING', 'SOAK A WHILE: LIFE COMES BACK'],
-      bonfire: ['BONFIRE', `${isTouch ? 'DANCE' : 'E'} TO DANCE · MORE DANCERS, MORE 🐚`],
+      bonfire: ['BONFIRE', state.game.feastsDue ? `A FEAST IS DUE: ${isTouch ? 'COOK' : 'E'} TO COOK IT` : `${isTouch ? 'DANCE' : 'E'} TO DANCE · MORE DANCERS, MORE 🐚`],
+      site: ['TRIBE PROJECT', state.game.project ? `${isTouch ? 'WORK' : 'E'} TO WORK ON THE ${C.PROJECTS.kinds[state.game.project.kind].name} · IT TAKES MANY HANDS` : 'EVERYTHING IS BUILT'],
     }[kind];
     if (hello) hud.center(hello[0], hello[1], 1.8);
   },
@@ -1014,7 +1048,8 @@ const handlers = {
     if (!b) return;
     b.hp = m.hp;
     b.model.setHp(m.hp);
-    fx.float(v3(b.rp).multiplyScalar(R + b.rh + C.BEASTS[b.kind].height + 0.3), `+${m.n}`, 'heal', { life: 1 });
+    // (an elder healing on its own: nobody's on it together)
+    fx.float(v3(b.rp).multiplyScalar(R + b.rh + C.BEASTS[b.kind].height * (b.size || 1) + 0.3), m.alone ? `+${m.n} · ALONE IT HEALS` : `+${m.n}`, 'heal', { life: 1 });
   },
 
   // fishing at a pond: a cast, a bite, then a catch, or it swam off (too soon), got away (too
@@ -1050,6 +1085,7 @@ const handlers = {
     if (m.s === 'got') {
       const f = C.FISH[m.kind];
       state.game.food = m.food;
+      if (m.gathered != null) state.game.gathered = m.gathered;
       pl.model.playSwing(0.05);
       sound.play('splash', distTo(pl.rp));
       if (mine) {
@@ -1060,7 +1096,7 @@ const handlers = {
           fishBest[m.kind] = ms;
           try { localStorage.setItem('wir.fishBest', JSON.stringify(fishBest)); } catch { /* (just not kept) */ }
         }
-        const got = [f.shells ? `+${f.shells} 🐚` : '', f.food ? `+${f.food} FOOD` : ''].filter(Boolean).join(' · ') || 'WELL... IT IS A BOOT';
+        const got = [f.shells ? `+${f.shells} 🐚` : '', f.food ? `+${f.food} FOOD` : '', m.life ? `+${m.life} LIFE` : ''].filter(Boolean).join(' · ') || 'WELL... IT IS A BOOT';
         hud.center(`${f.name}!`, `${got} · IN ${ms.toLocaleString('en-US')} MS${!best || ms < best ? (best ? ' · NEW BEST!' : '') : ` · BEST ${best.toLocaleString('en-US')} MS`}`, 2.4);
         if (f.shells) sound.play(f.shells >= 5 ? 'chaching' : 'coins');
       } else if (m.kind === 'golden') {
@@ -1083,15 +1119,15 @@ const handlers = {
     if (m.id === state.myId) return;
     const pl = state.players.get(m.id);
     if (!pl) return;
-    sound.drum(m.k, distTo(pl.rp));
-    town.drumHit(m.shop, m.k);
+    if (typeof m.k === 'string') { sound.note(m.k[0] === 'x' ? 'xylo' : 'flute', +m.k[1], distTo(pl.rp)); town.noteHit(m.shop, m.k[0] === 'x' ? 'xylo' : 'flute', +m.k[1]); }
+    else { sound.drum(m.k, distTo(pl.rp)); town.drumHit(m.shop, m.k); }
     pl.model.playSwing(0.04);
   },
 
   // a shell for playing the drums (n: dancers and drummers there)
   band(m) {
     if (m.id !== state.myId) return;
-    fx.float(v3(me.p).multiplyScalar(R + me.h + 2.4), `+1 🐚${m.n > 1 ? ` · ${m.n} IN THE BAND` : ''}`, 'heal', { life: 1.2 });
+    fx.float(v3(me.p).multiplyScalar(R + me.h + 2.4), `+1 🐚${m.n > 1 ? ` · ${m.n} IN THE BAND` : ''}${m.ens > 1 ? ` · ENSEMBLE ×${1 + C.BAND.ensemble * (m.ens - 1)}` : ''}`, 'heal', { life: 1.2 });
     sound.play('coins');
   },
 
@@ -1104,7 +1140,7 @@ const handlers = {
     pl.model.setDancing(pl.dancing);
     if (m.id !== state.myId) return;
     if (m.paid) {
-      fx.float(v3(me.p).multiplyScalar(R + me.h + 2.4), `+1 🐚${m.n > 1 ? ` · ${m.n} DANCING` : ''}`, 'heal', { life: 1.2 });
+      fx.float(v3(me.p).multiplyScalar(R + me.h + 2.4), `+1 🐚${m.n > 1 ? ` · ${m.n} DANCING` : ''}${m.ens > 1 ? ` · ENSEMBLE ×${1 + C.BAND.ensemble * (m.ens - 1)}` : ''}`, 'heal', { life: 1.2 });
       sound.play('coins');
     } else if (pl.dancing && !was) {
       hud.center('DANCE!', `THE MORE DANCE, THE MORE 🐚 · ${isTouch ? 'MOVE' : 'WALK'} TO STOP`, 1.8);
@@ -1122,8 +1158,258 @@ const handlers = {
     Object.assign(me, { charging: false, charge: 0, regen: 0 });
     sound.play('pickup');
     if (m.quiet) return;   // (from the penumbra: its screen said)
-    if (pl.practice) hud.center(`${C.RANGED[pl.practice].name.toUpperCase()}!`, 'TAKE IT ANYWHERE · BACK TO THE SHED TO STOP', 2.4);
+    if (panelOpen('bag')) refreshBag();
+    if (pl.practice) hud.center(`${C.RANGED[pl.practice].name.toUpperCase()}!`, C.RANGED[pl.practice].shop ? 'OUT OF YOUR BAG' : 'TAKE IT ANYWHERE · BACK TO THE SHED TO STOP', 2.4);
     else hud.center('HANDED IT BACK', '', 1.4);
+  },
+
+  // bought at the trading post: mine, or somebody's (the feed)
+  bought(m) {
+    const it = C.ITEMS[m.item], pl = state.players.get(m.id);
+    if (!it) return;
+    if (m.id === state.myId) {
+      hud.center(`${it.icon} ${it.name.toUpperCase()}!`, it.kind === 'gear' && state.gear.includes(m.item) ? `ON · ${it.desc}` : `IN YOUR BAG · ${isTouch ? '🎒' : 'I'} TO TAKE IT OUT`, 2.4);
+      sound.play('chaching');
+    } else if (pl) hud.feed(`${esc(pl.name.toUpperCase())} BUYS ${it.icon} ${it.name.toUpperCase()}`);
+  },
+
+  // a lucky cowrie: shells came in twice
+  lucky(m) {
+    fx.float(v3(me.p).multiplyScalar(R + me.h + 3.1), `🍀 LUCKY! x2`, 'heal', { life: 1.2 });
+  },
+
+  // every so many crops picked: a BUMPER CROP
+  bumper(m) {
+    const pl = state.players.get(m.id);
+    if (m.id === state.myId) { hud.center('BUMPER CROP!', `${m.n} PICKED · +${m.shells} 🐚`, 1.8); sound.play('coins'); }
+    else if (pl) hud.feed(`${esc(pl.name.toUpperCase())}: BUMPER CROP (${m.n} PICKED)`);
+  },
+
+  // the tribe has gathered enough food for a FEAST: shells for everyone, and FAST FEET and REGROW
+  feast(m) {
+    setGame({ gathered: m.gathered, feasts: m.n, ...(m.due !== undefined ? { feastsDue: m.due } : {}) });
+    if (!state.joined) return;
+    const cook = state.players.get(m.cook);
+    hud.center('FEAST!', `${cook ? `COOKED BY ${cook.name.toUpperCase()} · ` : ''}+${m.shells} 🐚 EACH · FAST FEET AND REGROW`, 3);
+    hud.feed(`<span class="streak">🍖 FEAST!</span> ${cook ? `COOKED BY ${esc(cook.name.toUpperCase())} · ` : ''}THE TRIBE HAS GATHERED ${m.gathered} FOOD`);
+    sound.play('chaching');
+    sound.speak(pick(['feast!', 'ooga ooga!', 'yum yum!']), { pitch: 0.35 });
+  },
+
+  // a bite out of the tribe's store (anyone's: the store goes down; mine: what it did)
+  eat(m) {
+    setGame({ food: m.food });
+    if (m.id !== state.myId) return;
+    fx.float(v3(me.p).multiplyScalar(R + me.h + 2.3), `+${m.life} LIFE · ${m.n} FOOD FROM THE STORE`, 'heal', { life: 1.2 });
+    sound.play('pickup');
+  },
+
+  // a monster knocked out: its meat goes in the tribe's store
+  hunted(m) {
+    setGame({ food: m.food, gathered: m.gathered });
+    if (m.id === state.myId && m.p) fx.float(v3(m.p).normalize().multiplyScalar(R + 3), `+${m.n} FOOD FOR THE TRIBE`, 'heal', { life: 1.4 });
+  },
+
+  // a DEED of mine, the first time this stretch: the strip lights it, the feed says so
+  deed(m) {
+    const d = C.DEEDS[m.k];
+    if (!d) return;
+    if (!state.deeds.includes(m.k)) state.deeds = [...state.deeds, m.k];
+    hud.feed(`<span class="streak">${d.icon} DEED ${m.n}/${Object.keys(C.DEEDS).length}</span> ${d.name} · +${m.shells} 🐚`);
+  },
+
+  // somebody's done every deed: JACK OF ALL TRADES
+  alldeeds(m) {
+    const pl = state.players.get(m.id);
+    if (m.id === state.myId) {
+      hud.center('JACK OF ALL TRADES!', `EVERY DEED THIS STRETCH · +${m.shells} 🐚`, 3);
+      sound.play('chaching');
+    } else if (pl) hud.feed(`<span class="streak">⭐ ${esc(pl.name.toUpperCase())}</span> DID EVERY DEED: JACK OF ALL TRADES`);
+  },
+
+  // a level up: mine (a point to spend: L), or somebody's (the feed)
+  levelup(m) {
+    const pl = state.players.get(m.id);
+    if (m.id === state.myId) {
+      Object.assign(state, { level: m.level, points: m.points });
+      hud.center(`LEVEL ${m.level}!`, `${m.points} POINT${m.points === 1 ? '' : 'S'} TO SPEND · ${isTouch ? '☰ LEVEL' : 'L'}`, 2.6);
+      sound.play('chaching');
+      fx.burst(v3(me.p).multiplyScalar(R + me.h + 1), { count: 24, color: '#ffd34d', speed: 4, size: 0.1, life: 0.9, up: v3(me.p) });
+    } else if (pl) hud.feed(`<span class="streak">⬆ ${esc(pl.name.toUpperCase())}</span> IS LEVEL ${m.level}`);
+  },
+
+  // a point spent on a stat (mine: the screen says what it did)
+  stat(m) {
+    if (m.id !== state.myId) return;
+    const d = C.STATS[m.stat];
+    if (d) fx.float(v3(me.p).multiplyScalar(R + me.h + 2.6), `${d.icon} ${d.name} ${m.n}`, 'heal', { life: 1.4 });
+  },
+
+  // ---- the tribe's doings (TRIBE and friends)
+  // a step of work on the tribe project (by), or the project raised (complete)
+  project(m) {
+    if (m.complete) {
+      setGame(m);
+      const def = C.PROJECTS.kinds[m.kind];
+      if (!state.joined) return;
+      const mine = m.workers.includes(myPlayer()?.name);
+      hud.center(`${def.icon} ${def.name} RAISED!`, `${def.boon}${mine ? ` · +${m.shells} 🐚 FOR YOUR WORK` : ''}`, 4);
+      hud.feed(`<span class="streak">${def.icon} THE TRIBE RAISED THE ${def.name}</span> · ${m.workers.length} PAIR${m.workers.length === 1 ? '' : 'S'} OF HANDS`);
+      sound.play('chaching');
+      sound.speak('we build! ooga!', { pitch: 0.3 });
+      const site = [...town.shops.values()].find(s => s.kind === 'site');
+      if (site) fx.burst(v3(site.u).multiplyScalar(R + 2), { count: 40, color: '#ffd34d', speed: 6, size: 0.12, life: 1.4, up: v3(site.u), emissive: true });
+      return;
+    }
+    setGame({ food: m.food, project: { kind: m.kind, done: m.done, steps: m.steps, hands: m.hands } });
+    const pl = state.players.get(m.by);
+    if (pl) pl.model.playSwing(0.15);
+    const site = [...town.shops.values()].find(s => s.kind === 'site');
+    if (site) { fx.dust(v3(site.u).multiplyScalar(R), v3(site.u), 3); sound.play('thunk', distTo(site.u)); }
+    if (m.by === state.myId) fx.float(v3(me.p).multiplyScalar(R + me.h + 2.4), `${C.PROJECTS.kinds[m.kind].icon} ${m.done}/${m.steps}`, 'heal', { life: 1 });
+  },
+
+  // a TRIBE DEED done (k): everyone gets a shell; all of them, more
+  tribedeed(m) {
+    setGame(m);
+    if (!state.joined) return;
+    const d = C.TRIBE_DEEDS[m.k];
+    hud.feed(`<span class="streak">${d.icon} TRIBE DEED ${m.n}/${m.of}</span> ${m.tdNeed?.[m.k] ?? d.need} ${d.name} · +${m.shells} 🐚 EACH`);
+    if (m.all) hud.center('THE WHOLE TRIBE!', `EVERY TRIBE DEED THIS STRETCH · +${m.all} 🐚 EACH`, 3);
+    sound.play(m.all ? 'chaching' : 'coins');
+  },
+
+  // the store hit the goal: a BIG FEAST
+  bigfeast(m) {
+    setGame({ bigFeast: 1 });
+    if (!state.joined) return;
+    hud.center('BIG FEAST!', `THE STORE HOLDS ${m.food} · +${m.shells} 🐚 EACH · FAST FEET AND REGROW, TWICE AS LONG`, 3.2);
+    hud.feed(`<span class="streak">🍖 BIG FEAST!</span> THE STORE HIT ${m.goal}`);
+    sound.play('chaching');
+    sound.speak('big feast! big big feast!', { pitch: 0.35 });
+  },
+
+  // a feast earned, waiting for a cook at a bonfire
+  feastdue(m) {
+    setGame({ feastsDue: m.n, gathered: m.gathered });
+    if (!state.joined) return;
+    hud.center('A FEAST IS DUE!', `SOMEBODY COOK IT: ${isTouch ? 'COOK' : 'E'} AT A BONFIRE (${C.COOK.secs} S, QUICKER WITH DEXTERITY)`, 3);
+    hud.feed(`<span class="streak">🍲 A FEAST IS DUE</span> · ${m.n} TO COOK · E AT A BONFIRE`);
+    sound.play('era');
+  },
+
+  // somebody cooking at a bonfire (shop, secs), done, or walked off
+  cook(m) {
+    const pl = state.players.get(m.id);
+    if (pl) pl.cooking = !!m.shop;
+    if (m.id !== state.myId) {
+      if (m.shop && pl && state.joined) hud.feed(`${esc(pl.name.toUpperCase())} IS COOKING THE FEAST`);
+      return;
+    }
+    state.cooking = m.shop ? { until: clock() + m.secs, secs: m.secs } : null;
+    if (m.shop) { hud.center('COOKING!', `STAND STILL ${m.secs} S · THE TRIBE EATS WHEN IT'S DONE`, 1.8); sound.play('thunk'); }
+    else if (m.off) hud.center('THE FEAST SPOILED', 'YOU WALKED OFF · START AGAIN', 1.6);
+  },
+
+  // an ELDER stirs in the forest's heart
+  boss(m) {
+    if (!state.joined) return;
+    hud.center(`AN ${m.name.toUpperCase()} STIRS!`, 'AT THE HEART OF THE DARK FOREST · IT HEALS UNLESS THE TRIBE IS ON IT TOGETHER', 4);
+    hud.feed(`<span class="streak">👹 AN ${esc(m.name.toUpperCase())}</span> STIRS AT THE HEART OF THE FOREST · HUNT IT TOGETHER`);
+    sound.play('roar', distTo(m.p) * 0.3);
+    fx.addShake(0.3);
+  },
+
+  // ...and falls: everyone who was on it shares the credit
+  bossdown(m) {
+    if (!state.joined) return;
+    const mine = m.ids.includes(state.myId);
+    hud.feed(`<span class="streak">👹 THE ${esc(m.name.toUpperCase())} FALLS</span> TO ${m.names.map(n => esc(n.toUpperCase())).join(', ')} · +${m.meat} FOOD`);
+    if (mine) { hud.center(`THE ${m.name.toUpperCase()} FALLS!`, `+${m.shells} 🐚 FOR EACH OF THE ${m.ids.length} ON IT · +${m.meat} FOOD FOR THE TRIBE`, 3.5); sound.play('chaching'); }
+    sound.play('shatter');
+    sound.speak('big one down!', { pitch: 0.3 });
+  },
+
+  // a HUNTING PARTY: a monster felled with friends near
+  party(m) {
+    if (m.id === state.myId) fx.float(v3(m.p).normalize().multiplyScalar(R + 3.6), `HUNTING PARTY: +${Math.min(C.PARTY.most, m.n)} 🐚 (${m.n} WITH YOU)`, 'heal', { life: 1.5 });
+    else if (m.ids.includes(state.myId)) { fx.float(v3(me.p).multiplyScalar(R + me.h + 2.6), 'HUNTING PARTY: +1 🐚 · GRIT', 'heal', { life: 1.5 }); sound.play('coins'); }
+  },
+
+  // DRAG: somebody (id) dragging a knocked-out caveman (who): on, off, or up again (rescued)
+  drag(m) {
+    const pl = state.players.get(m.id), who = state.players.get(m.who);
+    if (pl) pl.dragging = m.on ? m.who : 0;
+    if (m.id === state.myId) {
+      state.dragging = m.on ? m.who : 0;
+      if (m.on) hud.center(`DRAGGING ${playerName(who).toUpperCase()}`, 'OUT OF THE DARK AND THEY WAKE · E TO LAY THEM DOWN', 2.4);
+      else if (m.rescued) { hud.center(`${playerName(who).toUpperCase()} IS UP!`, `+${C.DRAG.shells} 🐚 · A FRIEND IN NEED`, 2.2); sound.play('chaching'); }
+    } else if (m.who === state.myId) {
+      if (m.on) hud.center(`${playerName(pl).toUpperCase()} IS DRAGGING YOU`, 'TO SAFETY', 2);
+    }
+    if (m.rescued && state.joined && pl && who) hud.feed(`<span class="${m.id === state.myId ? 'me' : ''}">${esc(pl.name)}</span> DRAGGED <span class="${m.who === state.myId ? 'me' : ''}">${esc(who.name)}</span> TO SAFETY`);
+  },
+
+  // a gift: shells, or something lent (or given back)
+  gift(m) {
+    const from = state.players.get(m.from), to = state.players.get(m.to);
+    const what = m.shells ? `🐚 ${m.shells}` : `${C.ITEMS[m.item]?.icon || ''} ${C.ITEMS[m.item]?.name.toUpperCase() || ''}`;
+    if (m.to === state.myId) {
+      hud.center(`${playerName(from).toUpperCase()} ${m.shells ? 'GIVES YOU' : m.back ? 'GIVES BACK YOUR' : 'LENDS YOU'} ${what}`, m.shells || m.back ? '' : `IN YOUR BAG · ${isTouch ? '🎒' : 'I'} · THEIRS AGAIN IF YOU LEAVE`, 2.6);
+      sound.play(m.shells ? 'coins' : 'pickup');
+    } else if (m.from === state.myId) {
+      fx.float(v3(me.p).multiplyScalar(R + me.h + 2.6), `${m.back ? 'GAVE BACK' : m.shells ? 'GAVE' : 'LENT'} ${what}`, 'heal', { life: 1.4 });
+      sound.play('pickup');
+      if (panelOpen('give')) togglePanel('give', false);
+    } else if (state.joined && from && to) hud.feed(`${esc(from.name.toUpperCase())} ${m.shells ? 'GIVES' : 'LENDS'} ${esc(to.name.toUpperCase())} ${what}`);
+    if (to) { const up = v3(to.rp); fx.burst(up.clone().multiplyScalar(R + to.rh + 1.6), { count: 12, color: '#ffe066', speed: 2.5, size: 0.08, life: 0.8, up, emissive: true }); }
+  },
+
+  // something I lent came back (they left the rock)
+  returned(m) {
+    const it = C.ITEMS[m.item];
+    if (it) hud.center(`YOUR ${it.name.toUpperCase()} IS BACK`, `${m.from.toUpperCase()} LEFT THE ROCK`, 2.2);
+  },
+
+  // the tribe chest (at the trading post): something in (put) or out (take)
+  chest(m) {
+    setGame({ chest: m.chest });
+    const pl = state.players.get(m.by);
+    const it = C.ITEMS[m.put || m.take];
+    if (pl && it && state.joined && m.by !== state.myId) hud.feed(`${esc(pl.name.toUpperCase())} ${m.put ? 'PUTS' : 'TAKES'} ${it.icon} ${it.name.toUpperCase()} ${m.put ? 'IN' : 'OUT OF'} THE TRIBE CHEST`);
+    if (m.by === state.myId && it) { hud.center(m.put ? `${it.name.toUpperCase()} IN THE CHEST` : `${it.name.toUpperCase()} OUT OF THE CHEST`, m.put ? 'FOR ANYONE ON THE ROCK' : 'YOURS TILL YOU PUT IT BACK, OR LEAVE', 2); sound.play('pickup'); }
+    if (panelOpen('stall')) refreshStall();
+    if (panelOpen('bag')) refreshBag();
+  },
+
+  // MENTOR: an old hand and a newcomer earning side by side
+  mentor(m) {
+    const other = state.players.get(m.id === state.myId ? m.with : m.id);
+    if (m.id === state.myId || m.with === state.myId) fx.float(v3(me.p).multiplyScalar(R + me.h + 3), `MENTOR: GRIT ×${C.TRIBE.mentorBonus} WITH ${playerName(other).toUpperCase()}`, 'heal', { life: 1.6 });
+  },
+
+  // CALL AND RESPONSE: a bonfire hums a phrase (notes: 0..7), or stops
+  call(m) {
+    if (m.off) { state.calls.delete(m.shop); return; }
+    state.calls.set(m.shop, { notes: m.notes, until: clock() + m.secs });
+    const s = town.shops.get(m.shop);
+    const d = s ? distTo(s.u) : 99;
+    if (d > 30) return;
+    m.notes.forEach((n, i) => setTimeout(() => sound.note('flute', n, d), i * 350));
+    if (state.zone === m.shop) hud.center('THE FIRE HUMS...', `${m.notes.map(n => n + 1).join(' ')} · PLAY IT BACK ON THE XYLOPHONE OR FLUTE · ${m.secs} S`, 3);
+  },
+
+  response(m) {
+    state.calls.delete(m.shop);
+    const pl = state.players.get(m.id);
+    if (state.zone === m.shop) { hud.center('THE BAND ANSWERS!', `${playerName(pl).toUpperCase()} PLAYED IT BACK · +${m.heal} LIFE AND +1 🐚 FOR THE ${m.n} HERE`, 2.6); sound.play('chaching'); }
+    else if (state.joined && pl) hud.feed(`<span class="streak">🎶 ${esc(pl.name.toUpperCase())}</span> PLAYED THE FIRE'S TUNE BACK`);
+  },
+
+  // THE STORY OF THE NIGHT, as a stretch of peace ends
+  story(m) {
+    if (!state.joined) return;
+    hud.story(m.lines, m.more);
   },
 
   // a hit at the range: the target shakes, and straw flies
@@ -1213,19 +1499,21 @@ const handlers = {
 
   strangergone(m) { removeStranger(m.id); },
 
-  // the vote to keep farming: opens, then keep going (yes) or the round ends (no)
-  vote(m) {
+  // a stretch of peace is up and the next begins (grow: the world grows again)
+  stretch(m) {
     setGame(m);
-    if (m.start) state.myVote = null;
     if (!state.joined) return;
-    if (m.start) sound.play('era');   // the vote panel itself asks the question
-    else if (m.result === 'yes') hud.center(m.grow ? 'THE WORLD GROWS!' : 'MORE FARMING!', m.grow ? 'MORE FARMING, AND NEW PLACES TO FIND' : `${m.yes} YES · ${m.no} NO`, 2.8);
-    else if (m.result === 'no') hud.feed(`<span class="streak">FARMING DONE</span> · ${m.yes} YES · ${m.no} NO`);
+    // (new clothes with it, while there are finer ones to come)
+    const dressed = clock() - state.dressAt < 0.5 ? `THE TRIBE NOW WEARS ${C.DRESS[state.dress].name} · ` : '';
+    hud.center(m.grow ? 'THE WORLD GROWS!' : 'A NEW STRETCH OF PEACE!', `${dressed}${m.grow ? 'NEW PLACES TO FIND, AND NEW DEEDS' : 'NEW DEEDS, AND THE STORE GOAL AGAIN'}`, 2.8);
+    hud.feed('<span class="streak">NEW DEEDS</span> FOR THE NEXT STRETCH OF PEACE');
+    sound.play('era');
   },
 
   // the server turned down a planting or a build
   nope(m) {
-    const text = { spot: 'NO ROOM HERE', food: `NEED ${m.need} FOOD`, full: 'TOO MANY CROPS', healthy: 'YOU ARE FINE!', shells: `NEED ${m.need} 🐚`, hands: 'HANDS FULL' }[m.why] || 'NO';
+    const text = { spot: 'NO ROOM HERE', food: `NEED ${m.need} FOOD`, full: 'TOO MANY CROPS', healthy: 'YOU ARE FINE!', shells: `NEED ${m.need} 🐚`, hands: myShop()?.kind === 'site' ? 'YOUR SHARE IS DONE: IT TAKES OTHER HANDS' : 'HANDS FULL', slots: `${m.max} ON AT ONCE: TAKE ONE OFF`, store: 'THE STORE IS EMPTY',
+      nofeast: 'NO FEAST TO COOK YET', reach: 'TOO FAR: FACE THEM', purse: 'THEIR PURSE IS FULL', has: 'THEY HAVE ONE ALREADY', lent: 'NOT YOURS TO PUT IN', chestfull: 'THE CHEST IS FULL', tribe: `TRIBE LEVEL ${m.need} NEEDED` }[m.why] || 'NO';
     if (m.why === 'chat') { hud.chatLine('', `NOT SAID. TOO LONG: ${(m.long || []).join(', ')}`, { note: true }); return; }
     fx.float(v3(me.p).multiplyScalar(R + me.h + 2.3), text, 'ooga', { life: 0.9 });
   },
@@ -1251,10 +1539,12 @@ const handlers = {
     state.zone = 0;
     state.practice = null;   // (the practice weapons went back with the town, and the duel ring's)
     state.drumming = null;
+    Object.assign(state, { dragging: 0, cooking: null, sleeperNear: 0, giveTo: 0 });
+    state.calls.clear();
     endReel();
     for (const id of [...state.motes.keys()]) removeMote(id);   // (they fade with the old world)
     for (const pl of state.players.values()) {
-      Object.assign(pl, { zone: 0, practice: null, carry: null, fish: null, dancing: false });
+      Object.assign(pl, { zone: 0, practice: null, carry: null, fish: null, dancing: false, dragging: 0, cooking: false });
       pl.model.setDancing(false);
     }
     closePanels();
@@ -1334,7 +1624,8 @@ const handlers = {
     if (!def) return;
     const until = clock() + m.left;
     if (pl) (pl.buffs ||= {})[m.kind] = until;
-    if (m.id === state.myId) {
+    if (m.id === state.myId && m.feast) me.buffs[m.kind] = until;   // (a feast's: the feast says so)
+    else if (m.id === state.myId) {
       me.buffs[m.kind] = until;
       // (a mushroom, or a mote from the dark forest that does the same)
       hud.center(`${def.buff}!`, `${m.mote ? C.MOTES.kinds[m.mote].name : def.name}: ${def.desc} FOR ${m.left} SEC`, 2.2);
@@ -1389,7 +1680,8 @@ const handlers = {
     b.model.setHp(m.hp);
     const pos = m.pos ? v3(m.pos) : v3(b.rp).multiplyScalar(R + b.rh + C.BEASTS[b.kind].height * 0.6);
     fx.burst(pos, { count: 6, color: '#a8201a', speed: 3, size: 0.1, life: 0.6 });
-    fx.float(pos, `${m.d}`, 'dmg', { offset: 0.4 });
+    fx.float(pos, m.cr ? `${m.d}!` : `${m.d}`, 'dmg', { offset: 0.4 });
+    if (m.dz) fx.float(pos.clone().addScaledVector(pos.clone().normalize(), 0.7), 'DAZED', 'ooga', { life: 0.8 });
     if (m.a === state.myId) {
       sound.play('thunk');
       $('crosshair').classList.remove('hit');
@@ -1498,7 +1790,7 @@ const handlers = {
     pl.model.isLocal = true;
     if (pl.model.tag) pl.model.tag.visible = false;
     state.practice = pl.practice;
-    Object.assign(me, { p: pl.rp, f: pl.rf, h: 0, vh: 0, alive: true, hp: PLAYER.maxHp, ammo: m.ammo, wpn: pl.wpn, armor: null });
+    Object.assign(me, { p: pl.rp, f: pl.rf, h: 0, vh: 0, alive: true, hp: me.maxHp, ammo: m.ammo, wpn: pl.wpn, armor: null });
     wakeUp();   // (into the world: eyes open, and out over the shoulder)
     hud.setWeapon(pl.wpn);
     hud.setHp(me.hp);
@@ -1543,7 +1835,8 @@ const handlers = {
       pl.flags = flags;
       pl.ammo = flags >> 5;
       if (pl.hp !== hp) { pl.hp = hp; pl.model.setHp(hp); }
-      if (row[0] === state.myId) { me.hp = hp; continue; }
+      // (knocked out, I lie where the server has me: somebody may be dragging me)
+      if (row[0] === state.myId) { me.hp = hp; if (!me.alive && peaceNow()) { me.p = [row[1], row[2], row[3]]; me.f = [row[4], row[5], row[6]]; } continue; }
       pl.snaps.push({ t, p: [row[1], row[2], row[3]], f: [row[4], row[5], row[6]], h: row[7] });
       if (pl.snaps.length > 30) pl.snaps.shift();
     }
@@ -1577,12 +1870,21 @@ const handlers = {
     const gain = m.shells - state.shells;
     state.shells = m.shells;
     state.wardrobe = m.wardrobe || [];
+    if (m.items) state.items = m.items;
+    if (m.gear) state.gear = m.gear;
+    if (m.deeds) state.deeds = m.deeds;
     if (m.perm) state.perm = m.perm;
+    if (m.lent) state.lent = m.lent;
+    if (m.fromChest) state.fromChest = m.fromChest;
+    if (panelOpen('give')) refreshGive();
+    if (m.stats) { Object.assign(state, { level: m.level, xp: m.xp, points: m.points, stats: m.stats }); me.maxHp = m.maxHp || PLAYER.maxHp; if (panelOpen('level')) refreshLevel(); }
     if (gain && state.joined && me.alive) {
       fx.float(v3(me.p).multiplyScalar(R + me.h + 2.6), `${gain > 0 ? '+' : ''}${gain} 🐚`, gain > 0 ? 'heal' : 'ooga', { life: 1.1 });
       if (gain > 0) sound.play('coins');
     }
     if (panelOpen('tailor')) refreshTailor();
+    if (panelOpen('stall')) refreshStall();
+    if (panelOpen('bag')) refreshBag();
   },
 
   spear(m) {
@@ -1760,7 +2062,8 @@ const handlers = {
     pl.hp = m.hp;
     pl.model.setHp(m.hp);
     if (m.id === state.myId) { me.hp = m.hp; hud.setHp(m.hp); sound.play('heal'); }
-    fx.float(v3(pl.rp).multiplyScalar(R + pl.rh + 2.2), `+${m.n}`, 'heal', { life: 0.9 });
+    // (my own bite of food says so where I picked it: +2 FOOD · +10 LIFE)
+    if (!(m.why === 'food' && m.id === state.myId)) fx.float(v3(pl.rp).multiplyScalar(R + pl.rh + 2.2), `+${m.n}`, 'heal', { life: 0.9 });
   },
 
   die(m) {
@@ -1823,7 +2126,7 @@ const handlers = {
       const waking = !me.alive;   // (back from sleep, or from the dead. Not a new round's fresh start.)
       const look = settings.get('view') === 'first' ? 0.05 : 0.32;
       Object.assign(me, {
-        p: m.p, f: m.f, h: 0, vh: 0, kbv: [0, 0, 0], alive: true, hp: PLAYER.maxHp, ammo: rangedDef().ammo,
+        p: m.p, f: m.f, h: 0, vh: 0, kbv: [0, 0, 0], alive: true, hp: m.hp ?? me.maxHp, ammo: rangedDef().ammo,
         wpn: m.wpn, armor: null, stunUntil: 0, slowUntil: 0, charging: false, pitch: look, aim: look, buffs: {},
       });
       if (waking) wakeUp();
@@ -1859,8 +2162,9 @@ const handlers = {
         hud.center('HANDED IT BACK', 'THE HOE AGAIN OUT OF THE RING', 1.6);
       } else if (!m.era) {
         sound.play('pickup');
-        hud.center(`GOT ${m.wpn.name.toUpperCase()}!`, m.carry ? 'YOURS TO KEEP · TAKE IT ANYWHERE' : '', 1.8);
+        hud.center(`GOT ${m.wpn.name.toUpperCase()}!`, m.carry ? (C.ITEMS[m.carry] ? 'OUT OF YOUR BAG' : 'YOURS TO KEEP · TAKE IT ANYWHERE') : '', 1.8);
       }
+      if (panelOpen('bag')) refreshBag();
     }
   },
 
@@ -1932,6 +2236,7 @@ function addPlayer(p) {
   model.setChief(p.id === state.game.chief);
   model.setTeam(teamOf(p));
   model.setHp(p.hp);
+  model.setDress(state.dress ?? dressStage());
   model.place(p.p, p.f, p.h);
   scene.add(model.root);
   const ammo = rangedDef().ammo;
@@ -2291,24 +2596,41 @@ function updateShrooms(dt) {
 
 // ---- the bonfire's drums: E at one and you're playing (BOOM: attack button, TAK: throw button);
 // walk off and you've stopped. Everyone hears; the band earns shells like the dancers.
-function drumNear(shop) {
+// The instrument I'm beside at a bonfire: { kind: 'drum', i } (which drum), { kind: 'xylo' } or
+// { kind: 'flute' }, or null.
+function instrumentNear(shop) {
   if (shop?.kind !== 'bonfire') return null;
   let best = null, bestD = C.SHOPS.bonfire.drumReach;
-  drumsOf(shop).forEach((d, i) => { const dist = M.arcDist(me.p, d); if (dist < bestD) { bestD = dist; best = i; } });
+  drumsOf(shop).forEach((d, i) => { const dist = M.arcDist(me.p, d); if (dist < bestD) { bestD = dist; best = { kind: 'drum', i }; } });
+  for (const kind of ['xylo', 'flute']) { const dist = M.arcDist(me.p, instrumentAt(shop, kind)); if (dist < bestD) { bestD = dist; best = { kind }; } }
   return best;
 }
-function startDrumming(shop, i) {
+const dexOf = () => (peaceNow() ? 1 - (state.stats.dex || 0) * C.LEVELS.dex : 1);
+function startDrumming(shop, inst) {
   if (myPlayer()?.dancing) send({ t: 'dance', on: 0 });
-  state.drumming = { shop: shop.id, i };
-  hud.center('DRUMS!', isTouch ? 'BOOM · TAK · MOVE TO STOP' : `${mouseWord('melee')} CLICK: BOOM · ${mouseWord('ranged')} CLICK: TAK · WALK TO STOP`, 1.8);
+  state.drumming = { shop: shop.id, ...inst };
+  const def = C.INSTRUMENTS[inst.kind];
+  if (inst.kind === 'drum') hud.center('DRUMS!', isTouch ? 'BOOM · TAK · MOVE TO STOP' : `${mouseWord('melee')} CLICK: BOOM · ${mouseWord('ranged')} CLICK: TAK · WALK TO STOP`, 1.8);
+  else hud.center(`${def.name}!`, isTouch ? 'TAP THE NOTES · MOVE TO STOP' : `KEYS ${def.keys[0]} TO ${def.keys.at(-1)} (OR THE NUMPAD) · WALK TO STOP`, 2.2);
+  if (isTouch) touch.setNotes(inst.kind === 'drum' ? null : def.keys);
 }
-function stopDrumming() { state.drumming = null; }
+function stopDrumming() { state.drumming = null; if (isTouch) touch.setNotes(null); }
 function hitDrum(k) {
   sound.drum(k);
   town.drumHit(state.drumming.shop, k);
   myPlayer()?.model.playSwing(0.04);
   sendState();
   send({ t: 'drum', k });
+}
+// a note on the xylophone or the flute (n: which, from 0)
+function playNote(n) {
+  const kind = state.drumming?.kind;
+  if (!kind || kind === 'drum' || n >= C.INSTRUMENTS[kind].notes.length) return;
+  sound.note(kind, n);
+  town.noteHit(state.drumming.shop, kind, n);
+  myPlayer()?.model.playSwing(0.04);
+  sendState();
+  send({ t: 'drum', k: `${kind[0]}${n}` });
 }
 
 // ---- reeling a fish in, once it's hooked: E (REEL on a phone), tap after tap, each kind its own
@@ -2513,10 +2835,10 @@ function addBeast(m, fresh = true) {
   const def = C.BEASTS[m.kind];
   const b = {
     id: m.id, kind: m.kind, name: m.name || def.name, owner: m.owner, rp: m.p, rf: m.f, rh: m.h || 0, hp: m.hp, maxHp: m.maxHp,
-    until: clock() + (m.left ?? def.life), snaps: [], speed: 0, monster: !!m.monster, tier: m.tier ?? null,
+    until: clock() + (m.left ?? def.life), snaps: [], speed: 0, monster: !!m.monster, tier: m.tier ?? null, boss: !!m.boss, size: m.size || 1,
   };
-  // (the dark forest's monsters are nobody's)
-  b.model = new Beast(m.kind, { label: b.monster ? b.name : `${owner ? owner.name : 'WILD'}'S ${b.name}`, team: beastTeam(b), look: m.look, maxHp: m.maxHp });
+  // (the dark forest's monsters are nobody's; an ELDER of it is bigger, and marked)
+  b.model = new Beast(m.kind, { label: b.monster ? b.name : `${owner ? owner.name : 'WILD'}'S ${b.name}`, team: b.boss ? 'boss' : beastTeam(b), look: m.look, maxHp: m.maxHp, size: b.size });
   b.model.setHp(m.hp);
   b.model.place(b.rp, b.rf, b.rh);
   if (!fresh) b.model.spawnT = 9;   // already out when we arrived: no rising out of the ground
@@ -2578,6 +2900,7 @@ function addStranger(m) {
   if (state.strangers.has(m.id)) return;
   const model = new Caveman({ name: 'STRANGER', look: m.look, bot: true, lifeBar: false });
   model.setRanged(null);
+  model.setDress(state.dress ?? dressStage());
   model.setWeapon(C.weaponOfType('meatbone'));   // the food
   if (m.leaving) model.weaponMesh.visible = false;
   model.place(m.p, m.f, 0);
@@ -3071,7 +3394,7 @@ function fireRanged(t, charge) {
 }
 
 function trySwing(t) {
-  if (!me.wpn || t - me.lastSwing < me.wpn.cd * (buffOn(me, 'quick') ? C.BUFF.quick : 1)) return;
+  if (!me.wpn || t - me.lastSwing < me.wpn.cd * (buffOn(me, 'quick') ? C.BUFF.quick : 1) * dexOf()) return;
   me.lastSwing = t;
   me.charging = false;
   sendAttack({ t: 'swing' });
@@ -3099,7 +3422,7 @@ function nearestGrab() {
   }
   // a cooked roast at a campfire, if I'm hurt (the server's rule: it comes first unless
   // something else is closer)
-  if (me.hp < PLAYER.maxHp) {
+  if (me.hp < me.maxHp) {
     for (const f of state.world.fires) {
       const d = M.arcDist(me.p, f.u) - f.r;
       if (f.readyAt <= state.world.time && d < C.MEAT.reach && d <= bestD) { bestD = d; best = { meat: f }; }
@@ -3142,28 +3465,62 @@ function farmInput(t) {
   if (input.pressed('KeyQ')) state.buildKind = (state.buildKind + 1) % C.BUILD_ORDER.length;
 }
 
+// H (EAT on phones): hurt, a bite out of the tribe's store (the server checks there's food, and
+// how long since the last).
+function eatBite() {
+  if (!peaceNow() || !me.alive) return;
+  sendState();
+  send({ t: 'eat' });
+}
+
 // E at a shop: the doctor patches you up (the server checks the money), the tailor and the duel
 // ring's weapon rack open up.
 function useShop(shop) {
-  if (shop.kind === 'doctor') { sendState(); send({ t: 'grab' }); }
+  if (shop.kind === 'doctor' || shop.kind === 'site') { sendState(); send({ t: 'grab' }); }
   else if (shop.kind === 'tailor') togglePanel('tailor', true);
+  else if (shop.kind === 'trader') togglePanel('stall', true);
   else if (shop.kind === 'duel') togglePanel('rack', true);
   else if (shop.kind === 'range') togglePanel('shed', true);
   else if (shop.kind === 'pond') { sendState(); send({ t: 'fish' }); }
   else if (shop.kind === 'bonfire') {
-    const d = drumNear(shop);
+    const d = instrumentNear(shop);
     if (state.drumming) stopDrumming();
-    else if (d !== null) startDrumming(shop, d);
-    else { sendState(); send({ t: 'dance', on: myPlayer()?.dancing ? 0 : 1 }); }
+    else if (d) startDrumming(shop, d);
+    // (a feast due: E cooks it, unless you're already dancing or cooking)
+    else if (state.game.feastsDue > 0 && !myPlayer()?.dancing && !state.cooking) { sendState(); send({ t: 'cook' }); }
+    else if (!state.cooking) { sendState(); send({ t: 'dance', on: myPlayer()?.dancing ? 0 : 1 }); }
   }
 }
+
+// The knocked-out caveman within reach, if any (E drags them: DRAG), and the caveman I'm facing
+// within reach, if any (E gives: GIVE).
+function sleeperNear() {
+  let best = null, bestD = C.DRAG.reach;
+  for (const p of state.players.values()) {
+    if (p.id === state.myId || p.alive) continue;
+    const d = M.arcDist(me.p, p.rp);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
+function facingPlayer() {
+  let best = null, bestD = C.GIVE.reach;
+  for (const p of state.players.values()) {
+    if (p.id === state.myId || !p.alive) continue;
+    const d = M.arcDist(me.p, p.rp);
+    if (d < bestD && M.dot(M.towardDir(me.p, p.rp), me.f) > 0.3) { bestD = d; best = p; }
+  }
+  return best;
+}
+const namesById = () => Object.fromEntries([...state.players.values()].map(p => [p.id, p.name]));
 
 // What the prompt says at each shop.
 function shopPrompt(shop) {
   const key = k => (isTouch ? '' : `<span class="key">${k}</span>`);
   switch (shop.kind) {
-    case 'doctor': return me.hp < PLAYER.maxHp ? `${key('E')}DOCTOR · ALL BETTER FOR <span class="up">${C.SHOPS.doctor.fee} 🐚</span>` : 'DOCTOR · YOU ARE FINE';
+    case 'doctor': return me.hp < me.maxHp ? `${key('E')}DOCTOR · ALL BETTER FOR <span class="up">${C.SHOPS.doctor.fee} 🐚</span>` : 'DOCTOR · YOU ARE FINE';
     case 'tailor': return `${key('E')}TAILOR · HATS AND CAPES`;
+    case 'trader': return `${key('E')}TRADING POST · WEAPONS AND GEAR ONLY SOLD HERE · <span class="up">${isTouch ? '🎒 BAG IN THE MENU' : 'I: YOUR BAG'}</span>`;
     case 'range': return state.practice ? `${key('E')}RANGE SHED · SWAP IT OR HAND IT BACK`
       : `${key('E')}RANGE SHED · PICK A PRACTICE WEAPON · <span class="up">1 🐚 A HIT</span>`;
     case 'haunt': {
@@ -3175,12 +3532,26 @@ function shopPrompt(shop) {
       const f = myPlayer()?.fish;
       return state.reel ? null : !f ? `${key('E')}FISHING POND · CAST A LINE` : f.bit ? `${key('E')}<span class="up">BITE! HOOK IT!</span>` : 'WAIT FOR A BITE...';
     }
-    case 'spring': return me.hp < PLAYER.maxHp ? `HOT SPRING · SOAKING <span class="up">+${C.SHOPS.spring.heal} LIFE A SECOND</span>` : 'HOT SPRING · WARM AND WELL';
-    case 'bonfire':
-      if (state.drumming) return `DRUMMING! ${isTouch ? 'BOOM' : mouseWord('melee')} · ${isTouch ? 'TAK' : mouseWord('ranged')} · <span class="up">🐚 FOR THE BAND</span> · ${isTouch ? 'MOVE' : 'WALK'} TO STOP`;
-      if (drumNear(shop) !== null) return `${key('E')}THE DRUMS · PLAY THEM <span class="up">🐚 FOR THE BAND</span>`;
-      return myPlayer()?.dancing ? `DANCING! <span class="up">🐚 ON THE WAY</span> · ${isTouch ? 'MOVE' : 'WALK'} TO STOP`
-        : `${key('E')}BONFIRE · DANCE FOR 🐚 <span class="up">MORE DANCERS, MORE 🐚</span>`;
+    case 'spring': return me.hp < me.maxHp ? `HOT SPRING · SOAKING <span class="up">+${C.SHOPS.spring.heal} LIFE A SECOND</span>` : 'HOT SPRING · WARM AND WELL';
+    case 'site': {
+      const pr = state.game.project;
+      if (!pr) return `TRIBE PROJECT · <span class="up">EVERYTHING IS BUILT</span> · ${state.game.boons.map(k => C.PROJECTS.kinds[k].icon).join(' ')}`;
+      const def = C.PROJECTS.kinds[pr.kind];
+      return `${key('E')}WORK ON THE ${def.icon} ${def.name} · <span class="up">${pr.done}/${pr.steps}</span> · ${def.food} FOOD A STEP · ${pr.hands} PAIR${pr.hands === 1 ? '' : 'S'} OF HANDS SO FAR · <span class="cmp">${def.boon}</span>`;
+    }
+    case 'bonfire': {
+      // (the fire's phrase, while it's up: CALL AND RESPONSE)
+      const call = state.calls.get(shop.id);
+      const hum = call && call.until > clock() ? ` · <span class="up">THE FIRE HUMS ${call.notes.map(n => n + 1).join(' ')}: PLAY IT BACK</span>` : '';
+      if (state.cooking) return `COOKING THE FEAST · <span class="up">${Math.max(0, Math.ceil(state.cooking.until - clock()))} S</span> · STAND STILL · THE TRIBE EATS WHEN IT'S DONE`;
+      if (state.drumming?.kind === 'drum') return `DRUMMING! ${isTouch ? 'BOOM' : mouseWord('melee')} · ${isTouch ? 'TAK' : mouseWord('ranged')} · <span class="up">🐚 FOR THE BAND</span> · ${isTouch ? 'MOVE' : 'WALK'} TO STOP${hum}`;
+      if (state.drumming) { const d = C.INSTRUMENTS[state.drumming.kind]; return `${d.name}! ${isTouch ? 'TAP THE NOTES' : `${d.keys[0]} TO ${d.keys.at(-1)}`} · <span class="up">🐚 FOR THE BAND</span> · ${isTouch ? 'MOVE' : 'WALK'} TO STOP${hum}`; }
+      const inst = instrumentNear(shop);
+      if (inst) return `${key('E')}THE ${C.INSTRUMENTS[inst.kind].name} · PLAY IT <span class="up">🐚 FOR THE BAND</span>${hum}`;
+      if (myPlayer()?.dancing) return `DANCING! <span class="up">🐚 ON THE WAY</span> · ${isTouch ? 'MOVE' : 'WALK'} TO STOP${hum}`;
+      if (state.game.feastsDue > 0) return `${key('E')}COOK THE FEAST · <span class="up">${state.game.feastsDue} DUE</span> · ${Math.round(C.COOK.secs * dexOf())} S STANDING HERE · THE WHOLE TRIBE EATS${hum}`;
+      return `${key('E')}BONFIRE · DANCE FOR 🐚 <span class="up">MORE DANCERS (AND MORE INSTRUMENTS), MORE 🐚</span>${hum}`;
+    }
   }
   return null;
 }
@@ -3198,9 +3569,14 @@ const forestDepth = (s, tier) => (tier === (s.rings || 1) - 1 ? 'THE HEART' : ti
 function grabLabel(kind) {
   if (state.talkNear) return 'TALK';
   if (state.penumbra) return 'GEAR';
+  if (state.dragging) return 'LAY DOWN';
+  if (state.sleeperNear && kind !== 'site') return 'DRAG';
+  if (kind === 'site') return 'WORK';
+  if (kind === 'bonfire' && state.game.feastsDue > 0 && !instrumentNear(myShop()) && !myPlayer()?.dancing && !state.drumming) return state.cooking ? 'COOKING' : 'COOK';
+  if (!kind && state.giveTo) return 'GIVE';
   if (kind === 'pond') { const f = myPlayer()?.fish; return state.reel ? 'REEL!' : !f ? 'FISH' : f.bit ? 'HOOK!' : 'WAIT'; }
-  if (kind === 'bonfire') return state.drumming || myPlayer()?.dancing ? 'STOP' : drumNear(myShop()) !== null ? 'DRUMS' : 'DANCE';
-  return { doctor: 'HEAL', tailor: 'SHOP', duel: 'WEAPON', range: 'WEAPONS' }[kind] || 'GRAB';
+  if (kind === 'bonfire') { const inst = instrumentNear(myShop()); return state.drumming || myPlayer()?.dancing ? 'STOP' : inst ? { drum: 'DRUMS', xylo: 'XYLO', flute: 'FLUTE' }[inst.kind] : 'DANCE'; }
+  return { doctor: 'HEAL', tailor: 'SHOP', trader: 'TRADE', duel: 'WEAPON', range: 'WEAPONS' }[kind] || 'GRAB';
 }
 
 // ---- the town's counters: the tailor's, and the duel ring's weapon rack. The mouse is free while
@@ -3209,7 +3585,15 @@ function refreshTailor() {
   const pl = myPlayer();
   if (pl) hud.tailor(state.shells, state.wardrobe, pl.look);
 }
-const PANELS = { tailor: refreshTailor, rack: () => hud.rack(me.wpn?.name, myPlayer()?.carry), shed: () => hud.shed(state.practice), gear: openGear };
+function refreshStall() { hud.stall(state.shells, state.items, state.game.tribeLevel, state.game.chest); }
+function refreshBag() { hud.bag(state.items, state.gear, myPlayer()?.carry || null, state.practice, state.lent, namesById(), state.fromChest, myShop()?.kind === 'trader'); }
+function refreshLevel() { hud.level(state.level, state.xp, state.points, state.stats, me.maxHp, state.game.tribeLevel); }
+function refreshGive() {
+  const to = state.players.get(state.giveTo);
+  if (!to) { togglePanel('give', false); return; }
+  hud.give(to, state.shells, state.items, state.lent, namesById());
+}
+const PANELS = { tailor: refreshTailor, stall: refreshStall, bag: refreshBag, level: refreshLevel, give: refreshGive, rack: () => hud.rack(me.wpn?.name, myPlayer()?.carry), shed: () => hud.shed(state.practice), gear: openGear };
 const PANEL_CLOSED = { gear: () => gearView.stop() };
 const panelOpen = id => !$(id).classList.contains('hidden');
 const townPanelOpen = () => Object.keys(PANELS).some(panelOpen);
@@ -3233,6 +3617,29 @@ for (const id of Object.keys(PANELS)) {
   $(`${id}-close`).onclick = () => togglePanel(id, false);
   $(`${id}-x`).onclick = () => togglePanel(id, false);
 }
+$('stall-items').onclick = e => {
+  const b = e.target.closest('button[data-item]');
+  if (b?.dataset.item) send({ t: 'trade', item: b.dataset.item });
+  const c = e.target.closest('button[data-chest-take]');
+  if (c && !c.disabled) send({ t: 'chest', take: c.dataset.chestTake });
+};
+$('give-items').onclick = e => {
+  const s = e.target.closest('button[data-give-shells]');
+  if (s && !s.disabled) { sendState(); send({ t: 'give', to: state.giveTo, what: 'shells', n: Number(s.dataset.giveShells) }); }
+  const b = e.target.closest('button[data-give-item]');
+  if (b) { sendState(); send({ t: 'give', to: state.giveTo, what: b.dataset.giveItem }); }
+};
+$('level-items').onclick = e => {
+  const b = e.target.closest('button[data-stat]');
+  if (!b || b.disabled) return;
+  send({ t: 'spend', stat: b.dataset.stat });
+};
+$('bag-items').onclick = e => {
+  const b = e.target.closest('button[data-item]');
+  if (b?.dataset.item && !b.disabled) send({ t: 'equip', item: b.dataset.item, on: Number(b.dataset.on) });
+  const c = e.target.closest('button[data-chest-put]');
+  if (c) send({ t: 'chest', put: c.dataset.chestPut });
+};
 $('tailor-items').onclick = e => {
   const b = e.target.closest('button[data-item]');
   if (b?.dataset.item) send({ t: 'buy', item: b.dataset.item });
@@ -3263,6 +3670,7 @@ function openGear() {
 }
 function showGear() {
   const mult = 1 + state.perm.might * C.MOTES.kinds.might.perm;
+  gearView.dress = state.dress ?? dressStage();
   gearView.show(myPlayer()?.look || profileLook || {}, gearPick.melee, gearPick.ranged, mult);
   const table = (title, { rows, special }) => `<b>${esc(title)}</b><table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>${special.length ? `<div class="special">${special.join(' · ')}</div>` : ''}`;
   $('gear-melee-stats').innerHTML = table(C.duelWeapon(gearPick.melee).name.toUpperCase(), meleeRows(C.duelWeapon(gearPick.melee), mult));
@@ -3367,20 +3775,10 @@ $('chat-form').addEventListener('submit', e => {
   closeChat();
 });
 
-function castVote(yes) {
-  if (!state.game.vote) return;
-  state.myVote = yes ? 'yes' : 'no';
-  send({ t: 'vote', yes });
-}
-$('vote-yes').onclick = () => castVote(true);
-$('vote-no').onclick = () => castVote(false);
 
 function updateLocal(dt, t) {
   const pl = myPlayer();
   if (!pl) return;
-  // the vote works paused or not
-  if (state.game.vote && input.pressed('KeyY')) castVote(true);
-  if (state.game.vote && input.pressed('KeyN')) castVote(false);
   const [mdx, rawDy] = input.consumeMouse();
   const sens = 0.0024 * settings.get('sens');
   const mdy = settings.get('invertY') ? -rawDy : rawDy;
@@ -3425,7 +3823,9 @@ function updateLocal(dt, t) {
     const slowed = t < me.slowUntil;
     const zoom = buffOn(me, 'fast') ? C.BUFF.fast : 1;
     const limp = peaceNow() && me.hp < C.PEACE.limpHp ? C.PEACE.limp : 1;   // hurt in peace: off to the doctor
-    const speed = PLAYER.speed * ((me.wpn?.speed || 1) + (me.armor?.speed || 0)) * (slowed ? 0.55 : 1) * zoom * limp * (me.charging ? 0.6 : 1);
+    const sandals = peaceNow() ? state.gear.map(g => C.ITEMS[g]?.speed).find(Boolean) || 1 : 1;   // (fleet sandals from the trading post)
+    const drag = state.dragging ? C.DRAG.slow : 1;   // (dragging a friend: slow going)
+    const speed = PLAYER.speed * ((me.wpn?.speed || 1) + (me.armor?.speed || 0)) * (slowed ? 0.55 : 1) * zoom * limp * sandals * drag * (me.charging ? 0.6 : 1);
     // keys always give full speed; a thumbstick pushed halfway walks at half speed
     let disp = dl > 0 ? M.scale(dir, (speed * dt * Math.min(1, dl)) / dl) : [0, 0, 0];
     disp = M.madd(disp, me.kbv, dt);
@@ -3465,7 +3865,7 @@ function updateLocal(dt, t) {
       // spear / bow / musket: hold to charge (or steady the aim), release to let fly
       if (!canShoot || me.ammo <= 0) me.charging = false;
       else {
-        me.charge = def.chargeTime ? Math.min(1, me.charge + dt / def.chargeTime) : 1;
+        me.charge = def.chargeTime ? Math.min(1, me.charge + dt / (def.chargeTime * dexOf())) : 1;
         if (!input.mouseDown(BUTTON.ranged)) fireRanged(t, me.charge);
       }
     } else if (canShoot && (input.mouseDown(BUTTON.ranged) || input.mousePressed(BUTTON.ranged)) && me.ammo > 0 && t - me.lastThrow > def.cooldown) {
@@ -3485,8 +3885,14 @@ function updateLocal(dt, t) {
     const grab = peaceNow() ? null : nearestGrab();
     // ...and with nothing else to use there, at his podium E talks to the Businessman
     state.talkNear = !grab && !shop && nearMammon();
+    // in peace: a knocked-out caveman in reach (E drags them), or one I'm facing (E gives)
+    const down = peaceNow() ? sleeperNear() : null;
+    const giveTo = peaceNow() && !down && !state.dragging && !shop && !state.talkNear ? facingPlayer() : null;
+    state.sleeperNear = down ? down.id : 0;
+    state.giveTo = giveTo ? giveTo.id : 0;
+    if (panelOpen('give') && !giveTo) togglePanel('give', false, false);
     // E (GRAB on a phone) also works the doctor, the tailor and the duel ring's rack
-    state.grabNear = !!grab || ['doctor', 'tailor', 'duel', 'range', 'pond', 'bonfire'].includes(shop?.kind) || state.talkNear || !!penumbraOf();
+    state.grabNear = !!grab || ['doctor', 'tailor', 'trader', 'duel', 'range', 'pond', 'bonfire', 'site'].includes(shop?.kind) || state.talkNear || !!penumbraOf() || !!down || !!giveTo || !!state.dragging;
     const shroom = nearestShroom(3.2);
     // at the dark forest's edge, in its penumbra: E picks what to take in
     const pen = !shop || shop.kind === 'haunt' ? penumbraOf() : null;
@@ -3498,8 +3904,12 @@ function updateLocal(dt, t) {
       hud.center(forestDepth(shop, tier), `${T.name} · ${forestPay(tier)} 🐚 EACH`, 1.5);
     }
     state.forestTier = tier;
-    if (pen && !state.reel) hud.prompt(`${isTouch ? '' : '<span class="key">E</span>'}THE PENUMBRA · PICK YOUR GEAR FOR THE DARK FOREST`);
+    const eKey = isTouch ? '' : '<span class="key">E</span>';
+    if (pen && !state.reel) hud.prompt(`${eKey}THE PENUMBRA · PICK YOUR GEAR FOR THE DARK FOREST`);
+    else if (state.dragging) hud.prompt(`DRAGGING ${esc(playerName(state.players.get(state.dragging)).toUpperCase())} · <span class="up">OUT OF THE DARK AND THEY WAKE</span> · ${eKey}LAY THEM DOWN`);
+    else if (down && shop?.kind !== 'site') hud.prompt(`${eKey}DRAG ${esc(down.name.toUpperCase())} TO SAFETY <span class="up">+${C.DRAG.shells} 🐚</span><span class="cmp">OUT OF THE FOREST THEY WAKE AT ONCE, NO WAITING</span>`);
     else if (shop) hud.prompt(shopPrompt(shop));
+    else if (giveTo) hud.prompt(`${eKey}GIVE ${esc(giveTo.name.toUpperCase())} <span class="cmp">SHELLS, OR LEND THEM SOMETHING FROM YOUR BAG</span>`);
     else if (grab?.meat) hud.prompt(`<span class="key">E</span>EAT ROAST MEAT <span class="up">+${C.MEAT.heal} LIFE</span>`);
     else if (grab?.armor) hud.armorPrompt(grab.armor, me.armor);
     else if (grab) hud.pickupPrompt(grab.pk, me.wpn);
@@ -3512,21 +3922,28 @@ function updateLocal(dt, t) {
     updateReel(t, dt);
     if (state.reel && canAct && input.pressed('KeyE')) reelTap(t);
     else if (pen && canAct && input.pressed('KeyE')) togglePanel('gear', true);
+    else if ((state.dragging || (down && shop?.kind !== 'site')) && canAct && input.pressed('KeyE')) { sendState(); send({ t: 'grab' }); }
     else if (shop && canAct && input.pressed('KeyE')) useShop(shop);
-    if (state.drumming && shop?.id !== state.drumming.shop) stopDrumming();
-    if (state.drumming && canAct) {
+    else if (giveTo && canAct && input.pressed('KeyE')) togglePanel('give', true);
+    // (playing: walked off the instrument, or out of the bonfire's circle, and it stops)
+    if (state.drumming) { const near = instrumentNear(shop); if (shop?.id !== state.drumming.shop || !near || near.kind !== state.drumming.kind || (near.i ?? 0) !== (state.drumming.i ?? 0)) stopDrumming(); }
+    if (state.drumming && canAct && state.drumming.kind === 'drum') {
       if (input.pressed('KeyF') || input.mousePressed(BUTTON.melee)) hitDrum(0);
       if (input.mousePressed(BUTTON.ranged)) hitDrum(1);
     }
+    // (the xylophone and the flute: the number keys, top row or numpad, are its notes, not grunts)
+    const playing = state.drumming && state.drumming.kind !== 'drum';
+    if (playing && canAct) for (const [n, k] of C.INSTRUMENTS[state.drumming.kind].keys.entries()) if (input.pressed(`Digit${k}`) || input.pressed(`Numpad${k}`)) playNote(n);
     // by the bonfire's drums, everything else goes quieter
     sound.setDuck(shop?.kind === 'bonfire');
     if (state.talkNear && canAct && input.pressed('KeyE')) mammonTalk();
+    if (canAct && input.pressed('KeyH')) eatBite();
 
-    for (let i = 0; i < C.EMOTES.length; i++) {
+    for (let i = 0; i < C.EMOTES.length && !playing; i++) {
       if (input.pressed(`Digit${i + 1}`) && t - me.lastEmote > 1.2) { me.lastEmote = t; send({ t: 'emote', i }); }
     }
 
-    if (me.ammo < def.ammo) me.regen += (dt / def.regen) * (buffOn(me, 'quick') ? 2 : 1); else me.regen = 0;
+    if (me.ammo < def.ammo) me.regen += (dt / (def.regen * dexOf())) * (buffOn(me, 'quick') ? 2 : 1); else me.regen = 0;
   } else {
     hud.prompt(null);
     state.grabNear = state.talkNear = false;
@@ -3967,9 +4384,16 @@ function eyeRig() {
 
 // Waking up, or coming into the world: a blink (hud.wake), seen through my own eyes, then the
 // camera draws back over my shoulder as they open (in first person it stays in them)
+// The eyes open, and the glide starts, a couple of frames on: coming into the world, the first can
+// take a good while to draw (everything new to the screen), and all of it would be over before it.
 function wakeUp() {
+  hud.closeEyes();
+  state.camGlide = { from: 'first', at: Infinity, secs: 1.2 };
+  state.wakeIn = 2;
+}
+function openEyes() {
   hud.wake();
-  state.camGlide = { from: 'first', at: clock() + 0.35, secs: 1.2 };
+  if (state.camGlide?.at === Infinity) state.camGlide.at = clock() + 0.35;
 }
 
 // V: over the shoulder <-> my own eyes, gliding between them
@@ -4045,7 +4469,7 @@ function updateHud(dt, t) {
   hud.setEra(state.game, left, foes);
   hud.setRanged(rangedKey(), rangedDef());
   hud.setArmor(me.armor);
-  hud.setHp(me.hp);
+  hud.setHp(me.hp, me.maxHp);
   hud.setAmmo(me.ammo, me.regen);
   hud.setCharge(me.charging ? me.charge : 0);
   if (me.wpn) hud.setCooldown((t - me.lastSwing) / me.wpn.cd);
@@ -4061,22 +4485,32 @@ function updateHud(dt, t) {
   const roundOver = state.game.phase === 'end';
   hud.roundEnd(roundOver ? state.standings : null, state.myId, left, state.game.disaster, coop ? state.game.wave : 0, state.roundProfit || 0, !!state.game.mmDead, state.harvestFest);
   if (peaceNow()) hud.setBuild(C.BUILD_ORDER[state.buildKind], state.game.food);
-  hud.setShells(state.shells);
+  hud.setShells(state.shells, peaceNow() ? state.gear : []);
+  // (hurt in peace: how to eat out of the tribe's store; and the DEEDS done)
+  hud.setEat(peaceNow() && me.alive && me.hp < me.maxHp ? state.game.food : null);
+  hud.setLevel(peaceNow() ? { level: state.level, xp: state.xp, points: state.points, tribeLevel: state.game.tribeLevel } : null);
+  $('t-level').classList.toggle('hidden', !peaceNow());
+  hud.setDeeds(peaceNow() ? state.deeds : null);
+  hud.setTribe(peaceNow() ? state.game : null);
+  $('t-bag').classList.toggle('hidden', !peaceNow());   // (the bag: peace mode's)
   const shopKind = myShop()?.kind;
   const practicing = peaceNow() && !!state.practice;
   document.body.classList.toggle('practicing', practicing);   // the ammo box comes back
   // what you've got from the town to take back: a practice weapon, a weapon off the duel ring's rack
   const notes = [];
-  if (practicing) notes.push(shopKind === 'range'
-    ? `${isTouch ? 'WEAPONS' : 'E'} · SWAP THE ${C.RANGED[state.practice].name.toUpperCase()} OR HAND IT BACK`
-    : `PRACTICE: ${C.RANGED[state.practice].name.toUpperCase()} · BACK TO A RANGE SHED (OR THE PENUMBRA) TO STOP`);
+  // (from the bag: it goes back in the bag)
+  const bagWord = isTouch ? 'THE 🎒 BAG' : 'I';
+  if (practicing) notes.push(C.RANGED[state.practice].shop ? `${C.RANGED[state.practice].name.toUpperCase()} · FROM YOUR BAG · ${bagWord} TO PUT IT AWAY`
+    : shopKind === 'range'
+      ? `${isTouch ? 'WEAPONS' : 'E'} · SWAP THE ${C.RANGED[state.practice].name.toUpperCase()} OR HAND IT BACK`
+      : `PRACTICE: ${C.RANGED[state.practice].name.toUpperCase()} · BACK TO A RANGE SHED (OR THE PENUMBRA) TO STOP`);
   if (carrying()) {
-    const kept = C.duelWeapon(myPlayer().carry).name.toUpperCase();
-    notes.push(shopKind === 'duel' ? `${isTouch ? 'WEAPON' : 'E'} · SWAP THE ${kept} OR HAND IT BACK`
-      : `KEPT: ${kept} · HAND IT BACK AT THE DUEL RING (OR THE PENUMBRA) TO PLANT AGAIN`);
+    const carry = myPlayer().carry, kept = C.duelWeapon(carry).name.toUpperCase();
+    notes.push(C.ITEMS[carry] ? `${kept} · FROM YOUR BAG · ${bagWord} TO PUT IT AWAY (AND PLANT AGAIN)`
+      : shopKind === 'duel' ? `${isTouch ? 'WEAPON' : 'E'} · SWAP THE ${kept} OR HAND IT BACK`
+        : `KEPT: ${kept} · HAND IT BACK AT THE DUEL RING (OR THE PENUMBRA) TO PLANT AGAIN`);
   }
   hud.practiceNote(notes.join('\n') || null);
-  hud.vote(state.game, state.myVote);
   const councilOpen = !$('council').classList.contains('hidden');
   $('lock-hint').classList.toggle('hidden', input.locked || !me.alive || councilOpen || settingsOpen() || townPanelOpen());
   if ($('lock-hint').classList.contains('hidden')) { disarmQuit($('lock-quit')); disarmQuit($('lock-exit')); }
@@ -4091,10 +4525,10 @@ function updateHud(dt, t) {
       chat: canChat() || chatOpen(),
       grabLabel: grabLabel(shopKind),
       chief: state.game.chief === state.myId,
-      throwLabel: state.drumming ? 'TAK' : building ? 'BUILD' : THROW_LABEL[def.proj] || 'THROW',
+      throwLabel: state.drumming?.kind === 'drum' ? 'TAK' : building ? 'BUILD' : THROW_LABEL[def.proj] || 'THROW',
       ammo: building ? C.BUILDS[C.BUILD_ORDER[state.buildKind]].cost : me.ammo,
       charge: me.charging && !def.auto ? me.charge : 0,
-      verb: state.drumming ? 'BOOM' : peace && !carrying() && shopKind !== 'duel' && shopKind !== 'haunt' ? 'PLANT' : 'BONK',   // one word that always means melee (weapon verbs like ZAP clash with the throw button)
+      verb: state.drumming?.kind === 'drum' ? 'BOOM' : peace && !carrying() && shopKind !== 'duel' && shopKind !== 'haunt' ? 'PLANT' : 'BONK',   // one word that always means melee (weapon verbs like ZAP clash with the throw button)
       cooldown: me.wpn ? (t - me.lastSwing) / me.wpn.cd : 1,
     });
   }
@@ -4387,7 +4821,7 @@ function refreshRules() {
     root.querySelector('[data-open-desc]').textContent = g.open ? 'IN THE OPEN ROCKS LIST: ANYONE CAN JOIN.' : 'ONLY WHOEVER HAS THE CODE OR LINK.';
     root.querySelector('[data-desc]').textContent = {
       dotime: `SIX AGES, ${g.eraSeconds} SEC EACH, THEN THE WORLD ENDS. MOST BONKS WINS.`,
-      plough: 'NO WAR AT ALL. FARM, BUILD, FISH, DANCE ROUND THE BONFIRE, SOAK IN A HOT SPRING, DUEL (DOWN TO 1 HP), SHOOT TARGETS, FIGHT MONSTERS AND SHOP. VOTE TO KEEP GOING.',
+      plough: 'NO WAR AT ALL. FARM, BUILD, FISH, DANCE ROUND THE BONFIRE, SOAK IN A HOT SPRING, DUEL (DOWN TO 1 HP), SHOOT TARGETS, FIGHT MONSTERS AND SHOP. IT NEVER ENDS.',
       classic: 'SPEARS AND BONES FOREVER. NO CLOCK.',
       coop: 'ALL HUMANS VS WAVES OF BOTS.',
     }[g.mode];
@@ -4421,13 +4855,15 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyO') toggleSettings();
   if (!state.joined) return;
   if (e.code === 'KeyM') hud.center(settings.toggle('muted') ? 'QUIET CAVE' : 'LOUD CAVE', '', 1);
-  if (e.code === 'KeyN' && !state.game.vote) hud.center(settings.toggle('music') ? 'DRUMS ON' : 'DRUMS OFF', '', 1);
+  if (e.code === 'KeyN') hud.center(settings.toggle('music') ? 'DRUMS ON' : 'DRUMS OFF', '', 1);
   if (e.code === 'KeyG') {
     settings.set('gfx', GFX_ORDER[(GFX_ORDER.indexOf(gfxKey) + 1) % GFX_ORDER.length]);
     hud.center(`GRAPHICS: ${GFX[gfxKey].label}`, '', 1.2);
   }
   if (e.code === 'KeyC') toggleCouncil();
   if (e.code === 'KeyV') toggleView();
+  if (e.code === 'KeyI' && peaceNow()) togglePanel('bag');
+  if (e.code === 'KeyL' && peaceNow()) togglePanel('level');
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && canChat()) { e.preventDefault(); openChat(); }
   if (e.code === 'Escape' && !$('council').classList.contains('hidden')) toggleCouncil(false, false);
   if (e.code === 'Escape' && townPanelOpen()) closePanels();
@@ -4508,6 +4944,7 @@ function frame() {
   }
   updateHud(dt, t);
   renderer.render(scene, camera);
+  if (state.wakeIn && --state.wakeIn === 0) openEyes();   // (waking up: drawn a frame or two first)
   input.endFrame();
 }
 

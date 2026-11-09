@@ -1,4 +1,4 @@
-import { TIER_COLORS, PLAYER, ARMORS, ERAS, MODES, DISASTERS, SHROOMS, BUILDS, CLOTHES, DUEL_WEAPONS, duelWeapon, RANGED, PRACTICE_WEAPONS, MOTES, SHOPS } from '/shared/constants.js';
+import { TIER_COLORS, PLAYER, ARMORS, ERAS, MODES, DISASTERS, SHROOMS, BUILDS, CLOTHES, DUEL_WEAPONS, duelWeapon, RANGED, PRACTICE_WEAPONS, MOTES, SHOPS, ITEMS, GEAR_SLOTS, PEACE, DEEDS, LEVELS, STATS, TRIBE_DEEDS, TRIBE, PROJECTS, GIVE, CHEST } from '/shared/constants.js';
 import * as M from '/shared/math.js';
 import * as F from '/shared/forest.js';
 
@@ -139,10 +139,11 @@ export class Hud {
       : '';
   }
 
-  // Ploughshares, in peace: the farming age, the countdown to the vote, and the tribe's food.
+  // Ploughshares, in peace: the farming age, the countdown to the next stretch, and the tribe's food.
   setPeace(game, left) {
-    const line = game.vote ? `VOTE NOW · ${Math.ceil(left)}` : `VOTE IN ${clockText(left)}`;
-    const key = `peace${line}${game.food}`;
+    const line = `NEXT STRETCH IN ${clockText(left)}`;
+    const pr = game.project;
+    const key = `peace${line}${game.food}${game.gathered}${game.feastsDue}${pr ? `${pr.kind}${pr.done}` : ''}`;
     if (key === this.lastEra) return;
     this.lastEra = key;
     $('era-panel').classList.remove('doom', 'hurry');
@@ -150,8 +151,116 @@ export class Hud {
     $('era-name').textContent = '🌾 PEACE TIME 🌾';
     $('era-next').textContent = line;
     $('era-fill').style.width = `${Math.min(1, Math.max(0, 1 - left / (game.eraLen || 1))) * 100}%`;
-    $('era-dots').innerHTML = `<b class="food">${game.food} FOOD</b>`;
-    $('era-calm').textContent = '';
+    // (and how far off the next FEAST is: every so much the tribe gathers; and feasts waiting to be cooked)
+    const feast = PEACE.feastEvery - ((game.gathered || 0) % PEACE.feastEvery);
+    $('era-dots').innerHTML = `<b class="food">${game.food} FOOD</b> <span class="feast">· ${game.feastsDue ? `🍲 ${game.feastsDue} FEAST${game.feastsDue === 1 ? '' : 'S'} TO COOK` : `FEAST IN ${feast}`}</span>`;
+    // (not much in the store: the tribe's hungry, and pays more for food brought in; else the
+    // tribe project under way)
+    const hungry = game.food < PEACE.hungryBelow;
+    $('era-calm').textContent = hungry ? `HUNGRY! FOOD PAYS +${PEACE.hungryShells} 🐚` : pr ? `${PROJECTS.kinds[pr.kind].icon} ${PROJECTS.kinds[pr.kind].name} ${pr.done}/${pr.steps}` : '';
+    $('era-calm').className = hungry ? 'hungry' : pr ? 'project' : '';
+  }
+
+  // The TRIBE DEEDS strip (each with how many of the cavemen it takes so far), and the store goal
+  // bar (to the BIG FEAST), in peace (game: the state; null: hidden).
+  setTribe(game) {
+    const key = game ? `${JSON.stringify(game.td)}${game.tdd.join()}${JSON.stringify(game.tdNeed)}${game.food}${game.bigFeast}` : '-';
+    if (key === this.lastTribe) return;
+    const before = this.lastTribeDone || [];
+    this.lastTribe = key;
+    this.lastTribeDone = game ? [...game.tdd] : [];
+    $('tribe').classList.toggle('hidden', !game);
+    $('goal').classList.toggle('hidden', !game);
+    if (!game) return;
+    $('tribe').innerHTML = Object.entries(TRIBE_DEEDS).map(([k, d]) => {
+      const n = game.td?.[k] || 0, need = game.tdNeed?.[k] || d.need, done = game.tdd.includes(k);
+      return `<i class="${done ? `done${before.includes(k) ? '' : ' new'}` : n ? 'some' : ''}" title="${need} ${d.name} (${d.how})">${d.icon}${done ? '✓' : `${n}/${need}`}</i>`;
+    }).join('');
+    const frac = Math.min(1, game.food / TRIBE.storeGoal);
+    $('goal').classList.toggle('done', !!game.bigFeast);
+    $('goal').querySelector('i').style.width = `${(game.bigFeast ? 1 : frac) * 100}%`;
+    $('goal').querySelector('span').textContent = game.bigFeast ? 'THE BIG FEAST IS DONE THIS STRETCH' : `STORE ${game.food}/${TRIBE.storeGoal} · BIG FEAST AT ${TRIBE.storeGoal}`;
+  }
+
+  // THE STORY OF THE NIGHT (as a stretch ends): what the tribe did this stretch, for a while.
+  story(lines, more = 0) {
+    const el = $('story');
+    clearTimeout(this.storyT);
+    $('story-lines').innerHTML = (lines.length ? lines.map(l => `<div>${esc(l)}</div>`) : ['<div>A QUIET NIGHT. NOTHING MUCH HAPPENED.</div>']).join('')
+      + (more ? `<div class="more">...AND ${more} MORE THING${more === 1 ? '' : 'S'}</div>` : '');
+    el.classList.remove('hidden');
+    this.storyT = setTimeout(() => el.classList.add('hidden'), 12000);
+  }
+
+  // GIVE: the caveman in front of me (target: { name }), and what I can hand over: shells (so many
+  // at a time) and things out of my bag, on loan (lent: what's on loan to me, item -> who lent it)
+  give(target, shells, owned, lent, names) {
+    $('give-title').textContent = `GIVE ${esc(target.name.toUpperCase())}`;
+    $('give-note').textContent = `YOU HAVE 🐚 ${shells}. A THING OUT OF YOUR BAG IS LENT: IT COMES BACK TO YOU WHEN THEY LEAVE THE ROCK, OR HAND IT BACK.`;
+    const coins = `<div class="shop-head">SHELLS</div><div class="give-shells">${GIVE.shells.map(n => `<button data-give-shells="${n}"${shells < n ? ' disabled class="poor"' : ''}>🐚 ${n}</button>`).join('')}</div>`;
+    const row = k => {
+      const it = ITEMS[k], back = lent[k] === target.id;
+      return `<div class="shop-row"><span class="shop-what"><span class="shop-icon">${it.icon}</span><span><span class="shop-name">${it.name.toUpperCase()}</span><small>${lent[k] ? `<span class="lent">LENT TO YOU BY ${esc((names[lent[k]] || 'SOMEONE').toUpperCase())}</span>` : it.desc}</small></span></span>`
+        + `<button data-give-item="${k}" class="${back ? '' : 'minor'}">${back ? 'GIVE IT BACK' : 'LEND'}</button></div>`;
+    };
+    $('give-items').innerHTML = coins + (owned.length ? `<div class="shop-head">OUT OF YOUR BAG</div>${owned.map(row).join('')}` : '');
+  }
+
+  // Hurt, in peace: how to take a bite out of the tribe's store (food: what's in it; null: hidden).
+  // On a phone it's the 🍖 EAT button (over the stick); under my health, only that it's empty.
+  setEat(food) {
+    const key = food === null ? '' : `${food}`;
+    if (key === this.lastEat) return;
+    this.lastEat = key;
+    const touch = document.body.classList.contains('touch');
+    $('t-eat').classList.toggle('hidden', !(touch && food > 0));
+    $('t-eat-n').textContent = food > 0 ? `${food} FOOD` : '';
+    const el = $('eat-tip');
+    el.classList.toggle('hidden', food === null || (touch && food > 0));
+    el.classList.toggle('empty', food === 0);
+    if (food !== null) el.textContent = food === 0 ? 'THE STORE IS EMPTY' : touch ? '' : `H · EAT · ${food} 🍖 IN STORE`;
+  }
+
+  // The DEEDS strip, in peace: lit, the ones I've done this stretch (a new one pops). null: hidden.
+  setDeeds(done) {
+    const key = done ? done.join() : '-';
+    if (key === this.lastDeeds) return;
+    const before = this.lastDeeds && this.lastDeeds !== '-' ? this.lastDeeds.split(',') : [];
+    this.lastDeeds = key;
+    const el = $('deeds');
+    el.classList.toggle('hidden', !done);
+    if (!done) return;
+    el.innerHTML = Object.entries(DEEDS).map(([k, d]) => `<i class="${done.includes(k) ? `done${before.includes(k) ? '' : ' new'}` : ''}" title="${d.name}">${d.icon}</i>`).join('');
+  }
+
+  // LEVELS, in peace: my level, the GRIT toward the next, and any points waiting (s: the state;
+  // null: hidden).
+  setLevel(s) {
+    const key = s ? `${s.level}/${s.xp}/${s.points}/${s.tribeLevel}` : '';
+    if (key === this.lastLevel) return;
+    this.lastLevel = key;
+    const el = $('level-chip');
+    el.classList.toggle('hidden', !s);
+    el.classList.toggle('points', !!s?.points);
+    if (!s) return;
+    const touch = document.body.classList.contains('touch');
+    el.textContent = s.points ? `LV ${s.level} · ${s.points} POINT${s.points === 1 ? '' : 'S'} TO SPEND · ${touch ? '☰ LEVEL' : 'L'}`
+      : s.level >= LEVELS.max ? `LV ${s.level} · AS HIGH AS IT GOES` : `LV ${s.level} · GRIT ${s.xp}/${LEVELS.xpFor(s.level)} · TRIBE LV ${s.tribeLevel || 1}`;
+  }
+
+  // The level screen: the three stats, each with its points and what a point does, and a button
+  // to put one on (points: how many I've got to spend). tribeLevel: everyone's averaged (TRIBE).
+  level(level, xp, points, stats, maxHp, tribeLevel = 1) {
+    $('level-note').textContent = (level >= LEVELS.max ? `LEVEL ${level}: AS HIGH AS IT GOES · ${points} POINT${points === 1 ? '' : 'S'} TO SPEND`
+      : `LEVEL ${level} · GRIT ${xp} OF ${LEVELS.xpFor(level)} TO THE NEXT · ${points ? `${points} POINT${points === 1 ? '' : 'S'} TO SPEND` : 'EVERYTHING YOU DO IN PEACE EARNS GRIT'}`)
+      + ` · TRIBE LEVEL ${tribeLevel} (EVERYONE'S, AVERAGED: THE TRADING POST'S BEST NEEDS IT HIGH) · A LEVEL ${TRIBE.mentorLevel}+ CAVEMAN NEAR A LEVEL ${TRIBE.pupilLevel} OR LESS: BOTH EARN MORE`;
+    const row = ([k, d]) => {
+      const n = stats[k] || 0, full = n >= LEVELS.statMax;
+      const now = k === 'str' ? `HITS ×${(1 + n * LEVELS.str).toFixed(2)}` : k === 'vit' ? `${maxHp} LIFE` : `×${(1 - n * LEVELS.dex).toFixed(2)} AS LONG`;
+      return `<div class="shop-row${n ? ' on' : ''}"><span class="shop-what"><span class="shop-icon">${d.icon}</span><span><span class="shop-name">${d.name} <b class="stat-n">${n}</b></span><small>${d.desc} · NOW: ${now}</small></span></span>`
+        + `<button data-stat="${k}"${!points || full ? ' disabled' : ''} class="${!points || full ? 'poor' : ''}">${full ? 'FULL' : '+1'}</button></div>`;
+    };
+    $('level-items').innerHTML = Object.entries(STATS).map(row).join('');
   }
 
   // Ploughshares, in peace: what the throw button builds, what it costs, and the keys.
@@ -178,10 +287,60 @@ export class Hud {
   }
 
   // Shells: the money of the peace-time town (shown in peace only, by the CSS).
-  setShells(n) {
-    if (n === this.lastShells) return;
-    this.lastShells = n;
-    $('purse').textContent = `🐚 ${n} SHELL${n === 1 ? '' : 'S'}`;
+  // gear: what I've got on from the bag (ITEMS keys), shown after the shells
+  setShells(n, gear = []) {
+    const key = `${n}${gear.join()}`;
+    if (key === this.lastShells) return;
+    this.lastShells = key;
+    $('purse').textContent = `🐚 ${n} SHELL${n === 1 ? '' : 'S'}${gear.length ? ` · ${gear.map(g => ITEMS[g].icon).join(' ')}` : ''}`;
+  }
+
+  // The trading post's stall: everything it sells, weapons then gear, and what pressing its
+  // button would do (owned: ITEMS keys I've bought).
+  // tribeLevel: some of it needs the tribe's level that high. chest: the TRIBE CHEST here: things
+  // anyone put in for anyone to take out.
+  stall(shells, owned, tribeLevel = 1, chest = []) {
+    $('stall-purse').textContent = `YOU HAVE 🐚 ${shells} · TRIBE LEVEL ${tribeLevel} · ONLY SOLD HERE · WHAT YOU BUY GOES IN YOUR BAG (I) AND STAYS YOURS`;
+    const row = ([k, it]) => {
+      const have = owned.includes(k), locked = !have && it.tribe > tribeLevel;
+      const [label, cls] = have ? ['IN YOUR BAG ✓', 'owned'] : locked ? [`TRIBE LV ${it.tribe}`, 'poor'] : shells >= it.price ? [`BUY · ${it.price} 🐚`, ''] : [`${it.price} 🐚`, 'poor'];
+      const off = have || locked || shells < it.price;
+      return `<div class="shop-row${have ? ' on' : ''}"><span class="shop-what"><span class="shop-icon">${it.icon}</span><span><span class="shop-name">${it.name.toUpperCase()}</span>${it.tribe ? `<small class="lock">${locked ? '🔒 ' : ''}TRIBE LV ${it.tribe}</small>` : ''}<small>${it.desc}</small></span></span>`
+        + `<button class="${cls}" data-item="${off ? '' : k}"${off ? ' disabled' : ''}>${label}</button></div>`;
+    };
+    const list = kinds => Object.entries(ITEMS).filter(([, it]) => kinds.includes(it.kind)).map(row).join('');
+    const chestRow = k => {
+      const it = ITEMS[k], have = owned.includes(k);
+      return `<div class="shop-row chest"><span class="shop-what"><span class="shop-icon">${it.icon}</span><span><span class="shop-name">${it.name.toUpperCase()}</span><small>${it.desc}</small></span></span>`
+        + `<button data-chest-take="${k}"${have ? ' disabled class="poor"' : ''}>${have ? 'YOU HAVE ONE' : 'TAKE OUT'}</button></div>`;
+    };
+    $('stall-items').innerHTML = `<div class="shop-head">🧰 THE TRIBE CHEST · ${chest.length}/${CHEST.max} · ANYONE'S TO TAKE OUT (YOUR BAG PUTS THINGS IN)</div>`
+      + (chest.length ? chest.map(chestRow).join('') : '<div class="shop-note">EMPTY. OPEN YOUR BAG HERE TO PUT SOMETHING IN FOR THE TRIBE.</div>')
+      + `<div class="shop-head">WEAPONS</div>${list(['melee', 'ranged'])}<div class="shop-head">GEAR · ${GEAR_SLOTS} ON AT A TIME</div>${list(['gear'])}`;
+  }
+
+  // My bag: what I've bought. Weapons out (one melee, one ranged) or away; gear on or off.
+  // carry / practice: the melee weapon and the ranged one I've got out now.
+  // lent: things on loan to me (item -> who lent it; names: id -> name); fromChest: out of the tribe
+  // chest; atTrader: at the trading post, where a thing can go in the chest
+  bag(owned, gear, carry, practice, lent = {}, names = {}, fromChest = [], atTrader = false) {
+    const worn = gear.length;
+    $('bag-note').textContent = owned.length
+      ? `WEAPONS GO BACK IN THE BAG WHEN A ROUND ENDS · GEAR STAYS ON (${worn}/${GEAR_SLOTS} ON)${atTrader ? ' · AT THE TRADING POST: PUT THINGS IN THE TRIBE CHEST FOR ANYONE' : ''}`
+      : 'NOTHING YET. THE TRADING POST IN TOWN SELLS WEAPONS AND GEAR, FOR 🐚.';
+    const row = k => {
+      const it = ITEMS[k];
+      const out = it.kind === 'gear' ? gear.includes(k) : it.kind === 'melee' ? carry === k : practice === k;
+      const label = it.kind === 'gear' ? (out ? 'TAKE OFF' : 'PUT ON') : out ? 'PUT AWAY' : 'TAKE OUT';
+      const full = it.kind === 'gear' && !out && worn >= GEAR_SLOTS;
+      const whose = lent[k] ? `<span class="lent">LENT TO YOU BY ${esc((names[lent[k]] || 'SOMEONE').toUpperCase())} · </span>` : fromChest.includes(k) ? '<span class="lent">OUT OF THE TRIBE CHEST · </span>' : '';
+      return `<div class="shop-row${out ? ' on' : ''}"><span class="shop-what"><span class="shop-icon">${it.icon}</span><span><span class="shop-name">${it.name.toUpperCase()}</span><small>${whose}${it.desc}</small></span></span>`
+        + (atTrader && !lent[k] ? `<button class="minor" data-chest-put="${k}">TO CHEST</button>` : '')
+        + `<button class="${out ? 'minor' : full ? 'poor' : ''}" data-item="${k}" data-on="${out ? 0 : 1}"${full ? ' disabled title="Take something off first"' : ''}>${full ? 'NO ROOM' : label}</button></div>`;
+    };
+    const mine = kinds => owned.filter(k => kinds.includes(ITEMS[k].kind)).map(row).join('');
+    const weapons = mine(['melee', 'ranged']), kit = mine(['gear']);
+    $('bag-items').innerHTML = (weapons ? `<div class="shop-head">WEAPONS</div>${weapons}` : '') + (kit ? `<div class="shop-head">GEAR</div>${kit}` : '');
   }
 
   // The tailor's counter: every hat and cape, and what pressing its button would do.
@@ -230,19 +389,6 @@ export class Hud {
     if (text) $('practice-note').textContent = text;
     // (the prompt sits above it, however many lines it is)
     document.body.style.setProperty('--notes', text ? text.split('\n').length : 0);
-  }
-
-  // The vote to keep farming: open while game.vote; mine: 'yes' | 'no' | null.
-  vote(game, mine) {
-    const open = !!game.vote && this.root && !this.root.classList.contains('hidden');
-    $('vote').classList.toggle('hidden', !open);
-    if (!open) return;
-    const key = `${game.yes}${game.no}${mine}`;
-    if (key === this.lastVote) return;
-    this.lastVote = key;
-    $('vote-count').textContent = `${game.yes} YES · ${game.no} NO`;
-    $('vote-yes').classList.toggle('on', mine === 'yes');
-    $('vote-no').classList.toggle('on', mine === 'no');
   }
 
   // Co-op banner: which wave, how many bots are left and in what age; between waves, the countdown.
@@ -302,12 +448,14 @@ export class Hud {
 
   show(on) { this.root.classList.toggle('hidden', !on); }
 
-  setHp(hp) {
-    if (hp === this.lastHp) return;
+  // (max: the most I can have; more than PLAYER.maxHp with VITALITY, in peace)
+  setHp(hp, max = this.lastMax || PLAYER.maxHp) {
+    if (hp === this.lastHp && max === this.lastMax) return;
     this.lastHp = hp;
-    const frac = Math.max(0, hp) / PLAYER.maxHp;
-    this.hpFill.style.width = `${frac * 100}%`;
-    this.hpText.textContent = Math.max(0, Math.round(hp));
+    this.lastMax = max;
+    const frac = Math.max(0, hp) / max;
+    this.hpFill.style.width = `${Math.min(1, frac) * 100}%`;
+    this.hpText.textContent = max > PLAYER.maxHp ? `${Math.max(0, Math.round(hp))} / ${max}` : `${Math.max(0, Math.round(hp))}`;
     this.hpBar.classList.toggle('low', frac <= 0.3);
   }
 
@@ -557,6 +705,13 @@ export class Hud {
 
   // Waking up: the eyelids open, a different way each time, never longer than half a second.
   // Each way: [ms, [when (0 to 1), how open (0 shut, 1 wide)]...]. Returns which it was.
+  // Eyes shut (waking up, any moment now: wake() opens them).
+  closeEyes() {
+    clearTimeout(this.wakeT);
+    for (const id of ['wake-top', 'wake-bottom']) for (const a of $(id).getAnimations()) a.cancel();
+    $('wake').classList.remove('hidden');
+  }
+
   wake() {
     const ways = {
       snap: [280, [[0, 0], [1, 1]]],

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { SKINS, HAIRS, PLAYER, RANGED } from '/shared/constants.js';
+import { SKINS, HAIRS, GARBS, DRESS, PLAYER, RANGED } from '/shared/constants.js';
 import { mat, lambert, mergeChildren, shadows, damp, placeOnSphere } from './util.js';
-import { peltTexture } from './textures.js';
+import { peltTexture, clothTexture } from './textures.js';
 import { buildWeapon, buildSpear, buildBow, buildQuiver, buildArmorParts, buildHeaddress, buildFirearm, buildSlingshot, buildProjectile } from './weapons.js';
 
 const FIREARMS = ['musket', 'gun', 'laser', 'bazooka', 'crossbow'];
@@ -103,6 +103,7 @@ export class Caveman {
     this.deadT = 0;
     this.ammo = RANGED.spear.ammo;
     this.ranged = 'spear';
+    this.rangedLook = 'spear';   // (whose model it shows: the trading post's ranged weapons borrow another's)
     this.armor = null;
     this.armorParts = null;
     this.hatMesh = null;
@@ -323,6 +324,7 @@ export class Caveman {
 
     shadows(this.body, true, false);
     for (const a of this.quiver.userData.arrows) a.castShadow = false;   // 8 slivers, not worth 8 shadow draws
+    this.buildDress(leather);
 
     // name tag
     if (!this.isLocal) {
@@ -339,6 +341,70 @@ export class Caveman {
       allTags.add(this);
       this.drawTag();
     }
+  }
+
+  // The clothes of the later DRESS stages, built once and shown from their stage on (setDress):
+  // boots and arm bands, bracers and a buckle, sleeves, trousers and a sash, a collar and buttons,
+  // glowing seams. The cloth ones share the pelt material, whose picture changes with the stage.
+  buildDress(leather) {
+    const cloth = this.peltMat;
+    const garb = GARBS[this.look.garb] || GARBS[0];
+    const trim = mat(garb.trim), gold = mat('#e8b931', { metalness: 0.8, roughness: 0.3 });
+    const glow = this.glowMat = lambert({ color: garb.trim, emissive: garb.trim, emissiveIntensity: 0.9 });
+    this.dressParts = [];
+    const piece = (parent, geo, material, stage, [x, y, z], rot = null) => {
+      const m = new THREE.Mesh(geo, material);
+      m.position.set(x, y, z);
+      if (rot) m.rotation.set(...rot);
+      m.castShadow = true;
+      m.visible = false;
+      m.userData.stage = stage;
+      parent.add(m);
+      this.dressParts.push(m);
+      return m;
+    };
+    const bootGeo = new THREE.BoxGeometry(0.2, 0.11, 0.34), cuffGeo = new THREE.CylinderGeometry(0.125, 0.135, 0.16, 10);
+    const bandGeo = new THREE.TorusGeometry(0.1, 0.022, 6, 14), bracerGeo = new THREE.CylinderGeometry(0.1, 0.095, 0.16, 10);
+    const sleeveGeo = new THREE.CylinderGeometry(0.115, 0.108, 0.3, 10), thighGeo = new THREE.CylinderGeometry(0.13, 0.125, 0.38, 10), shinGeo = new THREE.CylinderGeometry(0.115, 0.11, 0.3, 10);
+    const seamGeo = new THREE.BoxGeometry(0.025, 0.28, 0.03);
+    for (const knee of [this.kneeL, this.kneeR]) {
+      piece(knee, bootGeo, leather, 1, [0, -0.35, 0.06]);
+      piece(knee, cuffGeo, leather, 1, [0, -0.26, 0]);
+      piece(knee, shinGeo, cloth, 3, [0, -0.15, 0]);
+      piece(knee, seamGeo, glow, 5, [0.12, -0.15, 0]);
+      piece(knee, seamGeo, glow, 5, [-0.12, -0.15, 0]);
+    }
+    for (const elbow of [this.elbowL, this.elbowR]) {
+      piece(elbow, bandGeo, leather, 1, [0, -0.08, 0], [Math.PI / 2, 0, 0]);
+      piece(elbow, bracerGeo, leather, 2, [0, -0.2, 0]);
+    }
+    for (const arm of [this.armL, this.armR]) {
+      piece(arm, sleeveGeo, cloth, 3, [0, -0.17, 0]);
+      piece(arm, seamGeo, glow, 5, [0, -0.17, 0.11]);
+    }
+    for (const leg of [this.legL, this.legR]) piece(leg, thighGeo, cloth, 3, [0, -0.2, 0]);
+    // the torso: a buckle on the belt, a sash across the chest, a collar, buttons, side seams
+    piece(this.torso, new THREE.BoxGeometry(0.1, 0.09, 0.04), gold, 2, [0, 0.1, 0.35]);
+    piece(this.torso, new THREE.BoxGeometry(0.12, 0.74, 0.05), trim, 3, [-0.07, 0.45, 0.29], [-0.12, 0, -0.62]);
+    for (const side of [-1, 1]) {
+      piece(this.torso, new THREE.BoxGeometry(0.16, 0.26, 0.05), trim, 4, [side * 0.15, 0.64, 0.27], [-0.2, side * 0.35, -side * 0.5]);
+      piece(this.torso, new THREE.BoxGeometry(0.03, 0.56, 0.04), glow, 5, [side * 0.34, 0.33, 0.04]);
+    }
+    for (let i = 0; i < 3; i++) piece(this.torso, new THREE.SphereGeometry(0.03, 8, 6), gold, 4, [0, 0.52 - i * 0.14, 0.33]);
+    this.dressStage = 0;
+  }
+
+  // Dressed for the times: stage (a DRESS index) shows the clothes up to it, and the cloth parts
+  // wear that stage's picture in the garb's colours. 0: the pelt, as made.
+  setDress(stage) {
+    stage = Math.max(0, Math.min(DRESS.length - 1, stage | 0));
+    if (stage === this.dressStage) return;
+    this.dressStage = stage;
+    this.peltMat.map = clothTexture(this.look.garb, stage);
+    this.peltMat.needsUpdate = true;
+    // (sleek suits glow a little all over: a tenth of the trim colour, baked into the colour itself)
+    this.peltMat.emissive.set(stage === DRESS.length - 1 ? GARBS[this.look.garb]?.trim || '#000000' : '#000000').multiplyScalar(stage === DRESS.length - 1 ? 0.1 : 1);
+    for (const m of this.dressParts) m.visible = stage >= m.userData.stage;
   }
 
   drawTag() {
@@ -388,14 +454,15 @@ export class Caveman {
   // (Ploughshares, in peace).
   setRanged(kind) {
     this.ranged = kind === null ? null : RANGED[kind] ? kind : 'spear';
-    for (const [k, b] of Object.entries(this.bows)) b.visible = k === this.ranged;
-    this.quiver.visible = this.ranged === 'bow' || this.ranged === 'longbow';
+    this.rangedLook = (this.ranged && RANGED[this.ranged].model) || this.ranged;
+    for (const [k, b] of Object.entries(this.bows)) b.visible = k === this.rangedLook;
+    this.quiver.visible = this.rangedLook === 'bow' || this.rangedLook === 'longbow';
     this.setAmmo(this.ammo);
   }
 
   // World position of the gun barrel (or the hand, for spears and bows), for muzzle flashes.
   muzzlePosition(target) {
-    const gun = this.bows[this.ranged];
+    const gun = this.bows[this.rangedLook];
     const ref = gun?.userData.muzzle || this.spearHolder;
     this.root.updateMatrixWorld(true);
     return ref.getWorldPosition(target);
@@ -403,9 +470,9 @@ export class Caveman {
 
   setAmmo(n) {
     this.ammo = n;
-    const spear = this.ranged === 'spear';
+    const spear = this.rangedLook === 'spear';
     this.handSpear.visible = spear && n > 0 && this.throwT < 0;
-    this.handTomato.visible = this.ranged === 'tomato' && n > 0 && this.throwT < 0;
+    this.handTomato.visible = this.rangedLook === 'tomato' && n > 0 && this.throwT < 0;
     this.backSpears.forEach((s, i) => { s.visible = spear && n - 1 > i; });
     this.quiver.userData.arrows.forEach((a, i) => { a.visible = this.quiver.visible && i < n; });
   }
@@ -559,14 +626,14 @@ export class Caveman {
     this.head.rotation.x = -this.torso.rotation.x * 0.6;
 
     // right arm: spear overhead, or bow / gun held out front
-    const bow = !THROWN.has(this.ranged);
-    const firearm = FIREARMS.includes(this.ranged);
+    const bow = !THROWN.has(this.rangedLook);
+    const firearm = FIREARMS.includes(this.rangedLook);
     let rBeta = -0.45 - sw * 0.5;
     let spearPhi = bow ? 0 : -1.3;
     if (this.throwT >= 0) {
       this.throwT += dt;
       if (firearm) {
-        const [kick, dur] = RECOIL[this.ranged];
+        const [kick, dur] = RECOIL[this.rangedLook];
         rBeta = -1.55 - Math.sin(Math.min(1, this.throwT / dur) * Math.PI) * kick;
         spearPhi = -0.1 - Math.sin(Math.min(1, this.throwT / dur) * Math.PI) * kick;
         if (this.throwT > dur) this.throwT = -1;
@@ -587,7 +654,7 @@ export class Caveman {
       rBeta = bow ? -1.55 + Math.sin(t * 30) * 0.015 : -3.5 + Math.sin(t * 30) * 0.03;
       spearPhi = bow ? -0.18 : -0.22;
     }
-    const held = this.bows[this.ranged];
+    const held = this.bows[this.rangedLook];
     if (held?.userData.arrow) held.userData.arrow.visible = s.charging && this.ammo > 0;
     const rElbow = s.charging ? (bow ? -0.05 : -0.7) : -0.45;
     this.armR.rotation.x = damp(this.armR.rotation.x, rBeta - rElbow, s.charging || this.throwT >= 0 ? 30 : 12, dt);
